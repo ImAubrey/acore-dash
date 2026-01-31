@@ -189,6 +189,13 @@ const formatBytes = (num) => {
 };
 
 const formatRate = (num) => `${formatBytes(num)}/s`;
+const SPLICE_LABEL = 'splice';
+const isSpliceType = (value) => typeof value === 'string' && value.toLowerCase().includes('splice');
+const formatRateOrSplice = (value, isSplice) => {
+  const rate = Number(value || 0);
+  if (isSplice && (!rate || rate <= 0)) return SPLICE_LABEL;
+  return formatRate(rate);
+};
 
 const formatDelay = (value) => {
   const num = Number(value || 0);
@@ -1180,9 +1187,9 @@ export default function App() {
             ? ` · ${detail.rule || detail.rulePayload}`
             : '');
       case 'upload':
-        return formatRate(detailRate?.upload || 0);
+        return formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type));
       case 'download':
-        return formatRate(detailRate?.download || 0);
+        return formatRateOrSplice(detailRate?.download || 0, isSpliceType(detail?.metadata?.type));
       case 'lastSeen':
         return formatTime(getDetailLastSeen(detail));
       case 'close':
@@ -3088,6 +3095,7 @@ export default function App() {
                 const canClose = detailIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);
                 const connActivity = getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
+                const connIsSplice = isSpliceType(conn?.metadata?.type);
                 const connStyle = { '--activity': String(connActivity) };
                 return (
                 <React.Fragment key={conn.id}>
@@ -3110,8 +3118,12 @@ export default function App() {
                     </span>
                     <span className="mono">{getConnectionSource(conn)}</span>
                     <span className="mono">{conn.connectionCount || 1}</span>
-                    <span className="mono">{formatRate(connRates.get(conn.id)?.upload || 0)}</span>
-                    <span className="mono">{formatRate(connRates.get(conn.id)?.download || 0)}</span>
+                    <span className="mono">
+                      {formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice)}
+                    </span>
+                    <span className="mono">
+                      {formatRateOrSplice(connRates.get(conn.id)?.download || 0, connIsSplice)}
+                    </span>
                     <span className="row-actions">
                       <button
                         type="button"
