@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import CodeMirror from '@uiw/react-codemirror';
 import { json, jsonParseLinter } from '@codemirror/lang-json';
@@ -9,12 +9,21 @@ import { githubLight } from '@uiw/codemirror-theme-github';
 const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || '';
 const API_BASE_STORAGE_KEY = 'xray_ui_api_base';
 const ACCESS_KEY_STORAGE_KEY = 'xray_ui_access_key';
+const CONNECTION_REFRESH_STORAGE_KEY = 'xray_ui_connection_refresh';
 const ACCESS_KEY_HEADER = 'X-Access-Key';
 const ACCESS_KEY_QUERY = 'access_key';
 const ROUTING_DRAFT_STORAGE_KEY = 'xray_ui_routing_draft';
 const ROUTING_DRAFT_NOTICE =
   'Unsaved rule edits are stored in your browser. Click Restart core to upload.';
+const UI_STATE_SAVE_DELAY_MS = 600;
 const MODAL_ANIMATION_MS = 200;
+const CONNECTION_REFRESH_OPTIONS = [1, 2, 5, 10];
+const DEFAULT_CONNECTION_REFRESH = 1;
+const CONNECTION_SORT_ANIMATION_MS = 420;
+const TRAFFIC_DIRECTION_HINTS = {
+  upload: 'User -> Xray',
+  download: 'Xray -> User'
+};
 
 const parseRoutingDraft = (raw) => {
   if (!raw) return null;
@@ -82,6 +91,21 @@ const getInitialApiBase = () => {
   if (typeof window === 'undefined') return DEFAULT_API_BASE;
   const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
   return normalizeApiBase(stored);
+};
+
+const normalizeRefreshInterval = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return DEFAULT_CONNECTION_REFRESH;
+  const rounded = Math.trunc(num);
+  if (CONNECTION_REFRESH_OPTIONS.includes(rounded)) return rounded;
+  return DEFAULT_CONNECTION_REFRESH;
+};
+
+const getInitialRefreshInterval = () => {
+  if (typeof window === 'undefined') return DEFAULT_CONNECTION_REFRESH;
+  const stored = window.localStorage.getItem(CONNECTION_REFRESH_STORAGE_KEY);
+  if (stored !== null) return normalizeRefreshInterval(stored);
+  return DEFAULT_CONNECTION_REFRESH;
 };
 
 const getStoredAccessKey = () => {
@@ -257,6 +281,16 @@ const OUTBOUND_TEMPLATE = {
 };
 
 const clamp = (value, min = 0, max = 1) => Math.min(Math.max(value, min), max);
+const CONNECTION_ACTIVITY_SCALE = 256 * 1024;
+const DETAIL_ACTIVITY_SCALE = 64 * 1024;
+
+const getRateActivity = (rate, scale) => {
+  if (!rate) return 0;
+  const total = (rate.upload || 0) + (rate.download || 0);
+  if (total <= 0) return 0;
+  const normalized = total / scale;
+  return clamp(Math.sqrt(normalized), 0, 1);
+};
 
 const buildPoints = (values, width, height, padding = 12) => {
   if (!values || values.length === 0) return [];
@@ -504,11 +538,24 @@ const DETAIL_COLUMNS = [
   { key: 'inbound', label: 'Inbound', width: '0.8fr' },
   { key: 'outbound', label: 'Outbound', width: '0.8fr' },
   { key: 'protocol', label: 'Protocol', width: '0.9fr', cellClassName: 'mono' },
-  { key: 'upload', label: 'Up', width: '0.6fr', cellClassName: 'mono' },
-  { key: 'download', label: 'Down', width: '0.6fr', cellClassName: 'mono' },
+  {
+    key: 'upload',
+    label: 'Up',
+    width: '0.6fr',
+    cellClassName: 'mono',
+    hint: TRAFFIC_DIRECTION_HINTS.upload
+  },
+  {
+    key: 'download',
+    label: 'Down',
+    width: '0.6fr',
+    cellClassName: 'mono',
+    hint: TRAFFIC_DIRECTION_HINTS.download
+  },
   { key: 'lastSeen', label: 'Last Seen', width: '1.1fr', cellClassName: 'mono' },
   { key: 'close', label: 'Close', width: '0.5fr', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
 ];
+const DETAIL_COLUMN_KEYS = new Set(DETAIL_COLUMNS.map((column) => column.key));
 
 const fetchJson = async (url, options = {}) => {
   const res = await fetch(url, withAccessKey(options));
@@ -541,9 +588,103 @@ const LOG_LEVEL_OPTIONS = [
   { value: 'info', label: 'info' },
   { value: 'debug', label: 'debug' }
 ];
+const LOG_LEVEL_VALUES = new Set(LOG_LEVEL_OPTIONS.map((option) => option.value));
 const LOG_IPV4_TOKEN_REGEX = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 const LOG_LEVEL_TOKEN_REGEX = /^(?:error|fatal|panic|warn|warning|info|debug|trace)$/i;
 const LOG_TOKEN_REGEX = /(\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[a-fA-F0-9]{0,4}:){2,7}[a-fA-F0-9]{0,4}\b|\b(?:error|fatal|panic|warn|warning|info|debug|trace)\b)/gi;
+
+const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeSelectionMap = (value) => {
+  if (!isPlainObject(value)) return {};
+  const out = {};
+  Object.entries(value).forEach(([key, item]) => {
+    const normalizedKey = String(key || '').trim();
+    const normalizedValue = String(item || '').trim();
+    if (!normalizedKey || !normalizedValue) return;
+    out[normalizedKey] = normalizedValue;
+  });
+  return out;
+};
+
+const normalizeViewMode = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (raw === 'source' || raw === 'destination') return raw;
+  return 'current';
+};
+
+const normalizeSortKey = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'default') return 'default';
+  return CONNECTION_SORT_FIELDS[raw] ? raw : 'default';
+};
+
+const normalizeSortDir = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'asc' ? 'asc' : 'desc';
+};
+
+const normalizeDetailColumns = (value) => {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set();
+  const out = [];
+  value.forEach((item) => {
+    const key = String(item || '').trim();
+    if (!key || seen.has(key) || !DETAIL_COLUMN_KEYS.has(key)) return;
+    seen.add(key);
+    out.push(key);
+  });
+  return out.length > 0 ? out : null;
+};
+
+const normalizeUiState = (raw) => {
+  const source = isPlainObject(raw?.state) ? raw.state : raw;
+  const nodes = isPlainObject(source?.nodes) ? source.nodes : {};
+  const logs = isPlainObject(source?.logs) ? source.logs : {};
+  const connections = isPlainObject(source?.connections) ? source.connections : {};
+  return {
+    nodesLocked: normalizeSelectionMap(nodes.locked || nodes.locks || nodes.selected),
+    logsDisabled: typeof logs.disabled === 'boolean' ? logs.disabled : undefined,
+    logsPaused: typeof logs.paused === 'boolean' ? logs.paused : undefined,
+    autoScroll: typeof logs.autoScroll === 'boolean' ? logs.autoScroll : undefined,
+    logLevel: typeof logs.level === 'string' && LOG_LEVEL_VALUES.has(logs.level) ? logs.level : undefined,
+    connViewMode: typeof connections.viewMode === 'string' ? normalizeViewMode(connections.viewMode) : undefined,
+    connStreamPaused: typeof connections.streamPaused === 'boolean' ? connections.streamPaused : undefined,
+    connSortKey: typeof connections.sortKey === 'string' ? normalizeSortKey(connections.sortKey) : undefined,
+    connSortDir: typeof connections.sortDir === 'string' ? normalizeSortDir(connections.sortDir) : undefined,
+    detailColumns: normalizeDetailColumns(connections.detailColumns)
+  };
+};
+
+const buildUiStatePayload = ({
+  groupSelections,
+  logsDisabled,
+  logsPaused,
+  autoScroll,
+  logLevel,
+  connViewMode,
+  connStreamPaused,
+  connSortKey,
+  connSortDir,
+  detailColumnsVisible
+}) => ({
+  nodes: {
+    locked: normalizeSelectionMap(groupSelections)
+  },
+  logs: {
+    disabled: !!logsDisabled,
+    paused: !!logsPaused,
+    autoScroll: !!autoScroll,
+    level: logLevel
+  },
+  connections: {
+    viewMode: connViewMode,
+    streamPaused: !!connStreamPaused,
+    sortKey: connSortKey,
+    sortDir: connSortDir,
+    detailColumns: Array.from(detailColumnsVisible || [])
+  }
+});
 
 const isLikelyIPv6 = (value) => {
   if (!value || !value.includes(':')) return false;
@@ -592,8 +733,6 @@ const renderLogLine = (line) => {
   });
 };
 
-const normalizeProbeMode = (value) => (String(value || '').trim().toLowerCase() === 'http' ? 'http' : 'tcp');
-
 const normalizeSettingsForm = (incoming) => {
   const next = {
     xrayGrpc: '',
@@ -602,7 +741,6 @@ const normalizeSettingsForm = (incoming) => {
     hotReloadFile: '',
     restartCommand: '',
     balancerTags: '',
-    probeMode: 'tcp',
     ...(incoming || {})
   };
   if (Array.isArray(next.balancerTags)) {
@@ -611,7 +749,6 @@ const normalizeSettingsForm = (incoming) => {
   if (!next.balancerTags) {
     next.balancerTags = '';
   }
-  next.probeMode = normalizeProbeMode(next.probeMode);
   return next;
 };
 
@@ -621,12 +758,15 @@ export default function App() {
   const [metricsHttp, setMetricsHttp] = useState(getInitialMetricsHttp());
   const [metricsAccessKey, setMetricsAccessKey] = useState(getInitialMetricsKey());
   const [accessKey, setAccessKey] = useState(getInitialAccessKey());
+  const [connRefreshInterval, setConnRefreshInterval] = useState(getInitialRefreshInterval());
   const [connections, setConnections] = useState({ uploadTotal: 0, downloadTotal: 0, connections: [] });
   const [trafficSeries, setTrafficSeries] = useState([]);
   const [outbounds, setOutbounds] = useState([]);
   const [groups, setGroups] = useState([]);
   const [statusByTag, setStatusByTag] = useState({});
   const [groupSelections, setGroupSelections] = useState({});
+  const [uiStateLoaded, setUiStateLoaded] = useState(false);
+  const [uiStatePath, setUiStatePath] = useState('');
   const [status, setStatus] = useState('');
   const [connStreamStatus, setConnStreamStatus] = useState('connecting');
   const [connStreamPaused, setConnStreamPaused] = useState(false);
@@ -664,7 +804,8 @@ export default function App() {
   const [logsPaused, setLogsPaused] = useState(false);
   const [metricsKeyVisible, setMetricsKeyVisible] = useState(false);
   const [restartCooldown, setRestartCooldown] = useState(0);
-  const [probeCooldown, setProbeCooldown] = useState(0);
+  const [delayTestCooldown, setDelayTestCooldown] = useState(0);
+  const [delayTestBusy, setDelayTestBusy] = useState(false);
   const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [restartConfirmVisible, setRestartConfirmVisible] = useState(false);
   const [restartConfirmClosing, setRestartConfirmClosing] = useState(false);
@@ -689,23 +830,28 @@ export default function App() {
     logFile: '',
     hotReloadFile: '',
     restartCommand: '',
-    balancerTags: '',
-    probeMode: 'tcp'
+    balancerTags: ''
   });
-  const [probeMode, setProbeMode] = useState('tcp');
   const logsRef = useRef(null);
   const logsPausedRef = useRef(false);
   const logPendingRef = useRef([]);
   const connStreamRef = useRef(null);
+  const uiStateSaveRef = useRef(null);
+  const lockedSelectionsRef = useRef(null);
+  const uiStateHydratingRef = useRef(false);
   const connStreamFrameRef = useRef(null);
   const pendingConnRef = useRef(null);
   const trafficShiftRafRef = useRef(null);
   const connTotalsRef = useRef(new Map());
   const detailTotalsRef = useRef(new Map());
+  const connRowRefs = useRef(new Map());
+  const connRowRectsRef = useRef(new Map());
+  const connRowFlipFrameRef = useRef(null);
   const rulesModalCloseTimerRef = useRef(null);
   const restartCooldownRef = useRef(null);
   const restartReloadRef = useRef(null);
-  const probeCooldownRef = useRef(null);
+  const delayTestCooldownRef = useRef(null);
+  const delayTestTriggerRef = useRef(null);
   const restartConfirmCloseTimerRef = useRef(null);
   const deleteConfirmCloseTimerRef = useRef(null);
 
@@ -716,10 +862,10 @@ export default function App() {
   const getRestartLabel = (label) => (
     restartCooldown > 0 ? `${label} (${restartCooldown}s)` : label
   );
-
-  const getProbeLabel = (label) => (
-    probeCooldown > 0 ? `${label} (${probeCooldown}s)` : label
-  );
+  const getDelayTestLabel = (label) => {
+    if (delayTestCooldown > 0) return `${label} (${delayTestCooldown}s)`;
+    return label;
+  };
 
   const applyApiBase = (value) => {
     const raw = String(value || '').trim();
@@ -747,6 +893,17 @@ export default function App() {
     setAccessKey(raw);
     return raw;
   };
+
+  const applyConnRefreshInterval = (value) => {
+    const normalized = normalizeRefreshInterval(value);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(CONNECTION_REFRESH_STORAGE_KEY, String(normalized));
+    }
+    setConnRefreshInterval(normalized);
+    return normalized;
+  };
+
+  const connRefreshIntervalMs = connRefreshInterval * 1000;
 
   const totalSessions = useMemo(() => {
     return (connections.connections || []).reduce((sum, c) => sum + (c.connectionCount || 1), 0);
@@ -953,6 +1110,15 @@ export default function App() {
     });
   };
 
+  const registerConnRow = (id) => (node) => {
+    if (id === null || id === undefined) return;
+    if (!node) {
+      connRowRefs.current.delete(id);
+      return;
+    }
+    connRowRefs.current.set(id, node);
+  };
+
   const toggleConnStream = () => {
     setConnStreamPaused((prev) => !prev);
   };
@@ -1047,16 +1213,17 @@ export default function App() {
     setConnSortDir(nextDir);
   };
 
-  const renderSortHeader = (label, key) => {
+  const renderSortHeader = (label, key, hint) => {
     const isActive = connSortKey === key;
     const indicator = isActive ? (connSortDir === 'asc' ? '▲' : '▼') : '↕';
+    const sortLabel = hint ? `${label} (${hint})` : label;
     return (
       <button
         type="button"
         className={`sort-header ${isActive ? 'active' : ''}`}
         onClick={() => toggleConnSort(key)}
-        title={`Sort by ${label}`}
-        aria-label={`Sort by ${label}`}
+        title={`Sort by ${sortLabel}`}
+        aria-label={`Sort by ${sortLabel}`}
       >
         <span>{label}</span>
         <span className="sort-indicator" aria-hidden="true">{indicator}</span>
@@ -1240,35 +1407,6 @@ export default function App() {
     }
   };
 
-  const applyProbeMode = async (mode, options = {}) => {
-    const { persist = true, force = false } = options;
-    const nextMode = normalizeProbeMode(mode);
-    if (!force && nextMode === probeMode) return;
-    setProbeMode(nextMode);
-    setSettingsData((prev) => ({ ...prev, probeMode: nextMode }));
-    setStatus(`Switching probe to ${nextMode.toUpperCase()}...`);
-    try {
-      await fetchJson(`${apiBase}/observatory/probe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: nextMode })
-      });
-      setStatus(`Probe mode: ${nextMode.toUpperCase()}`);
-    } catch (err) {
-      setStatus(`Probe mode failed: ${err.message}`);
-    }
-    if (!persist) return;
-    try {
-      await fetchJson(`${apiBase}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ probeMode: nextMode })
-      });
-    } catch (_err) {
-      // ignore persistence failures
-    }
-  };
-
   const refresh = async (base = apiBase) => {
     setStatus('Refreshing...');
     try {
@@ -1296,7 +1434,6 @@ export default function App() {
       if (resp.settings) {
         const normalized = normalizeSettingsForm(resp.settings);
         setSettingsData(normalized);
-        applyProbeMode(normalized.probeMode, { persist: false, force: true });
       }
       if (resp.path) {
         setSettingsPath(resp.path);
@@ -1309,6 +1446,78 @@ export default function App() {
       setSettingsStatus('');
     } catch (err) {
       setSettingsStatus(`Load failed: ${err.message}`);
+    }
+  };
+
+  const saveUiState = async (payload, base = apiBase) => {
+    try {
+      await fetchJson(`${base}/ui/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (_err) {
+      // ignore ui state persistence failures
+    }
+  };
+
+  const scheduleUiStateSave = (payload, base = apiBase) => {
+    if (typeof window === 'undefined') return;
+    clearTimeoutRef(uiStateSaveRef);
+    uiStateSaveRef.current = window.setTimeout(() => {
+      uiStateSaveRef.current = null;
+      saveUiState(payload, base);
+    }, UI_STATE_SAVE_DELAY_MS);
+  };
+
+  const loadUiState = async (base = apiBase) => {
+    uiStateHydratingRef.current = true;
+    setUiStateLoaded(false);
+    setUiStatePath('');
+    try {
+      const resp = await fetchJson(`${base}/ui/state`);
+      const normalized = normalizeUiState(resp);
+      if (resp?.path) {
+        setUiStatePath(resp.path);
+      }
+      setGroupSelections(
+        normalized.nodesLocked && Object.keys(normalized.nodesLocked).length > 0
+          ? normalized.nodesLocked
+          : {}
+      );
+      lockedSelectionsRef.current = normalized.nodesLocked || null;
+      if (typeof normalized.logsDisabled === 'boolean') {
+        setLogsDisabled(normalized.logsDisabled);
+      }
+      if (typeof normalized.logsPaused === 'boolean') {
+        setLogsPaused(normalized.logsPaused);
+      }
+      if (typeof normalized.autoScroll === 'boolean') {
+        setAutoScroll(normalized.autoScroll);
+      }
+      if (normalized.logLevel) {
+        setLogLevel(normalized.logLevel);
+      }
+      if (normalized.connViewMode) {
+        setConnViewMode(normalized.connViewMode);
+      }
+      if (typeof normalized.connStreamPaused === 'boolean') {
+        setConnStreamPaused(normalized.connStreamPaused);
+      }
+      if (normalized.connSortKey) {
+        setConnSortKey(normalized.connSortKey);
+      }
+      if (normalized.connSortDir) {
+        setConnSortDir(normalized.connSortDir);
+      }
+      if (normalized.detailColumns) {
+        setDetailColumnsVisible(new Set(normalized.detailColumns));
+      }
+    } catch (_err) {
+      // ignore ui state load failures
+    } finally {
+      uiStateHydratingRef.current = false;
+      setUiStateLoaded(true);
     }
   };
 
@@ -1356,15 +1565,22 @@ export default function App() {
       clearTimeoutRef(rulesModalCloseTimerRef);
       clearIntervalRef(restartCooldownRef);
       clearTimeoutRef(restartReloadRef);
-      clearIntervalRef(probeCooldownRef);
+      clearIntervalRef(delayTestCooldownRef);
+      clearTimeoutRef(delayTestTriggerRef);
       clearTimeoutRef(restartConfirmCloseTimerRef);
       clearTimeoutRef(deleteConfirmCloseTimerRef);
+      if (connRowFlipFrameRef.current !== null && typeof window !== 'undefined') {
+        window.cancelAnimationFrame(connRowFlipFrameRef.current);
+        connRowFlipFrameRef.current = null;
+      }
+      clearTimeoutRef(uiStateSaveRef);
     };
   }, []);
 
   useEffect(() => {
     refresh();
     loadSettings();
+    loadUiState();
   }, [apiBase]);
 
   useEffect(() => {
@@ -1377,8 +1593,34 @@ export default function App() {
   }, [apiBase]);
 
   useEffect(() => {
-    setProbeMode(normalizeProbeMode(settingsData.probeMode));
-  }, [settingsData.probeMode]);
+    if (!uiStateLoaded || uiStateHydratingRef.current) return;
+    const payload = buildUiStatePayload({
+      groupSelections,
+      logsDisabled,
+      logsPaused,
+      autoScroll,
+      logLevel,
+      connViewMode,
+      connStreamPaused,
+      connSortKey,
+      connSortDir,
+      detailColumnsVisible
+    });
+    scheduleUiStateSave(payload, apiBase);
+  }, [
+    uiStateLoaded,
+    groupSelections,
+    logsDisabled,
+    logsPaused,
+    autoScroll,
+    logLevel,
+    connViewMode,
+    connStreamPaused,
+    connSortKey,
+    connSortDir,
+    detailColumnsVisible,
+    apiBase
+  ]);
 
   const normalizeGroupStrategy = (value) => String(value || '').trim().toLowerCase();
   const getGroupStrategy = (group) => normalizeGroupStrategy(group?.strategy);
@@ -1490,7 +1732,10 @@ export default function App() {
       setConnStreamStatus(connStreamPaused ? 'paused' : 'idle');
       return undefined;
     }
-    const url = appendAccessKeyParam(`${apiBase}/connections/stream?interval=1000`, accessKey);
+    const url = appendAccessKeyParam(
+      `${apiBase}/connections/stream?interval=${connRefreshIntervalMs}`,
+      accessKey
+    );
     const es = new EventSource(url);
     connStreamRef.current = es;
     setConnStreamStatus('connecting');
@@ -1522,7 +1767,7 @@ export default function App() {
         connStreamRef.current = null;
       }
     };
-  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey]);
+  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs]);
 
   useEffect(() => {
     const now = Date.now();
@@ -1697,6 +1942,77 @@ export default function App() {
   useEffect(() => {
     setExpandedConnections(new Set());
   }, [connViewMode]);
+
+  useEffect(() => {
+    if (isConnectionsPage) return;
+    connRowRectsRef.current = new Map();
+    if (connRowFlipFrameRef.current !== null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(connRowFlipFrameRef.current);
+      connRowFlipFrameRef.current = null;
+    }
+  }, [isConnectionsPage]);
+
+  useLayoutEffect(() => {
+    if (!isConnectionsPage || typeof window === 'undefined') return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const nextRects = new Map();
+      connRowRefs.current.forEach((node, id) => {
+        if (!node) return;
+        nextRects.set(id, node.getBoundingClientRect());
+      });
+      connRowRectsRef.current = nextRects;
+      return;
+    }
+    if (connRowFlipFrameRef.current !== null) {
+      window.cancelAnimationFrame(connRowFlipFrameRef.current);
+      connRowFlipFrameRef.current = null;
+    }
+
+    const prevRects = connRowRectsRef.current;
+    const nextRects = new Map();
+    connRowRefs.current.forEach((node, id) => {
+      if (!node) return;
+      nextRects.set(id, node.getBoundingClientRect());
+    });
+
+    nextRects.forEach((next, id) => {
+      const prev = prevRects.get(id);
+      const node = connRowRefs.current.get(id);
+      if (!node || !prev) return;
+      const dx = prev.left - next.left;
+      const dy = prev.top - next.top;
+      if (!dx && !dy) return;
+      node.style.setProperty('--row-offset-x', `${dx}px`);
+      node.style.setProperty('--row-offset-y', `${dy}px`);
+      node.style.transition = 'transform 0s';
+      node.style.willChange = 'transform';
+    });
+
+    connRowFlipFrameRef.current = window.requestAnimationFrame(() => {
+      connRowFlipFrameRef.current = null;
+      nextRects.forEach((next, id) => {
+        const prev = prevRects.get(id);
+        const node = connRowRefs.current.get(id);
+        if (!node || !prev) return;
+        const dx = prev.left - next.left;
+        const dy = prev.top - next.top;
+        if (!dx && !dy) return;
+        node.style.transition = `transform ${CONNECTION_SORT_ANIMATION_MS}ms var(--ease-smooth)`;
+        node.style.setProperty('--row-offset-x', '0px');
+        node.style.setProperty('--row-offset-y', '0px');
+        node.addEventListener(
+          'transitionend',
+          () => {
+            node.style.transition = '';
+            node.style.willChange = '';
+          },
+          { once: true }
+        );
+      });
+    });
+
+    connRowRectsRef.current = nextRects;
+  }, [sortedConnections, isConnectionsPage]);
 
   useEffect(() => {
     if (page !== 'rules') return;
@@ -2038,6 +2354,29 @@ export default function App() {
     });
   };
 
+  useEffect(() => {
+    if (!uiStateLoaded) return;
+    const locked = lockedSelectionsRef.current;
+    if (!locked || !groups || groups.length === 0) return;
+    const pending = [];
+    groups.forEach((group) => {
+      const groupTag = String(group?.tag || '').trim();
+      if (!groupTag) return;
+      const lockedTarget = String(locked[groupTag] || '').trim();
+      if (!lockedTarget) return;
+      if (!isManualGroup(group)) return;
+      const candidates = getGroupCandidates(group);
+      if (candidates.length > 0 && !candidates.includes(lockedTarget)) return;
+      if (group.overrideTarget === lockedTarget) return;
+      pending.push({ tag: groupTag, target: lockedTarget });
+    });
+    lockedSelectionsRef.current = null;
+    if (pending.length === 0) return;
+    pending.forEach((item) => {
+      applyOverride(item.tag, item.target);
+    });
+  }, [groups, uiStateLoaded]);
+
   const uploadRoutingDraft = async (base = apiBase) => {
     const draft = getRoutingDraft();
     if (!draft) return false;
@@ -2062,13 +2401,42 @@ export default function App() {
     delays.forEach((delay) => {
       window.setTimeout(() => {
         refresh(base);
-        applyProbeMode(probeMode, { persist: false, force: true });
       }, delay);
     });
   };
 
-  const startProbeCooldown = (seconds = 5) => {
-    startCooldown(seconds, setProbeCooldown, probeCooldownRef);
+  const schedulePostDelayTestRefresh = (base = apiBase) => {
+    const delays = [1500, 4000, 8000];
+    delays.forEach((delay) => {
+      window.setTimeout(() => {
+        fetchNodes(base).catch(() => {});
+      }, delay);
+    });
+  };
+
+  const triggerDelayTest = () => {
+    if (delayTestCooldown > 0 || delayTestBusy) return;
+    setStatus('Latency test starting in 5s...');
+    startCooldown(5, setDelayTestCooldown, delayTestCooldownRef);
+    clearTimeoutRef(delayTestTriggerRef);
+    const targetBase = apiBase;
+    delayTestTriggerRef.current = window.setTimeout(async () => {
+      setDelayTestBusy(true);
+      try {
+        await fetchJson(`${targetBase}/observatory/probe/trigger`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        setStatus('Latency test triggered.');
+        schedulePostDelayTestRefresh(targetBase);
+      } catch (err) {
+        setStatus(`Latency test failed: ${err.message}`);
+      } finally {
+        setDelayTestBusy(false);
+        clearTimeoutRef(delayTestTriggerRef);
+      }
+    }, 5000);
   };
 
   const startRestartCooldown = (seconds = 3) => {
@@ -2077,29 +2445,6 @@ export default function App() {
     restartReloadRef.current = window.setTimeout(() => {
       window.location.reload();
     }, seconds * 1000);
-  };
-
-  const triggerOutboundProbe = async () => {
-    if (probeCooldown > 0) return;
-    startProbeCooldown(5);
-    setStatus('Triggering latency probes...');
-    try {
-      const resp = await fetchJson(`${apiBase}/observatory/probe/trigger`, { method: 'POST' });
-      const targets = resp && typeof resp.targets === 'number' ? resp.targets : 0;
-      if (targets > 0) {
-        setStatus(`Latency probes started for ${targets} outbounds.`);
-      } else {
-        setStatus('Latency probes started.');
-      }
-      window.setTimeout(() => {
-        fetchNodes(apiBase).catch(() => {});
-      }, 1200);
-      window.setTimeout(() => {
-        fetchNodes(apiBase).catch(() => {});
-      }, 4200);
-    } catch (err) {
-      setStatus(`Latency probe failed: ${err.message}`);
-    }
   };
 
   const closeRestartConfirm = () => {
@@ -2341,8 +2686,16 @@ export default function App() {
     );
   };
 
+  const stageClassName = [
+    'stage',
+    page === 'settings' ? 'stage-settings' : '',
+    page === 'connections' ? 'stage-connections' : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className={`stage${page === 'settings' ? ' stage-settings' : ''}`}>
+    <div className={stageClassName}>
       <header className="hero">
         <div className="hero-main">
           <p className="eyebrow">Xray Control</p>
@@ -2678,13 +3031,15 @@ export default function App() {
         )}
 
         {page === 'connections' && (
-          <div className="panel" style={{ '--delay': '0.05s' }}>
+          <div className="panel connections-panel" style={{ '--delay': '0.05s' }}>
             <div className="panel-header">
               <div>
                 <h2>Live Connections</h2>
               </div>
               <div className="header-actions">
-                <span className="header-note">Grouped by source IP and destination host/IP.</span>
+                <span className="header-note">
+                  Grouped by source IP and destination host/IP. Upload: User -&gt; Xray. Download: Xray -&gt; User.
+                </span>
                 <div className="view-toggle">
                   <button
                     type="button"
@@ -2718,23 +3073,28 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <div className="table connections-table">
+            <div className="connections-table-wrap">
+              <div className="table connections-table">
               <div className="row header">
                 {renderSortHeader('Destination', 'destination')}
                 {renderSortHeader('Source', 'source')}
                 {renderSortHeader('Sessions', 'sessions')}
-                {renderSortHeader('Upload', 'upload')}
-                {renderSortHeader('Download', 'download')}
+                {renderSortHeader('Upload', 'upload', TRAFFIC_DIRECTION_HINTS.upload)}
+                {renderSortHeader('Download', 'download', TRAFFIC_DIRECTION_HINTS.download)}
                 <span></span>
               </div>
               {sortedConnections.map((conn) => {
                 const detailIds = (conn.details || []).map((detail) => detail.id);
                 const canClose = detailIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);
+                const connActivity = getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
+                const connStyle = { '--activity': String(connActivity) };
                 return (
                 <React.Fragment key={conn.id}>
                   <div
                     className={`row clickable ${isExpanded ? 'expanded' : ''}`}
+                    style={connStyle}
+                    ref={registerConnRow(conn.id)}
                     role="button"
                     tabIndex={0}
                     onClick={() => toggleExpanded(conn.id)}
@@ -2769,16 +3129,17 @@ export default function App() {
                     <div className="detail-wrap" style={detailGridStyle}>
                       <div className="detail-categories">
                         <span className="detail-categories-label">Columns</span>
-                        <div className="detail-categories-list">
-                          {DETAIL_COLUMNS.map((column) => {
-                            const isVisible = detailColumnsVisible.has(column.key);
-                            return (
+                      <div className="detail-categories-list">
+                        {DETAIL_COLUMNS.map((column) => {
+                          const isVisible = detailColumnsVisible.has(column.key);
+                          const columnHint = column.hint ? ` (${column.hint})` : '';
+                          return (
                               <button
                                 key={column.key}
                                 type="button"
                                 className={`detail-category ${isVisible ? 'active' : 'inactive'}`}
                                 onClick={() => toggleDetailColumn(column.key)}
-                                title={`${isVisible ? 'Hide' : 'Show'} ${column.label}`}
+                                title={`${isVisible ? 'Hide' : 'Show'} ${column.label}${columnHint}`}
                                 aria-pressed={isVisible}
                               >
                                 {column.label}
@@ -2794,8 +3155,8 @@ export default function App() {
                             type="button"
                             className={`detail-header-toggle ${column.headerClassName || ''}`}
                             onClick={() => toggleDetailColumn(column.key)}
-                            title={`Hide ${column.label}`}
-                            aria-label={`Hide ${column.label}`}
+                            title={`Hide ${column.label}${column.hint ? ` (${column.hint})` : ''}`}
+                            aria-label={`Hide ${column.label}${column.hint ? ` (${column.hint})` : ''}`}
                           >
                             {column.label}
                           </button>
@@ -2804,8 +3165,10 @@ export default function App() {
                       {(conn.details || []).map((detail, idx) => {
                         const detailKey = getDetailKey(conn.id, detail, idx);
                         const detailRate = detailRates.get(detailKey);
+                        const detailActivity = getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
+                        const detailStyle = { '--activity': String(detailActivity) };
                         return (
-                        <div className="detail-row" key={detailKey}>
+                        <div className="detail-row" key={detailKey} style={detailStyle}>
                           {detailVisibleColumns.map((column) => (
                             <span
                               key={`${detailKey}-${column.key}`}
@@ -2822,6 +3185,7 @@ export default function App() {
                 </React.Fragment>
                 );
               })}
+              </div>
             </div>
           </div>
         )}
@@ -2834,21 +3198,6 @@ export default function App() {
                 <p>Clash-style policy groups with live outbound health.</p>
               </div>
               <div className="header-actions">
-                <div className="view-toggle">
-                  <span className="meta-pill">Probe</span>
-                  <button
-                    className={`view-pill ${probeMode === 'tcp' ? 'active' : ''}`}
-                    onClick={() => applyProbeMode('tcp')}
-                  >
-                    TCP
-                  </button>
-                  <button
-                    className={`view-pill ${probeMode === 'http' ? 'active' : ''}`}
-                    onClick={() => applyProbeMode('http')}
-                  >
-                    HTTP
-                  </button>
-                </div>
                 <button className="ghost" onClick={() => refresh()}>Refresh</button>
                 {status ? <span className="status">{status}</span> : null}
               </div>
@@ -2947,18 +3296,17 @@ export default function App() {
             <div className="nodes-subheader">
               <div>
                 <h3>All outbounds</h3>
-                <p>Health probes are provided by the observatory service.</p>
                 {configOutboundsPath ? (
                   <p className="group-meta mono">Config: {configOutboundsPath}</p>
                 ) : null}
               </div>
               <div className="header-actions">
                 <button
-                  className="ghost small reload"
-                  onClick={triggerOutboundProbe}
-                  disabled={probeCooldown > 0}
+                  className="primary small"
+                  onClick={triggerDelayTest}
+                  disabled={delayTestCooldown > 0 || delayTestBusy}
                 >
-                  {getProbeLabel('Retest latency')}
+                  {getDelayTestLabel('Latency test')}
                 </button>
                 <button
                   className="primary small"
@@ -3002,7 +3350,7 @@ export default function App() {
                               {alive ? delay : 'down'}
                             </span>
                           ) : (
-                            <span className="meta-pill">no probe</span>
+                            <span className="meta-pill">no status</span>
                           )}
                         </div>
                         <div className="outbound-actions">
@@ -3312,6 +3660,22 @@ export default function App() {
                 </div>
                 <span className="hint">Optional. Sent as X-Access-Key header (streams use access_key).</span>
               </div>
+
+              <div className="control-block">
+                <label>Connections auto refresh</label>
+                <select
+                  value={connRefreshInterval}
+                  onChange={(e) => applyConnRefreshInterval(e.target.value)}
+                  aria-label="Connections auto refresh"
+                >
+                  {CONNECTION_REFRESH_OPTIONS.map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds}s
+                    </option>
+                  ))}
+                </select>
+                <span className="hint">Applies immediately to the live connections stream.</span>
+              </div>
             </div>
 
             <div className="settings-actions">
@@ -3338,6 +3702,7 @@ export default function App() {
               <div className="settings-meta">
                 <span className="status">{settingsStatus}</span>
                 {settingsPath ? <span className="status">Config: {settingsPath}</span> : null}
+                {uiStatePath ? <span className="status">UI state: {uiStatePath}</span> : null}
                 {startupInfo.available ? (
                   <span className="status">Startup info: ready</span>
                 ) : startupInfo.detail ? (

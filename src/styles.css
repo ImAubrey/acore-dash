@@ -54,11 +54,24 @@ body {
   }
 }
 
+@supports not (zoom: 1) {
+  .stage.stage-connections {
+    transform: none;
+    transform-origin: initial;
+    width: auto;
+    margin-left: 0;
+  }
+}
+
 .stage {
   min-height: 100vh;
   padding: 48px clamp(24px, 5vw, 64px) 80px;
   position: relative;
   overflow: hidden;
+}
+
+.stage.stage-connections {
+  overflow: visible;
 }
 
 .stage::before,
@@ -200,6 +213,28 @@ body {
   transform: translateY(12px);
   animation: fadeUp 520ms var(--ease-soft) forwards;
   animation-delay: var(--delay, 0s);
+}
+
+.connections-panel {
+  transform: none;
+  opacity: 1;
+  animation: none;
+}
+
+.connections-panel .panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(28, 43, 42, 0.08);
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.connections-table-wrap {
+  overflow: hidden;
+  border-radius: 16px;
 }
 
 .panel-header {
@@ -822,12 +857,40 @@ body {
 
 .row.clickable {
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  --activity: 0;
+  --row-offset-x: 0px;
+  --row-offset-y: 0px;
+  transform: translate(var(--row-offset-x), var(--row-offset-y));
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 300ms var(--ease-smooth);
 }
 
 .row.clickable:hover {
-  transform: translateY(-1px);
+  transform: translate(var(--row-offset-x), calc(var(--row-offset-y) - 1px));
   box-shadow: 0 10px 20px rgba(28, 43, 42, 0.08);
+}
+
+.connections-table .row.clickable::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 107, 74, 0.18),
+    rgba(47, 154, 160, 0.12) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: scaleX(var(--activity));
+  transform-origin: left center;
+  opacity: var(--activity);
+  transition: transform 600ms var(--ease-smooth), opacity 600ms var(--ease-smooth);
+  pointer-events: none;
+}
+
+.connections-table .row.clickable > * {
+  position: relative;
+  z-index: 1;
 }
 
 .row.expanded {
@@ -886,6 +949,9 @@ body {
   font-size: 12px;
   padding: 8px 6px;
   border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  --activity: 0;
 }
 
 .detail-row.header {
@@ -894,6 +960,28 @@ body {
   letter-spacing: 0.08em;
   color: var(--muted);
   padding-top: 0;
+}
+
+.detail-row:not(.header)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(47, 154, 160, 0.15),
+    rgba(255, 107, 74, 0.08) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: scaleX(var(--activity));
+  transform-origin: left center;
+  opacity: var(--activity);
+  transition: transform 600ms var(--ease-smooth), opacity 600ms var(--ease-smooth);
+  pointer-events: none;
+}
+
+.detail-row > * {
+  position: relative;
+  z-index: 1;
 }
 
 .detail-header-toggle {
@@ -1297,6 +1385,11 @@ select {
   .modal-backdrop,
   .modal {
     animation: none !important;
+  }
+
+  .connections-table .row.clickable::before,
+  .detail-row:not(.header)::before {
+    transition: none !important;
   }
 }
 
