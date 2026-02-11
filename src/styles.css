@@ -305,6 +305,14 @@ body {
   font-size: 12px;
 }
 
+.search-hit {
+  padding: 0 2px;
+  border-radius: 4px;
+  background: rgba(255, 214, 102, 0.58);
+  color: inherit;
+  box-decoration-break: clone;
+}
+
 .view-toggle {
   display: flex;
   align-items: center;

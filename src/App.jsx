@@ -386,6 +386,33 @@ const toSearchText = (value) => {
   return tokens.join(' ');
 };
 
+const highlightSearchText = (value, queryLower) => {
+  const text = value === null || value === undefined ? '' : String(value);
+  if (!text || !queryLower) return text;
+  const haystack = text.toLowerCase();
+  let matchIndex = haystack.indexOf(queryLower);
+  if (matchIndex < 0) return text;
+  const parts = [];
+  let cursor = 0;
+  while (matchIndex >= 0) {
+    if (matchIndex > cursor) {
+      parts.push(text.slice(cursor, matchIndex));
+    }
+    const end = matchIndex + queryLower.length;
+    parts.push(
+      <mark className="search-hit" key={`${matchIndex}-${end}-${parts.length}`}>
+        {text.slice(matchIndex, end)}
+      </mark>
+    );
+    cursor = end;
+    matchIndex = haystack.indexOf(queryLower, cursor);
+  }
+  if (cursor < text.length) {
+    parts.push(text.slice(cursor));
+  }
+  return <>{parts}</>;
+};
+
 const getDestinationLabel = (meta, fallback = 'unknown') => meta?.host || meta?.destinationIP || fallback;
 const getSourceLabel = (meta, fallback = '0.0.0.0') => meta?.sourceIP || fallback;
 const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metadata, 'unknown');
@@ -1187,40 +1214,43 @@ export default function App() {
     closeConnections([detail.id]);
   };
 
+  const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
+  const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
+
   const renderDetailCell = (columnKey, detail, detailRate) => {
     switch (columnKey) {
       case 'destination':
-        return formatHostPort(
+        return highlightConnCell(formatHostPort(
           getDetailDestinationLabel(detail),
           detail.metadata?.destinationPort
-        );
+        ));
       case 'source':
-        return formatHostPort(
+        return highlightConnCell(formatHostPort(
           getDetailSourceLabel(detail),
           detail.metadata?.sourcePort
-        );
+        ));
       case 'xraySrc':
-        return formatHostPort(
+        return highlightConnCell(formatHostPort(
           getDetailXraySrcLabel(detail),
           detail.metadata?.xraySrcPort
-        );
+        ));
       case 'user':
-        return detail.metadata?.user || '-';
+        return highlightConnCell(detail.metadata?.user || '-');
       case 'inbound':
-        return detail.metadata?.inboundTag || '-';
+        return highlightConnCell(detail.metadata?.inboundTag || '-');
       case 'outbound':
-        return detail.metadata?.outboundTag || '-';
+        return highlightConnCell(detail.metadata?.outboundTag || '-');
       case 'protocol':
-        return (detail.metadata?.network || '-') + '/' + (detail.metadata?.type || '-')
+        return highlightConnCell((detail.metadata?.network || '-') + '/' + (detail.metadata?.type || '-')
           + ((detail.rule || detail.rulePayload)
             ? ` · ${detail.rule || detail.rulePayload}`
-            : '');
+            : ''));
       case 'upload':
-        return formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type));
+        return highlightConnCell(formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type)));
       case 'download':
-        return formatRateOrSplice(detailRate?.download || 0, isSpliceType(detail?.metadata?.type));
+        return highlightConnCell(formatRateOrSplice(detailRate?.download || 0, isSpliceType(detail?.metadata?.type)));
       case 'lastSeen':
-        return formatTime(getDetailLastSeen(detail));
+        return highlightConnCell(formatTime(getDetailLastSeen(detail)));
       case 'close':
         return (
           <button
@@ -1342,10 +1372,9 @@ export default function App() {
 
   const filteredConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
-    const query = connSearchQuery.trim().toLowerCase();
-    if (!query) return sortedConnections;
-    return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(query));
-  }, [isConnectionsPage, connSearchQuery, sortedConnections]);
+    if (!normalizedConnSearchQuery) return sortedConnections;
+    return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
+  }, [isConnectionsPage, normalizedConnSearchQuery, sortedConnections]);
 
   const applyNodesPayload = (payload) => {
     const nextOutbounds = payload && payload.outbounds ? payload.outbounds : [];
@@ -3159,15 +3188,15 @@ export default function App() {
                     }}
                   >
                     <span className="mono">
-                      {getConnectionDestination(conn)}
+                      {highlightConnCell(getConnectionDestination(conn))}
                     </span>
-                    <span className="mono">{getConnectionSource(conn)}</span>
-                    <span className="mono">{conn.connectionCount || 1}</span>
+                    <span className="mono">{highlightConnCell(getConnectionSource(conn))}</span>
+                    <span className="mono">{highlightConnCell(conn.connectionCount || 1)}</span>
                     <span className="mono">
-                      {formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice)}
+                      {highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice))}
                     </span>
                     <span className="mono">
-                      {formatRateOrSplice(connRates.get(conn.id)?.download || 0, connIsSplice)}
+                      {highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.download || 0, connIsSplice))}
                     </span>
                     <span className="row-actions">
                       <button
