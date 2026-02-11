@@ -358,6 +358,34 @@ const parseTimestamp = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const collectSearchTokens = (value, out, seen) => {
+  if (value === null || value === undefined) return;
+  const valueType = typeof value;
+  if (
+    valueType === 'string'
+    || valueType === 'number'
+    || valueType === 'boolean'
+    || valueType === 'bigint'
+  ) {
+    out.push(String(value));
+    return;
+  }
+  if (valueType !== 'object') return;
+  if (seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectSearchTokens(item, out, seen));
+    return;
+  }
+  Object.values(value).forEach((item) => collectSearchTokens(item, out, seen));
+};
+
+const toSearchText = (value) => {
+  const tokens = [];
+  collectSearchTokens(value, tokens, new WeakSet());
+  return tokens.join(' ');
+};
+
 const getDestinationLabel = (meta, fallback = 'unknown') => meta?.host || meta?.destinationIP || fallback;
 const getSourceLabel = (meta, fallback = '0.0.0.0') => meta?.sourceIP || fallback;
 const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metadata, 'unknown');
@@ -780,6 +808,7 @@ export default function App() {
   const [connViewMode, setConnViewMode] = useState('current');
   const [connSortKey, setConnSortKey] = useState('default');
   const [connSortDir, setConnSortDir] = useState('desc');
+  const [connSearchQuery, setConnSearchQuery] = useState('');
   const [connRates, setConnRates] = useState(new Map());
   const [detailRates, setDetailRates] = useState(new Map());
   const [trafficShift, setTrafficShift] = useState(0);
@@ -1310,6 +1339,13 @@ export default function App() {
       return diff * dir;
     });
   }, [displayConnections, connRates, connSortKey, connSortDir, isConnectionsPage]);
+
+  const filteredConnections = useMemo(() => {
+    if (!isConnectionsPage) return [];
+    const query = connSearchQuery.trim().toLowerCase();
+    if (!query) return sortedConnections;
+    return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(query));
+  }, [isConnectionsPage, connSearchQuery, sortedConnections]);
 
   const applyNodesPayload = (payload) => {
     const nextOutbounds = payload && payload.outbounds ? payload.outbounds : [];
@@ -2019,7 +2055,7 @@ export default function App() {
     });
 
     connRowRectsRef.current = nextRects;
-  }, [sortedConnections, isConnectionsPage]);
+  }, [filteredConnections, isConnectionsPage]);
 
   useEffect(() => {
     if (page !== 'rules') return;
@@ -3047,6 +3083,15 @@ export default function App() {
                 <span className="header-note">
                   Grouped by source IP and destination host/IP. Upload: User -&gt; Xray. Download: Xray -&gt; User.
                 </span>
+                <div className="connections-search">
+                  <input
+                    type="text"
+                    value={connSearchQuery}
+                    onChange={(event) => setConnSearchQuery(event.target.value)}
+                    placeholder="Search all fields, including folded details..."
+                    aria-label="Search all connection fields"
+                  />
+                </div>
                 <div className="view-toggle">
                   <button
                     type="button"
@@ -3090,7 +3135,7 @@ export default function App() {
                 {renderSortHeader('Download', 'download', TRAFFIC_DIRECTION_HINTS.download)}
                 <span></span>
               </div>
-              {sortedConnections.map((conn) => {
+              {filteredConnections.map((conn) => {
                 const detailIds = (conn.details || []).map((detail) => detail.id);
                 const canClose = detailIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);

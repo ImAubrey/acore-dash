@@ -292,6 +292,19 @@ body {
   font-size: 12px;
 }
 
+.connections-search {
+  min-width: 220px;
+  max-width: 380px;
+  flex: 1 1 280px;
+}
+
+.connections-search input {
+  width: 100%;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
 .view-toggle {
   display: flex;
   align-items: center;
@@ -1966,6 +1979,12 @@ select.pill {
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .connections-search {
+    min-width: 0;
+    max-width: none;
+    flex-basis: 100%;
   }
 
   .donut-wrap {
