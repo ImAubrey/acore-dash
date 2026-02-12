@@ -3616,7 +3616,7 @@ export default function App() {
                   <div className="rules-list">
                     {configRules.map((rule, index) => {
                       const ruleTag = rule.ruleTag || '';
-                      const key = `rule:${ruleTag || index}`;
+                      const key = `rule:${index}:${ruleTag}`;
                       const target = rule.outboundTag || rule.targetTag || '';
                       const balancer = rule.balancerTag || '';
                       return (
@@ -3700,9 +3700,18 @@ export default function App() {
                                 <React.Fragment>
                                   <p className="rule-meta">Selector prefixes: {selectors.join(', ')}</p>
                                   <p className="rule-meta">
-                                    {resolved.length > 0
-                                      ? `Candidates (${resolved.length}): ${resolved.join(', ')}`
-                                      : 'Candidates: (none)'}
+                                    {resolved.length > 0 ? (
+                                      <React.Fragment>
+                                        Candidates ({resolved.length}):
+                                        <span className="candidate-tags">
+                                          {resolved.map((candidate) => (
+                                            <span className="candidate-tag" key={`${key}-${candidate}`}>{candidate}</span>
+                                          ))}
+                                        </span>
+                                      </React.Fragment>
+                                    ) : (
+                                      'Candidates: (none)'
+                                    )}
                                   </p>
                                 </React.Fragment>
                               ) : null}
