@@ -795,25 +795,6 @@ const renderLogLine = (line) => {
   });
 };
 
-const normalizeSettingsForm = (incoming) => {
-  const next = {
-    xrayGrpc: '',
-    xrayMetrics: '',
-    logFile: '',
-    hotReloadFile: '',
-    restartCommand: '',
-    balancerTags: '',
-    ...(incoming || {})
-  };
-  if (Array.isArray(next.balancerTags)) {
-    next.balancerTags = next.balancerTags.join(', ');
-  }
-  if (!next.balancerTags) {
-    next.balancerTags = '';
-  }
-  return next;
-};
-
 export default function App() {
   const [page, setPage] = useState(getPageFromHash());
   const [apiBase, setApiBase] = useState(getInitialApiBase());
@@ -886,15 +867,9 @@ export default function App() {
   );
   const [settingsPath, setSettingsPath] = useState('');
   const [startupInfo, setStartupInfo] = useState({ available: false, detail: '' });
+  const [restartInfo, setRestartInfo] = useState(null);
+  const [hotReloadBusy, setHotReloadBusy] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState('');
-  const [settingsData, setSettingsData] = useState({
-    xrayGrpc: '',
-    xrayMetrics: '',
-    logFile: '',
-    hotReloadFile: '',
-    restartCommand: '',
-    balancerTags: ''
-  });
   const logsRef = useRef(null);
   const logsPausedRef = useRef(false);
   const logPendingRef = useRef([]);
@@ -1020,6 +995,8 @@ export default function App() {
     [outboundMix]
   );
 
+  const normalizeTag = (value) => String(value || '').trim();
+
   const runtimeOutboundsByTag = useMemo(() => {
     const map = new Map();
     (outbounds || []).forEach((ob) => {
@@ -1029,6 +1006,60 @@ export default function App() {
     });
     return map;
   }, [outbounds]);
+
+  const runtimeOutboundTags = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    (outbounds || []).forEach((ob) => {
+      const tag = normalizeTag(ob?.tag);
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      list.push(tag);
+    });
+    list.sort();
+    return list;
+  }, [outbounds]);
+
+  const configOutboundTags = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    (configOutbounds || []).forEach((ob) => {
+      const tag = normalizeTag(ob?.tag);
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      list.push(tag);
+    });
+    list.sort();
+    return list;
+  }, [configOutbounds]);
+
+  const resolveOutboundSelectors = (selectors, tags = (configOutboundTags.length > 0 ? configOutboundTags : runtimeOutboundTags)) => {
+    if (!Array.isArray(selectors) || selectors.length === 0) return [];
+    if (!Array.isArray(tags) || tags.length === 0) return [];
+
+    const normalizedSelectors = [];
+    selectors.forEach((raw) => {
+      const value = normalizeTag(raw);
+      if (value) normalizedSelectors.push(value);
+    });
+    if (normalizedSelectors.length === 0) return [];
+
+    const seen = new Set();
+    const out = [];
+    tags.forEach((rawTag) => {
+      const tag = normalizeTag(rawTag);
+      if (!tag || seen.has(tag)) return;
+      for (const selector of normalizedSelectors) {
+        if (tag.startsWith(selector)) {
+          seen.add(tag);
+          out.push(tag);
+          break;
+        }
+      }
+    });
+    out.sort();
+    return out;
+  };
 
   const protocolMix = useMemo(() => {
     const map = new Map();
@@ -1503,10 +1534,6 @@ export default function App() {
   const loadSettings = async (base = apiBase) => {
     try {
       const resp = await fetchJson(`${base}/settings`);
-      if (resp.settings) {
-        const normalized = normalizeSettingsForm(resp.settings);
-        setSettingsData(normalized);
-      }
       if (resp.path) {
         setSettingsPath(resp.path);
       }
@@ -1518,6 +1545,37 @@ export default function App() {
       setSettingsStatus('');
     } catch (err) {
       setSettingsStatus(`Load failed: ${err.message}`);
+    }
+  };
+
+  const loadRestartInfo = async (base = apiBase) => {
+    try {
+      const resp = await fetchJson(`${base}/core/restart/status`);
+      setRestartInfo(resp.restart || null);
+    } catch (_err) {
+      // ignore restart status failures (e.g. older core without this endpoint)
+    }
+  };
+
+  const triggerHotReload = async () => {
+    if (hotReloadBusy) return;
+    setHotReloadBusy(true);
+    setSettingsStatus('Triggering hot reload...');
+    try {
+      const resp = await fetchJson(`${apiBase}/core/hotreload`, { method: 'POST' });
+      const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
+      const warnings = Array.isArray(resp?.hotReload?.warnings) ? resp.hotReload.warnings : [];
+      const baseMsg = resp?.id ? `Hot reload applied (id ${resp.id}).` : 'Hot reload applied.';
+      if (needsRestart) {
+        setSettingsStatus(warnings.length > 0 ? `${baseMsg} Restart required: ${warnings[0]}` : `${baseMsg} Restart required for some changes.`);
+      } else {
+        setSettingsStatus(warnings.length > 0 ? `${baseMsg} ${warnings[0]}` : baseMsg);
+      }
+      schedulePostRestartRefresh(apiBase);
+    } catch (err) {
+      setSettingsStatus(`Hot reload failed: ${err.message}`);
+    } finally {
+      setHotReloadBusy(false);
     }
   };
 
@@ -1652,6 +1710,7 @@ export default function App() {
   useEffect(() => {
     refresh();
     loadSettings();
+    loadRestartInfo();
     loadUiState();
   }, [apiBase]);
 
@@ -1697,6 +1756,31 @@ export default function App() {
   const normalizeGroupStrategy = (value) => String(value || '').trim().toLowerCase();
   const getGroupStrategy = (group) => normalizeGroupStrategy(group?.strategy);
   const getFallbackTag = (group) => String(group?.fallbackTag || '').trim();
+  const pickSelectorStrategyTarget = (tags) => {
+    if (!Array.isArray(tags) || tags.length === 0) return '';
+    const hasStatuses = statusByTag && Object.keys(statusByTag).length > 0;
+    const normalized = tags
+      .map((tag) => String(tag || '').trim())
+      .filter((tag) => !!tag);
+    if (normalized.length === 0) return '';
+
+    // Mirror SelectorStrategy.PickOutbound behavior:
+    // - If no statuses are available, pick the first tag.
+    // - When statuses exist, treat unknown tags as alive.
+    if (!hasStatuses) {
+      return normalized[0];
+    }
+    for (const tag of normalized) {
+      const nodeStatus = statusByTag[tag];
+      if (!nodeStatus) {
+        return tag;
+      }
+      if (nodeStatus.alive) {
+        return tag;
+      }
+    }
+    return normalized[normalized.length - 1];
+  };
   const isManualGroup = (group) => {
     if (typeof group?.manualSelectable === 'boolean') {
       return group.manualSelectable;
@@ -1722,6 +1806,14 @@ export default function App() {
     const pendingTag = groupSelections[group?.tag];
     if (pendingTag) {
       return [pendingTag];
+    }
+    const strategy = getGroupStrategy(group);
+    if (strategy === 'fallback') {
+      // For fallback strategy, only highlight the currently picked outbound
+      // rather than all candidates.
+      const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
+      const picked = pickSelectorStrategyTarget(raw);
+      return picked ? [picked] : [];
     }
     const fallbackTag = getFallbackTag(group);
     const excludeFallback = !isManualGroup(group) && !!fallbackTag;
@@ -2473,6 +2565,7 @@ export default function App() {
     delays.forEach((delay) => {
       window.setTimeout(() => {
         refresh(base);
+        loadRestartInfo(base);
       }, delay);
     });
   };
@@ -3298,6 +3391,8 @@ export default function App() {
               <div className="nodes-grid">
                 {groups.map((group) => {
                   const candidates = getGroupCandidates(group);
+                  const groupStrategy = getGroupStrategy(group);
+                  const isFallbackStrategy = groupStrategy === 'fallback';
                   const manualGroup = isManualGroup(group);
                   const fallbackTag = getFallbackTag(group);
                   const rawSelected = manualGroup
@@ -3312,13 +3407,16 @@ export default function App() {
                     : '';
                   const selectedTags = getGroupSelectedTags(group, selected);
                   const selectedSet = new Set(selectedTags);
+                  const pendingSelection = groupSelections[group.tag];
                   const current = group.overrideTarget
-                    || (group.principleTargets && group.principleTargets[0])
+                    || pendingSelection
+                    || (isFallbackStrategy
+                      ? pickSelectorStrategyTarget(Array.isArray(group?.principleTargets) ? group.principleTargets : [])
+                      : (group.principleTargets && group.principleTargets[0]))
                     || 'auto';
                   const modeLabel = group.overrideTarget ? 'override' : getGroupModeLabel(group);
                   const canManualSelect = !group.error;
                   const canClearOverride = !!group.overrideTarget && !group.error;
-                  const pendingSelection = groupSelections[group.tag];
                   return (
                     <div className="group-card" key={group.tag}>
                       <div className="group-header">
@@ -3352,7 +3450,7 @@ export default function App() {
                             const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
                             const isFallbackTag = fallbackTag && tag === fallbackTag;
                             const isActive = selectedSet.has(tag)
-                              && (!isFallbackTag || group.overrideTarget === tag || pendingSelection === tag);
+                              && (!isFallbackTag || isFallbackStrategy || group.overrideTarget === tag || pendingSelection === tag);
                             const canSelectTag = canManualSelect;
                             return (
                               <button
@@ -3585,6 +3683,7 @@ export default function App() {
                         : Array.isArray(balancer.selectors)
                           ? balancer.selectors
                           : [];
+                      const resolved = resolveOutboundSelectors(selectors);
                       return (
                         <div className="rule-item" key={key}>
                           <div className="rule-summary">
@@ -3598,7 +3697,14 @@ export default function App() {
                                 {balancer.fallbackTag ? ` · Fallback: ${balancer.fallbackTag}` : ''}
                               </p>
                               {selectors.length > 0 ? (
-                                <p className="rule-meta">Selectors: {selectors.join(', ')}</p>
+                                <React.Fragment>
+                                  <p className="rule-meta">Selector prefixes: {selectors.join(', ')}</p>
+                                  <p className="rule-meta">
+                                    {resolved.length > 0
+                                      ? `Candidates (${resolved.length}): ${resolved.join(', ')}`
+                                      : 'Candidates: (none)'}
+                                  </p>
+                                </React.Fragment>
                               ) : null}
                             </div>
                             <div className="rule-actions">
@@ -3778,6 +3884,14 @@ export default function App() {
                   Apply
                 </button>
                 <button
+                  className="ghost"
+                  type="button"
+                  onClick={triggerHotReload}
+                  disabled={hotReloadBusy}
+                >
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload'}
+                </button>
+                <button
                   className="danger"
                   onClick={triggerRestart}
                   disabled={restartCooldown > 0}
@@ -3787,6 +3901,22 @@ export default function App() {
               </div>
               <div className="settings-meta">
                 <span className="status">{settingsStatus}</span>
+                {restartInfo ? (
+                  <span
+                    className={`status${restartInfo.ok ? '' : ' status-danger'}`}
+                    title={restartInfo.error || restartInfo.rollbackError || ''}
+                  >
+                    {restartInfo.inProgress
+                      ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: in progress (id ${restartInfo.id})`
+                      : restartInfo.ok
+                        ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: ok (id ${restartInfo.id})`
+                        : restartInfo.rolledBack && restartInfo.rollbackOk
+                          ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed, rolled back (id ${restartInfo.id})`
+                          : restartInfo.rolledBack
+                            ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed, rollback failed (id ${restartInfo.id})`
+                            : `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed (id ${restartInfo.id})`}
+                  </span>
+                ) : null}
                 {settingsPath ? <span className="status">Config: {settingsPath}</span> : null}
                 {uiStatePath ? <span className="status">UI state: {uiStatePath}</span> : null}
                 {startupInfo.available ? (
