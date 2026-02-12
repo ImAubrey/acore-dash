@@ -14,7 +14,7 @@ const ACCESS_KEY_HEADER = 'X-Access-Key';
 const ACCESS_KEY_QUERY = 'access_key';
 const ROUTING_DRAFT_STORAGE_KEY = 'xray_ui_routing_draft';
 const ROUTING_DRAFT_NOTICE =
-  'Unsaved rule edits are stored in your browser. Click Restart core to upload.';
+  'Unsaved rule edits are stored in your browser. Click Hot reload core to upload.';
 const UI_STATE_SAVE_DELAY_MS = 600;
 const MODAL_ANIMATION_MS = 200;
 const CONNECTION_REFRESH_OPTIONS = [1, 2, 5, 10];
@@ -1557,27 +1557,48 @@ export default function App() {
     }
   };
 
-  const triggerHotReload = async () => {
+  const announceHotReloadStatus = (message, announceFn) => {
+    if (typeof announceFn === 'function') {
+      announceFn(message);
+    }
+    if (announceFn !== setSettingsStatus) {
+      setSettingsStatus(message);
+    }
+  };
+
+  const performHotReload = async (announceFn) => {
     if (hotReloadBusy) return;
     setHotReloadBusy(true);
-    setSettingsStatus('Triggering hot reload...');
+    announceHotReloadStatus('Triggering hot reload...', announceFn);
     try {
+      const hasDraft = !!getRoutingDraft();
+      if (hasDraft) {
+        announceHotReloadStatus('Uploading pending routing edits...', announceFn);
+        await uploadRoutingDraft(apiBase);
+      }
       const resp = await fetchJson(`${apiBase}/core/hotreload`, { method: 'POST' });
       const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
       const warnings = Array.isArray(resp?.hotReload?.warnings) ? resp.hotReload.warnings : [];
       const baseMsg = resp?.id ? `Hot reload applied (id ${resp.id}).` : 'Hot reload applied.';
-      if (needsRestart) {
-        setSettingsStatus(warnings.length > 0 ? `${baseMsg} Restart required: ${warnings[0]}` : `${baseMsg} Restart required for some changes.`);
-      } else {
-        setSettingsStatus(warnings.length > 0 ? `${baseMsg} ${warnings[0]}` : baseMsg);
-      }
+      const message = needsRestart
+        ? warnings.length > 0
+          ? `${baseMsg} Restart required: ${warnings[0]}`
+          : `${baseMsg} Restart required for some changes.`
+        : warnings.length > 0
+          ? `${baseMsg} ${warnings[0]}`
+          : baseMsg;
+      announceHotReloadStatus(message, announceFn);
       schedulePostRestartRefresh(apiBase);
     } catch (err) {
-      setSettingsStatus(`Hot reload failed: ${err.message}`);
+      announceHotReloadStatus(`Hot reload failed: ${err.message}`, announceFn);
     } finally {
       setHotReloadBusy(false);
     }
   };
+
+  const triggerHotReload = () => performHotReload(setSettingsStatus);
+  const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus);
+  const triggerHotReloadFromRules = () => performHotReload(setRulesStatus);
 
   const saveUiState = async (payload, base = apiBase) => {
     try {
@@ -2345,7 +2366,7 @@ export default function App() {
       } else {
         setConfigOutbounds(nextItems);
       }
-      setConfigStatus(target, `${target} deleted. Restart core to apply.`);
+      setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
       fetchRules(apiBase).catch(() => {});
     } catch (err) {
       setConfigStatus(target, `Delete failed: ${err.message}`);
@@ -2446,7 +2467,7 @@ export default function App() {
       } else {
         setConfigOutbounds(nextItems);
       }
-      setConfigStatus(target, 'Saved to config. Restart core to apply.');
+      setConfigStatus(target, 'Saved to config. Hot reload core to apply.');
       setRulesModalStatus('Saved');
       closeRulesModal({ force: true });
       fetchRules(apiBase).catch(() => {});
@@ -2766,14 +2787,16 @@ export default function App() {
   const renderRestartConfirm = () => {
     if (!restartConfirmVisible || typeof document === 'undefined') return null;
     const modalState = restartConfirmClosing ? 'closing' : 'open';
+    const actionLabel = 'Restart core';
+    const actionVerb = 'restart';
     return createPortal(
       <div className="modal-backdrop" role="dialog" aria-modal="true" data-state={modalState}>
         <div className="modal confirm-modal" data-state={modalState}>
           <div className="modal-header">
             <div>
-              <h3>Restart core?</h3>
+              <h3>{actionLabel}?</h3>
               <p className="group-meta">
-                This will restart the Xray core. Pending routing edits will be uploaded first.
+                This will {actionVerb} the Xray core. Pending routing edits will be uploaded first.
               </p>
             </div>
             <button
@@ -2795,7 +2818,7 @@ export default function App() {
               onClick={confirmRestart}
               disabled={restartConfirmBusy}
             >
-              Restart core
+              {actionLabel}
             </button>
           </div>
         </div>
@@ -2820,7 +2843,7 @@ export default function App() {
             <div>
               <h3>{`Delete ${titleLabel}?`}</h3>
               <p className="group-meta">
-                {`This will remove the ${targetLabel} from the config. Restart core to apply.`}
+                {`This will remove the ${targetLabel} from the config. Hot reload core to apply.`}
               </p>
             </div>
             <button
@@ -3494,10 +3517,10 @@ export default function App() {
                 </button>
                 <button
                   className="primary small"
-                  onClick={triggerRestart}
-                  disabled={restartCooldown > 0}
+                  onClick={triggerHotReloadFromNodes}
+                  disabled={hotReloadBusy}
                 >
-                  {getRestartLabel('Restart core')}
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
                 </button>
                 <button className="primary small" onClick={() => openRulesModal('outbound', 'insert')}>
                   Add outbound
@@ -3578,10 +3601,10 @@ export default function App() {
                 </div>
                 <button
                   className="primary small"
-                  onClick={triggerRestart}
-                  disabled={restartCooldown > 0}
+                  onClick={triggerHotReloadFromRules}
+                  disabled={hotReloadBusy}
                 >
-                  {getRestartLabel('Restart core')}
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
                 </button>
                 <button className="primary small" onClick={() => openRulesModal('rule', 'insert')}>
                   Add rule
@@ -3821,10 +3844,10 @@ export default function App() {
               </div>
               <button
                 className="ghost"
-                onClick={triggerRestart}
-                disabled={restartCooldown > 0}
+                onClick={triggerHotReload}
+                disabled={hotReloadBusy}
               >
-                {getRestartLabel('Reload')}
+                {hotReloadBusy ? 'Hot reloading...' : 'Hot reload'}
               </button>
             </div>
 
@@ -3916,14 +3939,14 @@ export default function App() {
                     title={restartInfo.error || restartInfo.rollbackError || ''}
                   >
                     {restartInfo.inProgress
-                      ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: in progress (id ${restartInfo.id})`
+                      ? `${restartInfo.mode === 'hotReload' ? 'Hot reload' : 'Restart'}: in progress (id ${restartInfo.id})`
                       : restartInfo.ok
-                        ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: ok (id ${restartInfo.id})`
+                        ? `${restartInfo.mode === 'hotReload' ? 'Hot reload' : 'Restart'}: ok (id ${restartInfo.id})`
                         : restartInfo.rolledBack && restartInfo.rollbackOk
-                          ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed, rolled back (id ${restartInfo.id})`
+                          ? `${restartInfo.mode === 'hotReload' ? 'Hot reload' : 'Restart'}: failed, rolled back (id ${restartInfo.id})`
                           : restartInfo.rolledBack
-                            ? `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed, rollback failed (id ${restartInfo.id})`
-                            : `${restartInfo.mode === 'hotReload' ? 'Reload' : 'Restart'}: failed (id ${restartInfo.id})`}
+                            ? `${restartInfo.mode === 'hotReload' ? 'Hot reload' : 'Restart'}: failed, rollback failed (id ${restartInfo.id})`
+                            : `${restartInfo.mode === 'hotReload' ? 'Hot reload' : 'Restart'}: failed (id ${restartInfo.id})`}
                   </span>
                 ) : null}
                 {settingsPath ? <span className="status">Config: {settingsPath}</span> : null}
