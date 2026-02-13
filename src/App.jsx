@@ -270,8 +270,7 @@ const RULE_TEMPLATE = {
   protocol: ['http', 'tls', 'quic', 'bittorrent'],
   attrs: { ':method': 'GET' },
   process: ['curl'],
-  outboundTag: 'direct',
-  balancerTag: 'balancer',
+  destination: 'direct',
   ruleTag: 'rule name'
 };
 
@@ -593,29 +592,29 @@ const CONNECTION_SORT_FIELDS = {
 };
 
 const DETAIL_COLUMNS = [
-  { key: 'destination', label: 'Destination', width: '1.4fr', cellClassName: 'mono' },
-  { key: 'source', label: 'Source', width: '1.1fr', cellClassName: 'mono' },
-  { key: 'xraySrc', label: 'Xray Src', width: '1.1fr', cellClassName: 'mono' },
-  { key: 'user', label: 'User', width: '0.8fr' },
-  { key: 'inbound', label: 'Inbound', width: '0.8fr' },
-  { key: 'outbound', label: 'Outbound', width: '0.8fr' },
-  { key: 'protocol', label: 'Protocol', width: '0.9fr', cellClassName: 'mono' },
+  { key: 'destination', label: 'Destination', width: 'minmax(0, 1.4fr)', cellClassName: 'mono' },
+  { key: 'source', label: 'Source', width: 'minmax(0, 1.1fr)', cellClassName: 'mono' },
+  { key: 'xraySrc', label: 'Xray Src', width: 'minmax(0, 1.1fr)', cellClassName: 'mono' },
+  { key: 'user', label: 'User', width: 'minmax(0, 0.8fr)' },
+  { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.8fr)' },
+  { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.8fr)' },
+  { key: 'protocol', label: 'Protocol', width: 'minmax(0, 0.9fr)', cellClassName: 'mono' },
   {
     key: 'upload',
     label: 'Up',
-    width: '0.6fr',
+    width: 'max-content',
     cellClassName: 'mono',
     hint: TRAFFIC_DIRECTION_HINTS.upload
   },
   {
     key: 'download',
     label: 'Down',
-    width: '0.6fr',
+    width: 'max-content',
     cellClassName: 'mono',
     hint: TRAFFIC_DIRECTION_HINTS.download
   },
-  { key: 'lastSeen', label: 'Last Seen', width: '1.1fr', cellClassName: 'mono' },
-  { key: 'close', label: 'Close', width: '0.5fr', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
+  { key: 'lastSeen', label: 'Last Seen', width: 'max-content', cellClassName: 'mono' },
+  { key: 'close', label: 'Close', width: 'max-content', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
 ];
 const DETAIL_COLUMN_KEYS = new Set(DETAIL_COLUMNS.map((column) => column.key));
 
@@ -1247,7 +1246,6 @@ export default function App() {
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
   const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
-
   const renderDetailCell = (columnKey, detail, detailRate) => {
     switch (columnKey) {
       case 'destination':
@@ -1406,6 +1404,22 @@ export default function App() {
     if (!normalizedConnSearchQuery) return sortedConnections;
     return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
   }, [isConnectionsPage, normalizedConnSearchQuery, sortedConnections]);
+  useEffect(() => {
+    if (!isConnectionsPage || !normalizedConnSearchQuery) return;
+    setExpandedConnections((prev) => {
+      const next = new Set(prev);
+      if (next.size === 0) return prev;
+      const visibleIds = new Set(filteredConnections.map((conn) => conn.id));
+      let changed = false;
+      next.forEach((id) => {
+        if (!visibleIds.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [isConnectionsPage, normalizedConnSearchQuery, filteredConnections]);
 
   const applyNodesPayload = (payload) => {
     const nextOutbounds = payload && payload.outbounds ? payload.outbounds : [];
@@ -2225,7 +2239,7 @@ export default function App() {
   };
 
   const getRuleLabel = (rule, index) => {
-    const tag = rule?.ruleTag || rule?.outboundTag || rule?.balancerTag || '';
+    const tag = rule?.ruleTag || rule?.destination || rule?.outboundTag || rule?.balancerTag || '';
     if (tag) {
       return `${index + 1}. ${tag}`;
     }
@@ -2401,6 +2415,66 @@ export default function App() {
     }
 
     const target = rulesModalTarget;
+    if (target === 'rule') {
+      const targetTagRaw = parsed.targetTag;
+      if (targetTagRaw !== undefined && targetTagRaw !== null) {
+        if (typeof targetTagRaw !== 'string') {
+          setRulesModalStatus('targetTag must be a string.');
+          return;
+        }
+        const targetTag = targetTagRaw.trim();
+        const destination = typeof parsed.destination === 'string' ? parsed.destination.trim() : '';
+        const outboundTag = typeof parsed.outboundTag === 'string' ? parsed.outboundTag.trim() : '';
+        const balancerTag = typeof parsed.balancerTag === 'string' ? parsed.balancerTag.trim() : '';
+        if (!destination && !outboundTag && !balancerTag && targetTag) {
+          // "targetTag" is returned by runtime /rules API; map it to config "destination".
+          parsed.destination = targetTag;
+        }
+        delete parsed.targetTag;
+      }
+
+      const ruleTagRaw = parsed.ruleTag;
+      const destinationRaw = parsed.destination;
+      const outboundTagRaw = parsed.outboundTag;
+      const balancerTagRaw = parsed.balancerTag;
+
+      if (ruleTagRaw !== undefined && ruleTagRaw !== null && typeof ruleTagRaw !== 'string') {
+        setRulesModalStatus('ruleTag must be a string.');
+        return;
+      }
+      if (destinationRaw !== undefined && destinationRaw !== null && typeof destinationRaw !== 'string') {
+        setRulesModalStatus('destination must be a string.');
+        return;
+      }
+      if (outboundTagRaw !== undefined && outboundTagRaw !== null && typeof outboundTagRaw !== 'string') {
+        setRulesModalStatus('outboundTag must be a string.');
+        return;
+      }
+      if (balancerTagRaw !== undefined && balancerTagRaw !== null && typeof balancerTagRaw !== 'string') {
+        setRulesModalStatus('balancerTag must be a string.');
+        return;
+      }
+
+      const ruleTag = String(ruleTagRaw || '').trim();
+      const destination = String(destinationRaw || '').trim();
+      const outboundTag = String(outboundTagRaw || '').trim();
+      const balancerTag = String(balancerTagRaw || '').trim();
+
+      if (ruleTag.startsWith('!')) {
+        setRulesModalStatus("ruleTag must not start with '!'.");
+        return;
+      }
+
+      const targetCount = (destination ? 1 : 0) + (outboundTag ? 1 : 0) + (balancerTag ? 1 : 0);
+      if (targetCount > 1) {
+        setRulesModalStatus('Use only one of destination/outboundTag/balancerTag (destination recommended).');
+        return;
+      }
+      if (targetCount === 0 && !ruleTag) {
+        setRulesModalStatus('Rule with no destination/outboundTag/balancerTag must set ruleTag.');
+        return;
+      }
+    }
     const nextItems = target === 'rule'
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
@@ -3280,10 +3354,13 @@ export default function App() {
                 {renderSortHeader('Download', 'download', TRAFFIC_DIRECTION_HINTS.download)}
                 <span></span>
               </div>
-              {filteredConnections.map((conn) => {
+                {filteredConnections.map((conn) => {
                 const detailIds = (conn.details || []).map((detail) => detail.id);
                 const canClose = detailIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);
+                const visibleDetails = normalizedConnSearchQuery
+                  ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
+                  : (conn.details || []);
                 const connActivity = getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
                 const connIsSplice = isSpliceType(conn?.metadata?.type);
                 const connStyle = { '--activity': String(connActivity) };
@@ -3364,7 +3441,7 @@ export default function App() {
                           </button>
                         ))}
                       </div>
-                      {(conn.details || []).map((detail, idx) => {
+                      {visibleDetails.map((detail, idx) => {
                         const detailKey = getDetailKey(conn.id, detail, idx);
                         const detailRate = detailRates.get(detailKey);
                         const detailActivity = getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
@@ -3640,8 +3717,34 @@ export default function App() {
                     {configRules.map((rule, index) => {
                       const ruleTag = rule.ruleTag || '';
                       const key = `rule:${index}:${ruleTag}`;
-                      const target = rule.outboundTag || rule.targetTag || '';
-                      const balancer = rule.balancerTag || '';
+                      const destination = String(rule.destination || '').trim();
+                      const outboundTag = String(rule.outboundTag || '').trim();
+                      const balancerTag = String(rule.balancerTag || '').trim();
+                      const targetTag = String(rule.targetTag || '').trim();
+
+                      let effectiveDestination = '';
+                      let effectiveField = '';
+                      const ignoredFields = [];
+                      if (destination) {
+                        effectiveDestination = destination;
+                        effectiveField = 'destination';
+                        if (outboundTag) ignoredFields.push('outboundTag');
+                        if (balancerTag) ignoredFields.push('balancerTag');
+                      } else if (outboundTag) {
+                        effectiveDestination = outboundTag;
+                        effectiveField = 'outboundTag';
+                        if (balancerTag) ignoredFields.push('balancerTag');
+                      } else if (balancerTag) {
+                        effectiveDestination = balancerTag;
+                        effectiveField = 'balancerTag';
+                      } else if (targetTag) {
+                        effectiveDestination = targetTag;
+                        effectiveField = 'targetTag';
+                      }
+                      const effectiveNote =
+                        ignoredFields.length > 0 && effectiveField
+                          ? `${effectiveField} wins; ignored: ${ignoredFields.join(', ')}`
+                          : '';
                       return (
                         <div className="rule-item" key={key}>
                           <div className="rule-summary">
@@ -3651,8 +3754,8 @@ export default function App() {
                                 <h4 className="mono">{ruleTag || '(no ruleTag)'}</h4>
                               </div>
                               <p className="rule-meta">
-                                {target ? `Target: ${target}` : 'Target: -'}
-                                {balancer ? ` · Balancer: ${balancer}` : ''}
+                                {effectiveDestination ? `Destination: ${effectiveDestination}` : 'Destination: -'}
+                                {effectiveNote ? ` · Note: ${effectiveNote}` : ''}
                               </p>
                             </div>
                             <div className="rule-actions">
