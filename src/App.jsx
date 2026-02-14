@@ -1989,6 +1989,72 @@ export default function App() {
     }
   };
 
+  const toggleSubscriptionOutboundEnabled = async (index) => {
+    if (index < 0 || index >= configSubscriptionOutbounds.length) return;
+    const current = configSubscriptionOutbounds[index] || {};
+    const wasDisabled = current?.enabled === false;
+    const nextEntry = { ...current };
+    if (wasDisabled) {
+      delete nextEntry.enabled;
+    } else {
+      nextEntry.enabled = false;
+    }
+    const nextOutbounds = [...configSubscriptionOutbounds];
+    nextOutbounds[index] = nextEntry;
+    setConfigSubscriptionOutbounds(nextOutbounds);
+
+    setConfigSubscriptionStatus('Saving...');
+    try {
+      const subscription = buildSubscriptionPatch({
+        inbound: configSubscriptionInbound,
+        outbounds: nextOutbounds,
+        databases: configSubscriptionDatabases,
+        full: configSubscriptionFull
+      });
+      if (!subscription) {
+        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        return;
+      }
+      await writeSubscriptionConfig(subscription);
+      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+    } catch (err) {
+      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+    }
+  };
+
+  const toggleSubscriptionDatabaseEnabled = async (index) => {
+    if (index < 0 || index >= configSubscriptionDatabases.length) return;
+    const current = configSubscriptionDatabases[index] || {};
+    const wasDisabled = current?.enabled === false;
+    const nextEntry = { ...current };
+    if (wasDisabled) {
+      delete nextEntry.enabled;
+    } else {
+      nextEntry.enabled = false;
+    }
+    const nextDatabases = [...configSubscriptionDatabases];
+    nextDatabases[index] = nextEntry;
+    setConfigSubscriptionDatabases(nextDatabases);
+
+    setConfigSubscriptionStatus('Saving...');
+    try {
+      const subscription = buildSubscriptionPatch({
+        inbound: configSubscriptionInbound,
+        outbounds: configSubscriptionOutbounds,
+        databases: nextDatabases,
+        full: configSubscriptionFull
+      });
+      if (!subscription) {
+        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        return;
+      }
+      await writeSubscriptionConfig(subscription);
+      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+    } catch (err) {
+      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+    }
+  };
+
   const setConfigStatus = (target, message) => {
     if (target === 'outbound') {
       setConfigOutboundsStatus(message);
@@ -4404,6 +4470,21 @@ export default function App() {
                         </div>
                         <div className="outbound-actions">
                           <button
+                            className="ghost small"
+                            onClick={() => toggleSubscriptionOutboundEnabled(index)}
+                            title={enabled === false ? 'Enable this subscription' : 'Disable this subscription'}
+                          >
+                            {enabled === false ? 'Enable' : 'Disable'}
+                          </button>
+                          <button
+                            className="ghost small"
+                            onClick={triggerHotReloadFromSubscriptions}
+                            disabled={hotReloadBusy}
+                            title="Fetch and apply subscription updates (hot reload core)."
+                          >
+                            {hotReloadBusy ? 'Updating...' : 'Update now'}
+                          </button>
+                          <button
                             className="ghost small danger-text"
                             onClick={() => openDeleteConfirm('subscription', index)}
                           >
@@ -4563,150 +4644,191 @@ export default function App() {
               </div>
               <div className="control-block">
                 <label>config file</label>
-                <input value={configSubscriptionPath || '(auto)'} readOnly />
+                <p className="group-meta mono">{configSubscriptionPath || '(auto)'}</p>
                 <span className="hint">
                   The UI patches the config file where `subscription` was found (or a fallback config).
                 </span>
               </div>
             </div>
 
-            <div className="nodes-subheader">
-              <div>
-                <h3>Outbound subscriptions</h3>
-                <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
-              </div>
-              <div className="header-actions">
-                <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
-                  Add outbound subscription
-                </button>
-              </div>
-            </div>
-            {configSubscriptionOutbounds.length === 0 ? (
-              <div className="empty-state small">
-                <p>No outbound subscriptions configured.</p>
-              </div>
-            ) : (
-              <div className="outbound-grid">
-                {(configSubscriptionOutbounds || []).map((sub, index) => {
-                  const name = String(sub?.name || '').trim();
-                  const url = String(sub?.url || '').trim();
-                  const format = String(sub?.format || 'auto').trim() || 'auto';
-                  const insert = String(sub?.insert || 'tail').trim() || 'tail';
-                  const tagPrefix = String(sub?.tagPrefix || '').trim();
-                  const enabled = sub?.enabled;
-                  const interval = String(sub?.interval || '').trim();
-                  const cron = String(sub?.cron || sub?.crontab || '').trim();
-                  const key = `${name || url || 'subscription'}-${index}`;
-                  return (
-                    <div className="outbound-card" key={key}>
-                      <div className="outbound-info">
-                        <div className="outbound-title">
-                          <span className="rule-index">{index + 1}</span>
-                          <h3>{name || '(unnamed)'}</h3>
-                        </div>
-                        {url ? (
-                          <p className="mono">
-                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
-                          </p>
-                        ) : (
-                          <p className="group-meta mono">(no url)</p>
-                        )}
-                      </div>
-                      <div className="outbound-side">
-                        <div className="outbound-meta">
-                          <span className="meta-pill">{format}</span>
-                          <span className="meta-pill">{insert}</span>
-                          {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
-                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
-                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
-                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
-                        </div>
-                        <div className="outbound-actions">
-                          <button
-                            className="ghost small danger-text"
-                            onClick={() => openDeleteConfirm('subscription', index)}
-                          >
-                            Delete
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div className="rules-grid">
+              <div className="group-card">
+                <div className="group-header">
+                  <div>
+                    <h3>Outbound subscriptions</h3>
+                    <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
+                  </div>
+                  <div className="rules-editor-actions">
+                    <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
+                      Add outbound subscription
+                    </button>
+                  </div>
+                </div>
 
-            <div className="nodes-subheader">
-              <div>
-                <h3>Database subscriptions</h3>
-                <p className="group-meta">Total {configSubscriptionDatabases.length}</p>
+                {configSubscriptionOutbounds.length === 0 ? (
+                  <div className="empty-state small">
+                    <p>No outbound subscriptions configured.</p>
+                  </div>
+                ) : (
+                  <div className="outbound-grid">
+                    {(configSubscriptionOutbounds || []).map((sub, index) => {
+                      const name = String(sub?.name || '').trim();
+                      const url = String(sub?.url || '').trim();
+                      const format = String(sub?.format || 'auto').trim() || 'auto';
+                      const insert = String(sub?.insert || 'tail').trim() || 'tail';
+                      const tagPrefix = String(sub?.tagPrefix || '').trim();
+                      const enabled = sub?.enabled;
+                      const interval = String(sub?.interval || '').trim();
+                      const cron = String(sub?.cron || sub?.crontab || '').trim();
+                      const key = `${name || url || 'subscription'}-${index}`;
+                      return (
+                        <div className="outbound-card" key={key}>
+                          <div className="outbound-info">
+                            <div className="outbound-title">
+                              <span className="rule-index">{index + 1}</span>
+                              <h3>{name || '(unnamed)'}</h3>
+                            </div>
+                            {url ? (
+                              <p className="mono">
+                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                              </p>
+                            ) : (
+                              <p className="group-meta mono">(no url)</p>
+                            )}
+                          </div>
+                          <div className="outbound-side">
+                            <div className="outbound-meta">
+                              <span className="meta-pill">{format}</span>
+                              <span className="meta-pill">{insert}</span>
+                              {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
+                              {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
+                              {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
+                              <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
+                            </div>
+                            <div className="outbound-actions">
+                              <button
+                                className="ghost small"
+                                onClick={() => toggleSubscriptionOutboundEnabled(index)}
+                                title={enabled === false ? 'Enable this subscription' : 'Disable this subscription'}
+                              >
+                                {enabled === false ? 'Enable' : 'Disable'}
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={triggerHotReloadFromSubscriptions}
+                                disabled={hotReloadBusy}
+                                title="Fetch and apply subscription updates (hot reload core)."
+                              >
+                                {hotReloadBusy ? 'Updating...' : 'Update now'}
+                              </button>
+                              <button
+                                className="ghost small danger-text"
+                                onClick={() => openDeleteConfirm('subscription', index)}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="header-actions">
-                <button className="primary small" onClick={() => openRulesModal('subscriptionDatabase', 'insert')}>
-                  Add database subscription
-                </button>
+
+              <div className="group-card">
+                <div className="group-header">
+                  <div>
+                    <h3>Database subscriptions</h3>
+                    <p className="group-meta">Total {configSubscriptionDatabases.length}</p>
+                  </div>
+                  <div className="rules-editor-actions">
+                    <button
+                      className="primary small"
+                      onClick={() => openRulesModal('subscriptionDatabase', 'insert')}
+                    >
+                      Add database subscription
+                    </button>
+                  </div>
+                </div>
+
+                {configSubscriptionDatabases.length === 0 ? (
+                  <div className="empty-state small">
+                    <p>No database subscriptions configured.</p>
+                  </div>
+                ) : (
+                  <div className="outbound-grid">
+                    {(configSubscriptionDatabases || []).map((db, index) => {
+                      const type = String(db?.type || '').trim() || '(no type)';
+                      const url = String(db?.url || '').trim();
+                      const enabled = db?.enabled;
+                      const interval = String(db?.interval || '').trim();
+                      const cron = String(db?.cron || db?.crontab || '').trim();
+                      const key = `${type || url || 'database'}-${index}`;
+                      return (
+                        <div className="outbound-card" key={key}>
+                          <div className="outbound-info">
+                            <div className="outbound-title">
+                              <span className="rule-index">{index + 1}</span>
+                              <h3>{type}</h3>
+                            </div>
+                            {url ? (
+                              <p className="mono">
+                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                              </p>
+                            ) : (
+                              <p className="group-meta mono">(no url)</p>
+                            )}
+                          </div>
+                          <div className="outbound-side">
+                            <div className="outbound-meta">
+                              {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
+                              {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
+                              <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
+                            </div>
+                            <div className="outbound-actions">
+                              <button
+                                className="ghost small"
+                                onClick={() => toggleSubscriptionDatabaseEnabled(index)}
+                                title={enabled === false ? 'Enable this subscription' : 'Disable this subscription'}
+                              >
+                                {enabled === false ? 'Enable' : 'Disable'}
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={triggerHotReloadFromSubscriptions}
+                                disabled={hotReloadBusy}
+                                title="Fetch and apply subscription updates (hot reload core)."
+                              >
+                                {hotReloadBusy ? 'Updating...' : 'Update now'}
+                              </button>
+                              <button
+                                className="ghost small danger-text"
+                                onClick={() => openDeleteConfirm('subscriptionDatabase', index)}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={() => openRulesModal('subscriptionDatabase', 'edit', index, index, db)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
-            {configSubscriptionDatabases.length === 0 ? (
-              <div className="empty-state small">
-                <p>No database subscriptions configured.</p>
-              </div>
-            ) : (
-              <div className="outbound-grid">
-                {(configSubscriptionDatabases || []).map((db, index) => {
-                  const type = String(db?.type || '').trim() || '(no type)';
-                  const url = String(db?.url || '').trim();
-                  const enabled = db?.enabled;
-                  const interval = String(db?.interval || '').trim();
-                  const cron = String(db?.cron || db?.crontab || '').trim();
-                  const key = `${type || url || 'database'}-${index}`;
-                  return (
-                    <div className="outbound-card" key={key}>
-                      <div className="outbound-info">
-                        <div className="outbound-title">
-                          <span className="rule-index">{index + 1}</span>
-                          <h3>{type}</h3>
-                        </div>
-                        {url ? (
-                          <p className="mono">
-                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
-                          </p>
-                        ) : (
-                          <p className="group-meta mono">(no url)</p>
-                        )}
-                      </div>
-                      <div className="outbound-side">
-                        <div className="outbound-meta">
-                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
-                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
-                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
-                        </div>
-                        <div className="outbound-actions">
-                          <button
-                            className="ghost small danger-text"
-                            onClick={() => openDeleteConfirm('subscriptionDatabase', index)}
-                          >
-                            Delete
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={() => openRulesModal('subscriptionDatabase', 'edit', index, index, db)}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </section>
         )}
 

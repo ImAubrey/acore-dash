@@ -1967,7 +1967,17 @@ select {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+  /* Keep the log search box + auto-scroll pill on a single row. */
+  white-space: nowrap;
+}
+
+.log-controls .connections-search {
+  min-width: 0;
+  flex: 1 1 240px;
+  flex-basis: 0;
 }
 
 .toggle {
