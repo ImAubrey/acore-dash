@@ -25,7 +25,7 @@
   --motion-medium: 420ms;
   --mono: "IBM Plex Mono", monospace;
   --sans: "Space Grotesk", sans-serif;
-  --ui-scale: 0.95;
+  --ui-scale: 0.85;
 }
 
 * {
@@ -261,6 +261,19 @@ body {
   gap: 18px;
 }
 
+@media (min-width: 1024px) and (min-resolution: 1.5dppx), (min-width: 1600px) {
+  /* Hi-DPI / ultra-wide: fit three dashboard modules on a single row when possible. */
+  .dashboard-grid .span-7.chart-panel,
+  .dashboard-grid .span-5.chart-panel {
+    grid-column: span 4;
+  }
+
+  /* Keep "Protocol split" sharing the row with Outbound mix instead of dropping to a new line. */
+  .dashboard-grid .span-12.chart-panel {
+    grid-column: span 8;
+  }
+}
+
 .span-12 {
   grid-column: span 12;
 }
@@ -398,6 +411,13 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 16px;
+}
+
+@media (min-width: 900px) and (min-resolution: 1.5dppx) {
+  /* Hi-DPI tends to feel cramped; cap dashboard cards to 3 across. */
+  .metric-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 .metric-card {
@@ -857,15 +877,21 @@ body {
 
 .row {
   display: grid;
-  /* Let small numeric/action columns hug content, give the rest to destination/source. */
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) max-content max-content max-content max-content;
+  /* Keep columns aligned with header across all rows (avoid per-row intrinsic sizing). */
+  grid-template-columns:
+    minmax(0, 2.2fr)
+    minmax(0, 1.8fr)
+    minmax(0, 0.7fr)
+    minmax(0, 0.8fr)
+    minmax(0, 0.8fr)
+    minmax(0, 0.6fr);
   gap: 12px;
   align-items: center;
   min-width: 0;
   font-size: 13px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--row-bg, rgba(255, 255, 255, 0.7));
   border: 1px solid rgba(28, 43, 42, 0.06);
 }
 
@@ -887,14 +913,12 @@ body {
   position: relative;
   overflow: hidden;
   --activity: 0;
-  --row-offset-x: 0px;
-  --row-offset-y: 0px;
-  transform: translate(var(--row-offset-x), var(--row-offset-y));
+  transform: translateY(0);
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 300ms var(--ease-smooth);
 }
 
 .row.clickable:hover {
-  transform: translate(var(--row-offset-x), calc(var(--row-offset-y) - 1px));
+  transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(28, 43, 42, 0.08);
 }
 
@@ -948,6 +972,22 @@ body {
   line-height: 1;
 }
 
+.conn-info {
+  border-radius: 999px;
+  border: 1px solid rgba(28, 43, 42, 0.2);
+  background: rgba(28, 43, 42, 0.08);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 8px;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.conn-info:hover {
+  background: rgba(28, 43, 42, 0.12);
+}
+
 .conn-close:hover {
   background: rgba(255, 107, 74, 0.2);
 }
@@ -969,13 +1009,14 @@ body {
   display: grid;
   grid-template-columns: var(
     --detail-columns,
-    1.4fr 1.1fr 1.1fr 0.8fr 0.8fr 0.8fr 0.9fr 0.6fr 0.6fr 1.1fr 0.5fr
+    2.2fr 1.8fr 1.8fr 0.9fr 0.9fr 0.9fr 1.2fr 0.7fr 0.7fr 1.1fr 0.6fr
   );
   gap: 10px;
   align-items: center;
   font-size: 12px;
   padding: 8px 6px;
   border-radius: 10px;
+  background: var(--row-bg, rgba(255, 255, 255, 0.38));
   position: relative;
   overflow: hidden;
   --activity: 0;
@@ -987,6 +1028,7 @@ body {
   letter-spacing: 0.08em;
   color: var(--muted);
   padding-top: 0;
+  background: transparent;
 }
 
 .detail-row:not(.header)::before {
@@ -1010,6 +1052,33 @@ body {
   position: relative;
   z-index: 1;
   min-width: 0;
+}
+
+.auto-fold {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  /* Keep the tail visible: truncate the front (ellipsis on the left). */
+  direction: rtl;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.auto-fold-content {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+.auto-fold-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+  display: inline-block;
+  left: 0;
+  top: 0;
 }
 
 .detail-header-toggle {
@@ -1654,7 +1723,8 @@ select {
   gap: 12px;
 }
 
-@media (min-width: 900px) and (min-resolution: 1.5dppx) {
+/* Treat very wide viewports (>=1600px) similar to "hi-DPI" for multi-column/split layouts. */
+@media (min-width: 900px) and (min-resolution: 1.5dppx), (min-width: 1600px) {
   .nodes-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1670,6 +1740,18 @@ select {
 
   .outbound-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .outbound-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1920px) {
+  .outbound-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -1984,7 +2066,13 @@ select.pill {
   }
 
   .row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) max-content max-content max-content max-content;
+    grid-template-columns:
+      minmax(0, 2fr)
+      minmax(0, 1.6fr)
+      minmax(0, 0.6fr)
+      minmax(0, 0.7fr)
+      minmax(0, 0.7fr)
+      minmax(0, 0.5fr);
     font-size: 12px;
   }
 }

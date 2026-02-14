@@ -19,11 +19,18 @@ const UI_STATE_SAVE_DELAY_MS = 600;
 const MODAL_ANIMATION_MS = 200;
 const CONNECTION_REFRESH_OPTIONS = [1, 2, 5, 10];
 const DEFAULT_CONNECTION_REFRESH = 1;
-const CONNECTION_SORT_ANIMATION_MS = 420;
 const TRAFFIC_DIRECTION_HINTS = {
   upload: 'User -> Xray',
   download: 'Xray -> User'
 };
+const ZEBRA_ROW_BACKGROUNDS = [
+  'rgba(255, 255, 255, 0.78)',
+  'rgba(28, 43, 42, 0.05)'
+];
+const ZEBRA_DETAIL_BACKGROUNDS = [
+  'rgba(255, 255, 255, 0.48)',
+  'rgba(28, 43, 42, 0.04)'
+];
 
 const parseRoutingDraft = (raw) => {
   if (!raw) return null;
@@ -286,6 +293,15 @@ const OUTBOUND_TEMPLATE = {
   settings: {}
 };
 
+const SUBSCRIPTION_OUTBOUND_TEMPLATE = {
+  name: '',
+  url: '',
+  format: 'auto',
+  tagPrefix: '',
+  insert: 'tail',
+  enabled: true
+};
+
 const clamp = (value, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 const CONNECTION_ACTIVITY_SCALE = 256 * 1024;
 const DETAIL_ACTIVITY_SCALE = 64 * 1024;
@@ -418,14 +434,114 @@ const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metada
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
 const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
 const getDetailLastSeen = (detail) => detail?.lastSeen || detail?.last_seen || detail?.LastSeen || '';
+const IPV6_FOLD_TAIL_GROUPS = 4;
+const splitZoneIndex = (value) => {
+  const text = String(value || '');
+  const idx = text.indexOf('%');
+  if (idx < 0) return { ip: text, zone: '' };
+  return { ip: text.slice(0, idx), zone: text.slice(idx) };
+};
+const foldIpv6Front = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw || !isLikelyIPv6(raw)) return raw;
+  const parts = raw.split(':').filter(Boolean);
+  if (parts.length <= IPV6_FOLD_TAIL_GROUPS) return raw;
+  return `…:${parts.slice(-IPV6_FOLD_TAIL_GROUPS).join(':')}`;
+};
+const formatHostDisplay = (host) => {
+  const hostValue = String(host || '').trim();
+  if (!hostValue) return hostValue;
+  const bracketed = hostValue.startsWith('[') && hostValue.endsWith(']');
+  const inner = bracketed ? hostValue.slice(1, -1) : hostValue;
+  const { ip, zone } = splitZoneIndex(inner);
+  if (!isLikelyIPv6(ip)) return hostValue;
+  return `${foldIpv6Front(ip)}${zone}`;
+};
 const formatHostPort = (host, port) => {
   const hostValue = String(host || '').trim();
   const portValue = port === undefined || port === null ? '' : String(port).trim();
   if (!portValue) return hostValue;
-  if (isLikelyIPv6(hostValue) && !hostValue.startsWith('[')) {
+  const bracketed = hostValue.startsWith('[') && hostValue.endsWith(']');
+  const inner = bracketed ? hostValue.slice(1, -1) : hostValue;
+  const { ip } = splitZoneIndex(inner);
+  if (isLikelyIPv6(ip) && !hostValue.startsWith('[')) {
     return `[${hostValue}]:${portValue}`;
   }
   return `${hostValue}:${portValue}`;
+};
+const formatHostPortDisplay = (host, port) => {
+  const hostValue = String(host || '').trim();
+  const portValue = port === undefined || port === null ? '' : String(port).trim();
+  if (!portValue) return formatHostDisplay(hostValue);
+  const bracketed = hostValue.startsWith('[') && hostValue.endsWith(']');
+  const inner = bracketed ? hostValue.slice(1, -1) : hostValue;
+  const { ip, zone } = splitZoneIndex(inner);
+  if (!isLikelyIPv6(ip)) return `${hostValue}:${portValue}`;
+  return `[${foldIpv6Front(ip)}${zone}]:${portValue}`;
+};
+
+const AutoFoldText = ({ fullText, foldedText, renderText, className }) => {
+  const containerRef = useRef(null);
+  const measureRef = useRef(null);
+  const [shouldFold, setShouldFold] = useState(false);
+
+  const full = fullText === null || fullText === undefined ? '' : String(fullText);
+  const folded = foldedText === null || foldedText === undefined ? '' : String(foldedText);
+  const canFold = folded && folded !== full;
+
+  const display = canFold && shouldFold ? folded : full;
+  const title = canFold && shouldFold ? full : undefined;
+
+  useLayoutEffect(() => {
+    if (!canFold) {
+      setShouldFold(false);
+      return;
+    }
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return;
+    const available = container.clientWidth;
+    const fullWidth = measure.getBoundingClientRect().width;
+    setShouldFold(fullWidth > available + 0.5);
+  }, [canFold, full, folded, renderText]);
+
+  useEffect(() => {
+    if (!canFold) return undefined;
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return undefined;
+
+    const check = () => {
+      const available = container.clientWidth;
+      const fullWidth = measure.getBoundingClientRect().width;
+      setShouldFold(fullWidth > available + 0.5);
+    };
+
+    check();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const ro = new ResizeObserver(() => check());
+      ro.observe(container);
+      return () => ro.disconnect();
+    }
+
+    const onResize = () => check();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [canFold, full, folded]);
+
+  return (
+    <span ref={containerRef} className={`auto-fold ${className || ''}`.trim()} title={title}>
+      {canFold ? (
+        <span ref={measureRef} className="auto-fold-measure" aria-hidden="true">
+          {renderText ? renderText(full) : full}
+        </span>
+      ) : null}
+      <span className="auto-fold-content">
+        {renderText ? renderText(display) : display}
+      </span>
+    </span>
+  );
 };
 
 const mergeLabel = (current, incoming) => {
@@ -592,29 +708,29 @@ const CONNECTION_SORT_FIELDS = {
 };
 
 const DETAIL_COLUMNS = [
-  { key: 'destination', label: 'Destination', width: 'minmax(0, 1.4fr)', cellClassName: 'mono' },
-  { key: 'source', label: 'Source', width: 'minmax(0, 1.1fr)', cellClassName: 'mono' },
-  { key: 'xraySrc', label: 'Xray Src', width: 'minmax(0, 1.1fr)', cellClassName: 'mono' },
-  { key: 'user', label: 'User', width: 'minmax(0, 0.8fr)' },
-  { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.8fr)' },
-  { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.8fr)' },
-  { key: 'protocol', label: 'Protocol', width: 'minmax(0, 0.9fr)', cellClassName: 'mono' },
+  { key: 'destination', label: 'Destination', width: 'minmax(0, 2.2fr)', cellClassName: 'mono' },
+  { key: 'source', label: 'Source', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
+  { key: 'xraySrc', label: 'Xray Src', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
+  { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
+  { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
+  { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
+  { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   {
     key: 'upload',
     label: 'Up',
-    width: 'max-content',
+    width: 'minmax(0, 0.7fr)',
     cellClassName: 'mono',
     hint: TRAFFIC_DIRECTION_HINTS.upload
   },
   {
     key: 'download',
     label: 'Down',
-    width: 'max-content',
+    width: 'minmax(0, 0.7fr)',
     cellClassName: 'mono',
     hint: TRAFFIC_DIRECTION_HINTS.download
   },
-  { key: 'lastSeen', label: 'Last Seen', width: 'max-content', cellClassName: 'mono' },
-  { key: 'close', label: 'Close', width: 'max-content', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
+  { key: 'lastSeen', label: 'Last Seen', width: 'minmax(0, 1.1fr)', cellClassName: 'mono' },
+  { key: 'close', label: 'Close', width: 'minmax(0, 0.6fr)', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
 ];
 const DETAIL_COLUMN_KEYS = new Set(DETAIL_COLUMNS.map((column) => column.key));
 
@@ -832,6 +948,9 @@ export default function App() {
   const [configOutbounds, setConfigOutbounds] = useState([]);
   const [configOutboundsStatus, setConfigOutboundsStatus] = useState('');
   const [configOutboundsPath, setConfigOutboundsPath] = useState('');
+  const [configSubscriptionOutbounds, setConfigSubscriptionOutbounds] = useState([]);
+  const [configSubscriptionStatus, setConfigSubscriptionStatus] = useState('');
+  const [configSubscriptionPath, setConfigSubscriptionPath] = useState('');
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [rulesModalVisible, setRulesModalVisible] = useState(false);
   const [rulesModalClosing, setRulesModalClosing] = useState(false);
@@ -860,6 +979,12 @@ export default function App() {
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState('');
   const [deleteConfirmIndex, setDeleteConfirmIndex] = useState(-1);
   const [deleteConfirmLabel, setDeleteConfirmLabel] = useState('');
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [infoModalClosing, setInfoModalClosing] = useState(false);
+  const [infoModalTitle, setInfoModalTitle] = useState('');
+  const [infoModalText, setInfoModalText] = useState('');
+  const [infoModalStatus, setInfoModalStatus] = useState('');
   const [expandedConnections, setExpandedConnections] = useState(() => new Set());
   const [detailColumnsVisible, setDetailColumnsVisible] = useState(
     () => new Set(DETAIL_COLUMNS.map((column) => column.key))
@@ -881,9 +1006,6 @@ export default function App() {
   const trafficShiftRafRef = useRef(null);
   const connTotalsRef = useRef(new Map());
   const detailTotalsRef = useRef(new Map());
-  const connRowRefs = useRef(new Map());
-  const connRowRectsRef = useRef(new Map());
-  const connRowFlipFrameRef = useRef(null);
   const rulesModalCloseTimerRef = useRef(null);
   const restartCooldownRef = useRef(null);
   const restartReloadRef = useRef(null);
@@ -891,6 +1013,7 @@ export default function App() {
   const delayTestTriggerRef = useRef(null);
   const restartConfirmCloseTimerRef = useRef(null);
   const deleteConfirmCloseTimerRef = useRef(null);
+  const infoModalCloseTimerRef = useRef(null);
 
   const isRoutingDraftNotice = configRulesStatus
     ? configRulesStatus.includes(ROUTING_DRAFT_NOTICE)
@@ -1032,7 +1155,51 @@ export default function App() {
     return list;
   }, [configOutbounds]);
 
-  const resolveOutboundSelectors = (selectors, tags = (configOutboundTags.length > 0 ? configOutboundTags : runtimeOutboundTags)) => {
+  const displayOutbounds = useMemo(() => {
+    const seenConfigTags = new Set();
+    const list = [];
+    (configOutbounds || []).forEach((ob, index) => {
+      const tag = normalizeTag(ob?.tag);
+      if (tag) {
+        seenConfigTags.add(tag);
+      }
+      list.push({
+        key: tag ? `config:${tag}:${index}` : `config-index:${index}`,
+        tag,
+        configIndex: index,
+        configOutbound: ob
+      });
+    });
+
+    const runtimeOnly = [];
+    (runtimeOutboundTags || []).forEach((tag) => {
+      if (!tag || seenConfigTags.has(tag)) return;
+      runtimeOnly.push({
+        key: `runtime:${tag}`,
+        tag,
+        configIndex: -1,
+        configOutbound: null
+      });
+    });
+    runtimeOnly.sort((a, b) => a.tag.localeCompare(b.tag));
+
+    return [...list, ...runtimeOnly];
+  }, [configOutbounds, runtimeOutboundTags]);
+
+  const allOutboundTags = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    [...(configOutboundTags || []), ...(runtimeOutboundTags || [])].forEach((rawTag) => {
+      const tag = normalizeTag(rawTag);
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      list.push(tag);
+    });
+    list.sort();
+    return list;
+  }, [configOutboundTags, runtimeOutboundTags]);
+
+  const resolveOutboundSelectors = (selectors, tags = allOutboundTags) => {
     if (!Array.isArray(selectors) || selectors.length === 0) return [];
     if (!Array.isArray(tags) || tags.length === 0) return [];
 
@@ -1064,7 +1231,51 @@ export default function App() {
     const map = new Map();
     (connections.connections || []).forEach((conn) => {
       (conn.details || []).forEach((detail) => {
-        const label = detail.metadata?.network || detail.metadata?.type || 'unknown';
+        const network = String(detail.metadata?.network || '').trim();
+        const type = String(detail.metadata?.type || '').trim();
+        const rawAlpn = String(detail.metadata?.alpn || '').trim();
+        const networkLower = network.toLowerCase();
+        const typeRawParts = type.split('+').map((part) => part.trim()).filter(Boolean);
+        const typeParts = typeRawParts.map((part) => part.toLowerCase());
+        const hasTLS = typeParts.includes('tls');
+        const hasQUIC = typeParts.includes('quic');
+        const hasHTTP = typeParts.includes('http');
+        const networkDisplay = networkLower === 'tcp'
+          ? 'TCP'
+          : networkLower === 'udp'
+            ? 'UDP'
+            : (network || 'unknown');
+        const tokens = [networkDisplay];
+        if (hasTLS) {
+          tokens.push('TLS');
+        }
+        if (hasQUIC) {
+          tokens.push('QUIC');
+        }
+        const alpnLower = rawAlpn.toLowerCase();
+        const alpnDisplay = rawAlpn
+          ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
+            ? 'H1'
+            : (alpnLower === 'h2' || alpnLower.startsWith('h2-'))
+              ? 'H2'
+              : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
+                ? 'H3'
+                : rawAlpn)
+          : (hasHTTP
+            ? 'H1'
+            : '');
+        if (alpnDisplay) {
+          tokens.push(alpnDisplay);
+        }
+        const extraTypeParts = typeRawParts.filter((part, index) => {
+          const lower = typeParts[index];
+          if (!lower) return false;
+          if (lower === 'tls' || lower === 'quic' || lower === 'http') return false;
+          if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
+          return true;
+        });
+        extraTypeParts.forEach((part) => tokens.push(part));
+        const label = tokens.join(' · ') || 'unknown';
         map.set(label, (map.get(label) || 0) + 1);
       });
     });
@@ -1203,15 +1414,6 @@ export default function App() {
     });
   };
 
-  const registerConnRow = (id) => (node) => {
-    if (id === null || id === undefined) return;
-    if (!node) {
-      connRowRefs.current.delete(id);
-      return;
-    }
-    connRowRefs.current.set(id, node);
-  };
-
   const toggleConnStream = () => {
     setConnStreamPaused((prev) => !prev);
   };
@@ -1232,10 +1434,72 @@ export default function App() {
     }
   };
 
+  const openInfoModal = (title, payload) => {
+    clearTimeoutRef(infoModalCloseTimerRef);
+    setInfoModalTitle(String(title || 'Info'));
+    setInfoModalText(formatJson(payload));
+    setInfoModalStatus('');
+    setInfoModalVisible(true);
+    setInfoModalClosing(false);
+    setInfoModalOpen(true);
+  };
+
+  const closeInfoModal = () => {
+    if (infoModalClosing) return false;
+    scheduleModalClose(
+      infoModalCloseTimerRef,
+      setInfoModalOpen,
+      setInfoModalVisible,
+      setInfoModalClosing
+    );
+    return true;
+  };
+
+  const copyInfoModal = async () => {
+    const value = String(infoModalText || '');
+    if (!value) return;
+    setInfoModalStatus('Copying...');
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+        setInfoModalStatus('Copied.');
+        return;
+      }
+      if (typeof document === 'undefined') {
+        setInfoModalStatus('Copy failed: no document.');
+        return;
+      }
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', 'readonly');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      textarea.style.left = '-9999px';
+      textarea.style.top = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setInfoModalStatus(ok ? 'Copied.' : 'Copy failed.');
+    } catch (err) {
+      setInfoModalStatus(`Copy failed: ${err.message}`);
+    }
+  };
+
   const handleCloseGroup = (event, conn) => {
     event.preventDefault();
     event.stopPropagation();
     closeConnections((conn.details || []).map((detail) => detail.id));
+  };
+
+  const handleInfoGroup = (event, conn) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openInfoModal(`Connection group: ${conn?.id || ''}`.trim(), {
+      connection: conn,
+      rate: connRates.get(conn.id) || null
+    });
   };
 
   const handleCloseDetail = (event, detail) => {
@@ -1244,36 +1508,109 @@ export default function App() {
     closeConnections([detail.id]);
   };
 
+  const handleInfoDetail = (event, conn, detail, detailRate, detailKey) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openInfoModal(`Connection: ${conn?.id || ''} · Detail: ${detailKey || ''}`.trim(), {
+      connId: conn?.id || null,
+      detailKey: detailKey || null,
+      detail,
+      rate: detailRate || null
+    });
+  };
+
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
   const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
-  const renderDetailCell = (columnKey, detail, detailRate) => {
+  const renderDetailCell = (columnKey, conn, detail, detailRate, detailKey) => {
     switch (columnKey) {
-      case 'destination':
-        return highlightConnCell(formatHostPort(
-          getDetailDestinationLabel(detail),
-          detail.metadata?.destinationPort
-        ));
-      case 'source':
-        return highlightConnCell(formatHostPort(
-          getDetailSourceLabel(detail),
-          detail.metadata?.sourcePort
-        ));
-      case 'xraySrc':
-        return highlightConnCell(formatHostPort(
-          getDetailXraySrcLabel(detail),
-          detail.metadata?.xraySrcPort
-        ));
+      case 'destination': {
+        const host = getDetailDestinationLabel(detail);
+        const port = detail.metadata?.destinationPort;
+        const full = formatHostPort(host, port);
+        const display = formatHostPortDisplay(host, port);
+        return (
+          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+        );
+      }
+      case 'source': {
+        const host = getDetailSourceLabel(detail);
+        const port = detail.metadata?.sourcePort;
+        const full = formatHostPort(host, port);
+        const display = formatHostPortDisplay(host, port);
+        return (
+          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+        );
+      }
+      case 'xraySrc': {
+        const host = getDetailXraySrcLabel(detail);
+        const port = detail.metadata?.xraySrcPort;
+        const full = formatHostPort(host, port);
+        const display = formatHostPortDisplay(host, port);
+        return (
+          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+        );
+      }
       case 'user':
         return highlightConnCell(detail.metadata?.user || '-');
       case 'inbound':
         return highlightConnCell(detail.metadata?.inboundTag || '-');
       case 'outbound':
         return highlightConnCell(detail.metadata?.outboundTag || '-');
-      case 'protocol':
-        return highlightConnCell((detail.metadata?.network || '-') + '/' + (detail.metadata?.type || '-')
-          + ((detail.rule || detail.rulePayload)
-            ? ` · ${detail.rule || detail.rulePayload}`
-            : ''));
+      case 'protocol': {
+        const network = String(detail.metadata?.network || '-').trim() || '-';
+        const type = String(detail.metadata?.type || '-').trim() || '-';
+        const rawAlpn = String(detail.metadata?.alpn || '').trim();
+        const alpnLower = rawAlpn.toLowerCase();
+        const typeRawParts = type === '-' ? [] : type.split('+').map((part) => part.trim()).filter(Boolean);
+        const typeParts = typeRawParts.map((part) => part.toLowerCase());
+        const hasTLS = typeParts.includes('tls');
+        const hasQUIC = typeParts.includes('quic');
+        const hasHTTP = typeParts.includes('http');
+        const networkLower = network.toLowerCase();
+        const networkDisplay = networkLower === 'tcp'
+          ? 'TCP'
+          : networkLower === 'udp'
+            ? 'UDP'
+            : network;
+        const tokens = [networkDisplay];
+        if (hasTLS) {
+          tokens.push('TLS');
+        }
+        if (hasQUIC) {
+          tokens.push('QUIC');
+        }
+        const alpnDisplay = rawAlpn
+          ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
+            ? 'H1'
+            : (alpnLower === 'h2' || alpnLower.startsWith('h2-'))
+              ? 'H2'
+              : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
+                ? 'H3'
+                : rawAlpn)
+          : (hasHTTP
+            ? 'H1'
+            : '');
+        if (alpnDisplay) {
+          tokens.push(alpnDisplay);
+        }
+        const extraTypeParts = typeRawParts.filter((part, index) => {
+          const lower = typeParts[index];
+          if (!lower) return false;
+          if (lower === 'tls' || lower === 'quic' || lower === 'http') return false;
+          if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
+          return true;
+        });
+        extraTypeParts.forEach((part) => tokens.push(part));
+        const baseDisplay = tokens.join(' · ');
+        const ruleName = String(detail.rule || detail.rulePayload || '').trim();
+        const outboundTag = String(detail.metadata?.outboundTag || '').trim();
+        const ruleLower = ruleName.toLowerCase();
+        const outboundLower = outboundTag.toLowerCase();
+        const ruleDisplay = ruleName && ruleLower !== outboundLower
+          ? ` · ${ruleName}`
+          : '';
+        return highlightConnCell(`${baseDisplay}${ruleDisplay}`);
+      }
       case 'upload':
         return highlightConnCell(formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type)));
       case 'download':
@@ -1282,14 +1619,24 @@ export default function App() {
         return highlightConnCell(formatTime(getDetailLastSeen(detail)));
       case 'close':
         return (
-          <button
-            type="button"
-            className="conn-close"
-            onClick={(event) => handleCloseDetail(event, detail)}
-            title="Close this connection"
-          >
-            Close
-          </button>
+          <React.Fragment>
+            <button
+              type="button"
+              className="conn-info"
+              onClick={(event) => handleInfoDetail(event, conn, detail, detailRate, detailKey)}
+              title="Info"
+            >
+              Info
+            </button>
+            <button
+              type="button"
+              className="conn-close"
+              onClick={(event) => handleCloseDetail(event, detail)}
+              title="Close this connection"
+            >
+              Close
+            </button>
+          </React.Fragment>
         );
       default:
         return '-';
@@ -1516,9 +1863,38 @@ export default function App() {
     }
   };
 
+  const normalizeSubscriptionOutboundList = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'object') return [value];
+    return [];
+  };
+
+  const loadSubscriptionConfig = async (base = apiBase) => {
+    setConfigSubscriptionStatus('Loading config...');
+    try {
+      const resp = await fetchJson(`${base}/config/subscription`);
+      const subscription = resp && typeof resp.subscription === 'object' ? resp.subscription : {};
+      const outbounds = normalizeSubscriptionOutboundList(subscription?.outbound);
+      setConfigSubscriptionOutbounds(outbounds);
+      setConfigSubscriptionPath(resp.path || '');
+      if (resp.foundSubscription === false) {
+        setConfigSubscriptionStatus('Subscription section not found; saving will create it.');
+      } else {
+        setConfigSubscriptionStatus('');
+      }
+      return resp;
+    } catch (err) {
+      setConfigSubscriptionStatus(`Config load failed: ${err.message}`);
+      throw err;
+    }
+  };
+
   const setConfigStatus = (target, message) => {
     if (target === 'outbound') {
       setConfigOutboundsStatus(message);
+    } else if (target === 'subscription') {
+      setConfigSubscriptionStatus(message);
     } else {
       setConfigRulesStatus(message);
     }
@@ -1613,6 +1989,7 @@ export default function App() {
   const triggerHotReload = () => performHotReload(setSettingsStatus);
   const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus);
   const triggerHotReloadFromRules = () => performHotReload(setRulesStatus);
+  const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus);
 
   const saveUiState = async (payload, base = apiBase) => {
     try {
@@ -1734,10 +2111,6 @@ export default function App() {
       clearTimeoutRef(delayTestTriggerRef);
       clearTimeoutRef(restartConfirmCloseTimerRef);
       clearTimeoutRef(deleteConfirmCloseTimerRef);
-      if (connRowFlipFrameRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(connRowFlipFrameRef.current);
-        connRowFlipFrameRef.current = null;
-      }
       clearTimeoutRef(uiStateSaveRef);
     };
   }, []);
@@ -2142,76 +2515,7 @@ export default function App() {
     setExpandedConnections(new Set());
   }, [connViewMode]);
 
-  useEffect(() => {
-    if (isConnectionsPage) return;
-    connRowRectsRef.current = new Map();
-    if (connRowFlipFrameRef.current !== null && typeof window !== 'undefined') {
-      window.cancelAnimationFrame(connRowFlipFrameRef.current);
-      connRowFlipFrameRef.current = null;
-    }
-  }, [isConnectionsPage]);
-
-  useLayoutEffect(() => {
-    if (!isConnectionsPage || typeof window === 'undefined') return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const nextRects = new Map();
-      connRowRefs.current.forEach((node, id) => {
-        if (!node) return;
-        nextRects.set(id, node.getBoundingClientRect());
-      });
-      connRowRectsRef.current = nextRects;
-      return;
-    }
-    if (connRowFlipFrameRef.current !== null) {
-      window.cancelAnimationFrame(connRowFlipFrameRef.current);
-      connRowFlipFrameRef.current = null;
-    }
-
-    const prevRects = connRowRectsRef.current;
-    const nextRects = new Map();
-    connRowRefs.current.forEach((node, id) => {
-      if (!node) return;
-      nextRects.set(id, node.getBoundingClientRect());
-    });
-
-    nextRects.forEach((next, id) => {
-      const prev = prevRects.get(id);
-      const node = connRowRefs.current.get(id);
-      if (!node || !prev) return;
-      const dx = prev.left - next.left;
-      const dy = prev.top - next.top;
-      if (!dx && !dy) return;
-      node.style.setProperty('--row-offset-x', `${dx}px`);
-      node.style.setProperty('--row-offset-y', `${dy}px`);
-      node.style.transition = 'transform 0s';
-      node.style.willChange = 'transform';
-    });
-
-    connRowFlipFrameRef.current = window.requestAnimationFrame(() => {
-      connRowFlipFrameRef.current = null;
-      nextRects.forEach((next, id) => {
-        const prev = prevRects.get(id);
-        const node = connRowRefs.current.get(id);
-        if (!node || !prev) return;
-        const dx = prev.left - next.left;
-        const dy = prev.top - next.top;
-        if (!dx && !dy) return;
-        node.style.transition = `transform ${CONNECTION_SORT_ANIMATION_MS}ms var(--ease-smooth)`;
-        node.style.setProperty('--row-offset-x', '0px');
-        node.style.setProperty('--row-offset-y', '0px');
-        node.addEventListener(
-          'transitionend',
-          () => {
-            node.style.transition = '';
-            node.style.willChange = '';
-          },
-          { once: true }
-        );
-      });
-    });
-
-    connRowRectsRef.current = nextRects;
-  }, [filteredConnections, isConnectionsPage]);
+  // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
 
   useEffect(() => {
     if (page !== 'rules') return;
@@ -2225,6 +2529,7 @@ export default function App() {
   useEffect(() => {
     if (page !== 'nodes') return;
     loadOutboundsConfig(apiBase).catch(() => {});
+    loadSubscriptionConfig(apiBase).catch(() => {});
   }, [page, apiBase]);
 
   const loadRules = async (base = apiBase) => {
@@ -2262,13 +2567,27 @@ export default function App() {
     return `${index + 1}. outbound`;
   };
 
+  const getSubscriptionLabel = (subscription, index) => {
+    const name = String(subscription?.name || '').trim();
+    const url = String(subscription?.url || '').trim();
+    if (name) {
+      return `${index + 1}. ${name}`;
+    }
+    if (url) {
+      return `${index + 1}. ${url}`;
+    }
+    return `${index + 1}. subscription`;
+  };
+
   const openRulesModal = (target, mode, index = -1, afterIndex = -1, item = null) => {
     const normalizedAfter = Number.isFinite(Number(afterIndex)) ? Number(afterIndex) : -1;
     const template = target === 'rule'
       ? RULE_TEMPLATE
       : target === 'balancer'
         ? BALANCER_TEMPLATE
-        : OUTBOUND_TEMPLATE;
+        : target === 'subscription'
+          ? SUBSCRIPTION_OUTBOUND_TEMPLATE
+          : OUTBOUND_TEMPLATE;
     clearTimeoutRef(rulesModalCloseTimerRef);
     setRulesModalVisible(true);
     setRulesModalClosing(false);
@@ -2287,6 +2606,8 @@ export default function App() {
       ? (Array.isArray(configRules) ? configRules : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? configBalancers : [])
+        : target === 'subscription'
+          ? (Array.isArray(configSubscriptionOutbounds) ? configSubscriptionOutbounds : [])
         : (Array.isArray(configOutbounds) ? configOutbounds : []);
     if (index < 0 || index >= items.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
@@ -2296,6 +2617,8 @@ export default function App() {
       ? getRuleLabel(items[index], index)
       : target === 'balancer'
         ? getBalancerLabel(items[index], index)
+        : target === 'subscription'
+          ? getSubscriptionLabel(items[index], index)
         : getOutboundLabel(items[index], index);
     clearTimeoutRef(deleteConfirmCloseTimerRef);
     setDeleteConfirmTarget(target);
@@ -2339,6 +2662,8 @@ export default function App() {
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'subscription'
+          ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
         : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (index < 0 || index >= nextItems.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
@@ -2357,6 +2682,23 @@ export default function App() {
     }
     setConfigStatus(target, 'Deleting...');
     try {
+      if (target === 'subscription') {
+        const subscription = nextItems.length > 0 ? { outbound: nextItems } : null;
+        const resp = await fetchJson(`${apiBase}/config/subscription`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription,
+            path: configSubscriptionPath || undefined
+          })
+        });
+        if (resp?.path) {
+          setConfigSubscriptionPath(resp.path);
+        }
+        setConfigSubscriptionOutbounds(nextItems);
+        setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
+        return;
+      }
       const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
       const body =
         target === 'rule'
@@ -2409,12 +2751,20 @@ export default function App() {
       setRulesModalStatus(`Invalid JSON: ${err.message}`);
       return;
     }
+
+    const target = rulesModalTarget;
+    const targetLabel = target === 'rule'
+      ? 'Rule'
+      : target === 'balancer'
+        ? 'Balancer'
+        : target === 'subscription'
+          ? 'Subscription outbound'
+          : 'Outbound';
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      setRulesModalStatus('Rule must be a JSON object.');
+      setRulesModalStatus(`${targetLabel} must be a JSON object.`);
       return;
     }
 
-    const target = rulesModalTarget;
     if (target === 'rule') {
       const targetTagRaw = parsed.targetTag;
       if (targetTagRaw !== undefined && targetTagRaw !== null) {
@@ -2475,10 +2825,51 @@ export default function App() {
         return;
       }
     }
+
+    if (target === 'subscription') {
+      const urlRaw = parsed.url;
+      if (urlRaw !== undefined && urlRaw !== null && typeof urlRaw !== 'string') {
+        setRulesModalStatus('url must be a string.');
+        return;
+      }
+      const url = String(urlRaw || '').trim();
+      if (!url) {
+        setRulesModalStatus('url is required.');
+        return;
+      }
+      const enabledRaw = parsed.enabled;
+      if (enabledRaw !== undefined && enabledRaw !== null && typeof enabledRaw !== 'boolean') {
+        setRulesModalStatus('enabled must be a boolean.');
+        return;
+      }
+      const nameRaw = parsed.name;
+      if (nameRaw !== undefined && nameRaw !== null && typeof nameRaw !== 'string') {
+        setRulesModalStatus('name must be a string.');
+        return;
+      }
+      const formatRaw = parsed.format;
+      if (formatRaw !== undefined && formatRaw !== null && typeof formatRaw !== 'string') {
+        setRulesModalStatus('format must be a string.');
+        return;
+      }
+      const tagPrefixRaw = parsed.tagPrefix;
+      if (tagPrefixRaw !== undefined && tagPrefixRaw !== null && typeof tagPrefixRaw !== 'string') {
+        setRulesModalStatus('tagPrefix must be a string.');
+        return;
+      }
+      const insertRaw = parsed.insert;
+      if (insertRaw !== undefined && insertRaw !== null && typeof insertRaw !== 'string') {
+        setRulesModalStatus('insert must be a string.');
+        return;
+      }
+    }
+
     const nextItems = target === 'rule'
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'subscription'
+          ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
         : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (rulesModalMode === 'edit') {
       if (rulesModalIndex < 0 || rulesModalIndex >= nextItems.length) {
@@ -2518,33 +2909,49 @@ export default function App() {
     }
     setRulesModalStatus('Saving...');
     try {
-      const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
-      const body =
-        target === 'rule'
-          ? { rules: nextItems }
-          : target === 'balancer'
-            ? { balancers: nextItems }
-            : { outbounds: nextItems };
-      const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
-      await fetchJson(`${apiBase}/config/${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(target === 'outbound' ? body : { routing: body }),
-          path: path || undefined
-        })
-      });
-      if (target === 'rule') {
-        setConfigRules(nextItems);
-      } else if (target === 'balancer') {
-        setConfigBalancers(nextItems);
+      if (target === 'subscription') {
+        const subscription = nextItems.length > 0 ? { outbound: nextItems } : null;
+        const resp = await fetchJson(`${apiBase}/config/subscription`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription,
+            path: configSubscriptionPath || undefined
+          })
+        });
+        if (resp?.path) {
+          setConfigSubscriptionPath(resp.path);
+        }
+        setConfigSubscriptionOutbounds(nextItems);
       } else {
-        setConfigOutbounds(nextItems);
+        const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
+        const body =
+          target === 'rule'
+            ? { rules: nextItems }
+            : target === 'balancer'
+              ? { balancers: nextItems }
+              : { outbounds: nextItems };
+        const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
+        await fetchJson(`${apiBase}/config/${endpoint}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...(target === 'outbound' ? body : { routing: body }),
+            path: path || undefined
+          })
+        });
+        if (target === 'rule') {
+          setConfigRules(nextItems);
+        } else if (target === 'balancer') {
+          setConfigBalancers(nextItems);
+        } else {
+          setConfigOutbounds(nextItems);
+        }
+        fetchRules(apiBase).catch(() => {});
       }
       setConfigStatus(target, 'Saved to config. Hot reload core to apply.');
       setRulesModalStatus('Saved');
       closeRulesModal({ force: true });
-      fetchRules(apiBase).catch(() => {});
     } catch (err) {
       setRulesModalStatus(`Save failed: ${err.message}`);
     } finally {
@@ -2769,16 +3176,22 @@ export default function App() {
       ? configRules
       : modalTarget === 'balancer'
         ? configBalancers
+        : modalTarget === 'subscription'
+          ? configSubscriptionOutbounds
         : configOutbounds;
     const modalLabel = modalTarget === 'rule'
       ? getRuleLabel
       : modalTarget === 'balancer'
         ? getBalancerLabel
+        : modalTarget === 'subscription'
+          ? getSubscriptionLabel
         : getOutboundLabel;
     const modalTitle = modalTarget === 'rule'
       ? 'rule'
       : modalTarget === 'balancer'
         ? 'balancer'
+        : modalTarget === 'subscription'
+          ? 'subscription outbound'
         : 'outbound';
     return createPortal(
       <div
@@ -2908,6 +3321,8 @@ export default function App() {
       ? 'routing rule'
       : deleteConfirmTarget === 'balancer'
         ? 'balancer'
+        : deleteConfirmTarget === 'subscription'
+          ? 'subscription outbound'
         : 'outbound';
     const titleLabel = deleteConfirmLabel || targetLabel;
     return createPortal(
@@ -2941,6 +3356,45 @@ export default function App() {
             >
               Delete
             </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
+  const renderInfoModal = () => {
+    if (!infoModalVisible || typeof document === 'undefined') return null;
+    const modalState = infoModalClosing ? 'closing' : 'open';
+    return createPortal(
+      <div className="modal-backdrop" role="dialog" aria-modal="true" data-state={modalState}>
+        <div className="modal info-modal" data-state={modalState}>
+          <div className="modal-header">
+            <div>
+              <h3>{infoModalTitle || 'Info'}</h3>
+              <p className="group-meta">Full payload snapshot (read-only).</p>
+            </div>
+            <button className="ghost small" onClick={closeInfoModal}>Close</button>
+          </div>
+          <div className="rules-modal-editor info-modal-editor">
+            <CodeMirror
+              value={infoModalText}
+              height="520px"
+              theme={githubLight}
+              extensions={[
+                json(),
+                EditorView.lineWrapping,
+                EditorView.editable.of(false)
+              ]}
+              aria-label="Info JSON"
+            />
+          </div>
+          <div className="rules-modal-footer">
+            <span className="status">{infoModalStatus}</span>
+            <div className="confirm-actions">
+              <button className="ghost small" onClick={copyInfoModal}>Copy</button>
+              <button className="ghost small" onClick={closeInfoModal}>Close</button>
+            </div>
           </div>
         </div>
       </div>,
@@ -3354,22 +3808,28 @@ export default function App() {
                 {renderSortHeader('Download', 'download', TRAFFIC_DIRECTION_HINTS.download)}
                 <span></span>
               </div>
-                {filteredConnections.map((conn) => {
+                {filteredConnections.map((conn, connIndex) => {
                 const detailIds = (conn.details || []).map((detail) => detail.id);
                 const canClose = detailIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);
                 const visibleDetails = normalizedConnSearchQuery
                   ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
                   : (conn.details || []);
+                const details = conn.details || [];
+                const connIsSplice = isSpliceType(conn?.metadata?.type)
+                  || (details.length > 0 && details.every((detail) => isSpliceType(detail?.metadata?.type)));
                 const connActivity = getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
-                const connIsSplice = isSpliceType(conn?.metadata?.type);
-                const connStyle = { '--activity': String(connActivity) };
+                const destinationRaw = getConnectionDestination(conn);
+                const sourceRaw = getConnectionSource(conn);
+                const destinationFolded = formatHostDisplay(destinationRaw);
+                const sourceFolded = formatHostDisplay(sourceRaw);
+                const rowBg = ZEBRA_ROW_BACKGROUNDS[connIndex % ZEBRA_ROW_BACKGROUNDS.length];
+                const connStyle = { '--activity': String(connActivity), '--row-bg': rowBg };
                 return (
                 <React.Fragment key={conn.id}>
                   <div
                     className={`row clickable ${isExpanded ? 'expanded' : ''}`}
                     style={connStyle}
-                    ref={registerConnRow(conn.id)}
                     role="button"
                     tabIndex={0}
                     onClick={() => toggleExpanded(conn.id)}
@@ -3380,10 +3840,18 @@ export default function App() {
                       }
                     }}
                   >
-                    <span className="mono">
-                      {highlightConnCell(getConnectionDestination(conn))}
-                    </span>
-                    <span className="mono">{highlightConnCell(getConnectionSource(conn))}</span>
+                    <AutoFoldText
+                      className="mono"
+                      fullText={destinationRaw}
+                      foldedText={destinationFolded}
+                      renderText={highlightConnCell}
+                    />
+                    <AutoFoldText
+                      className="mono"
+                      fullText={sourceRaw}
+                      foldedText={sourceFolded}
+                      renderText={highlightConnCell}
+                    />
                     <span className="mono">{highlightConnCell(conn.connectionCount || 1)}</span>
                     <span className="mono">
                       {highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice))}
@@ -3392,6 +3860,14 @@ export default function App() {
                       {highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.download || 0, connIsSplice))}
                     </span>
                     <span className="row-actions">
+                      <button
+                        type="button"
+                        className="conn-info"
+                        onClick={(event) => handleInfoGroup(event, conn)}
+                        title="Info"
+                      >
+                        Info
+                      </button>
                       <button
                         type="button"
                         className="conn-close"
@@ -3445,7 +3921,8 @@ export default function App() {
                         const detailKey = getDetailKey(conn.id, detail, idx);
                         const detailRate = detailRates.get(detailKey);
                         const detailActivity = getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
-                        const detailStyle = { '--activity': String(detailActivity) };
+                        const detailBg = ZEBRA_DETAIL_BACKGROUNDS[idx % ZEBRA_DETAIL_BACKGROUNDS.length];
+                        const detailStyle = { '--activity': String(detailActivity), '--row-bg': detailBg };
                         return (
                         <div className="detail-row" key={detailKey} style={detailStyle}>
                           {detailVisibleColumns.map((column) => (
@@ -3453,7 +3930,7 @@ export default function App() {
                               key={`${detailKey}-${column.key}`}
                               className={column.cellClassName || ''}
                             >
-                              {renderDetailCell(column.key, detail, detailRate)}
+                              {renderDetailCell(column.key, conn, detail, detailRate, detailKey)}
                             </span>
                           ))}
                         </div>
@@ -3579,6 +4056,88 @@ export default function App() {
 
             <div className="nodes-subheader">
               <div>
+                <h3>Subscriptions</h3>
+                <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
+                {configSubscriptionPath ? (
+                  <p className="group-meta mono">Config: {configSubscriptionPath}</p>
+                ) : null}
+              </div>
+              <div className="header-actions">
+                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
+                  Reload config
+                </button>
+                <button
+                  className="primary small"
+                  onClick={triggerHotReloadFromSubscriptions}
+                  disabled={hotReloadBusy}
+                >
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
+                </button>
+                <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
+                  Add subscription
+                </button>
+                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
+              </div>
+            </div>
+            {configSubscriptionOutbounds.length === 0 ? (
+              <div className="empty-state small">
+                <p>No subscriptions configured.</p>
+              </div>
+            ) : (
+              <div className="outbound-grid">
+                {(configSubscriptionOutbounds || []).map((sub, index) => {
+                  const name = String(sub?.name || '').trim();
+                  const url = String(sub?.url || '').trim();
+                  const format = String(sub?.format || 'auto').trim() || 'auto';
+                  const insert = String(sub?.insert || 'tail').trim() || 'tail';
+                  const tagPrefix = String(sub?.tagPrefix || '').trim();
+                  const enabled = sub?.enabled;
+                  const key = `${name || url || 'subscription'}-${index}`;
+                  return (
+                    <div className="outbound-card" key={key}>
+                      <div className="outbound-info">
+                        <div className="outbound-title">
+                          <span className="rule-index">{index + 1}</span>
+                          <h3>{name || '(unnamed)'}</h3>
+                        </div>
+                        {url ? (
+                          <p className="mono">
+                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                          </p>
+                        ) : (
+                          <p className="group-meta mono">(no url)</p>
+                        )}
+                      </div>
+                      <div className="outbound-side">
+                        <div className="outbound-meta">
+                          <span className="meta-pill">{format}</span>
+                          <span className="meta-pill">{insert}</span>
+                          {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
+                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
+                        </div>
+                        <div className="outbound-actions">
+                          <button
+                            className="ghost small danger-text"
+                            onClick={() => openDeleteConfirm('subscription', index)}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="ghost small"
+                            onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="nodes-subheader">
+              <div>
                 <h3>All outbounds</h3>
                 {configOutboundsPath ? (
                   <p className="group-meta mono">Config: {configOutboundsPath}</p>
@@ -3605,24 +4164,27 @@ export default function App() {
                 {configOutboundsStatus ? <span className="status">{configOutboundsStatus}</span> : null}
               </div>
             </div>
-            {configOutbounds.length === 0 ? (
+            {displayOutbounds.length === 0 ? (
               <div className="empty-state small">
                 <p>No outbounds configured.</p>
               </div>
             ) : (
               <div className="outbound-grid">
-                {(configOutbounds || []).map((ob, index) => {
-                  const tag = ob?.tag || '';
+                {displayOutbounds.map((item) => {
+                  const ob = item.configOutbound;
+                  const tag = String(ob?.tag || item.tag || '').trim();
                   const runtime = tag ? runtimeOutboundsByTag.get(tag) : null;
                   const protocol = ob?.protocol || runtime?.type || 'unknown';
                   const nodeStatus = tag ? statusByTag[tag] : null;
                   const alive = nodeStatus ? nodeStatus.alive : null;
                   const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
+                  const managed = String(ob?.managed || '').trim();
+                  const isRuntimeOnly = item.configIndex < 0;
                   return (
-                    <div className="outbound-card" key={tag || `outbound-${index}`}>
+                    <div className="outbound-card" key={item.key}>
                       <div className="outbound-info">
                         <div className="outbound-title">
-                          <span className="rule-index">{index + 1}</span>
+                          <span className="rule-index">{isRuntimeOnly ? 'R' : item.configIndex + 1}</span>
                           <h3>{tag || '(no tag)'}</h3>
                         </div>
                         <p>{protocol}</p>
@@ -3636,20 +4198,32 @@ export default function App() {
                           ) : (
                             <span className="meta-pill">no status</span>
                           )}
+                          {managed ? <span className="meta-pill" title={`managed: ${managed}`}>managed</span> : null}
+                          {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
                         </div>
                         <div className="outbound-actions">
                           <button
-                            className="ghost small danger-text"
-                            onClick={() => openDeleteConfirm('outbound', index)}
-                          >
-                            Delete
-                          </button>
-                          <button
                             className="ghost small"
-                            onClick={() => openRulesModal('outbound', 'edit', index, index, ob)}
+                            onClick={() => openInfoModal(`Outbound: ${tag || '(no tag)'}`, { tag, runtime, status: nodeStatus, config: ob || null })}
                           >
-                            Edit
+                            Info
                           </button>
+                          {isRuntimeOnly ? null : (
+                            <>
+                              <button
+                                className="ghost small danger-text"
+                                onClick={() => openDeleteConfirm('outbound', item.configIndex)}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={() => openRulesModal('outbound', 'edit', item.configIndex, item.configIndex, ob)}
+                              >
+                                Edit
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -3945,13 +4519,6 @@ export default function App() {
                 <h2>Settings</h2>
                 <p>Control actions and runtime status.</p>
               </div>
-              <button
-                className="ghost"
-                onClick={triggerHotReload}
-                disabled={hotReloadBusy}
-              >
-                {hotReloadBusy ? 'Hot reloading...' : 'Hot reload'}
-              </button>
             </div>
 
             <div className="settings-inline">
@@ -4065,6 +4632,7 @@ export default function App() {
         )}
       </section>
       {renderRulesModal()}
+      {renderInfoModal()}
       {renderDeleteConfirm()}
       {renderRestartConfirm()}
     </div>
