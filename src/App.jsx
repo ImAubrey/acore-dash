@@ -1270,7 +1270,7 @@ export default function App() {
         const extraTypeParts = typeRawParts.filter((part, index) => {
           const lower = typeParts[index];
           if (!lower) return false;
-          if (lower === 'tls' || lower === 'quic' || lower === 'http') return false;
+          if (lower === 'tls' || lower === 'quic' || lower === 'http' || lower === 'http1' || lower === 'http2') return false;
           if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
           return true;
         });
@@ -1596,7 +1596,7 @@ export default function App() {
         const extraTypeParts = typeRawParts.filter((part, index) => {
           const lower = typeParts[index];
           if (!lower) return false;
-          if (lower === 'tls' || lower === 'quic' || lower === 'http') return false;
+          if (lower === 'tls' || lower === 'quic' || lower === 'http' || lower === 'http1' || lower === 'http2') return false;
           if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
           return true;
         });
