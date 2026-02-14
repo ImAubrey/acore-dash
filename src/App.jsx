@@ -150,6 +150,11 @@ const PAGES = {
     title: 'Outbound steering',
     description: 'Clash-style policy groups with live outbound health.'
   },
+  subscriptions: {
+    label: 'Subscriptions',
+    title: 'Subscription updates',
+    description: 'Edit the subscription block and schedule outbound/database refresh.'
+  },
   rules: {
     label: 'Rules',
     title: 'Routing rule browser',
@@ -173,6 +178,7 @@ const getPageFromHash = () => {
   if (
     raw === 'dashboard'
     || raw === 'nodes'
+    || raw === 'subscriptions'
     || raw === 'rules'
     || raw === 'logs'
     || raw === 'connections'
@@ -299,6 +305,16 @@ const SUBSCRIPTION_OUTBOUND_TEMPLATE = {
   format: 'auto',
   tagPrefix: '',
   insert: 'tail',
+  interval: '',
+  cron: '',
+  enabled: true
+};
+
+const SUBSCRIPTION_DATABASE_TEMPLATE = {
+  type: 'geoip',
+  url: '',
+  interval: '',
+  cron: '',
   enabled: true
 };
 
@@ -932,6 +948,7 @@ export default function App() {
   const [connSortKey, setConnSortKey] = useState('default');
   const [connSortDir, setConnSortDir] = useState('desc');
   const [connSearchQuery, setConnSearchQuery] = useState('');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
   const [connRates, setConnRates] = useState(new Map());
   const [detailRates, setDetailRates] = useState(new Map());
   const [trafficShift, setTrafficShift] = useState(0);
@@ -948,7 +965,10 @@ export default function App() {
   const [configOutbounds, setConfigOutbounds] = useState([]);
   const [configOutboundsStatus, setConfigOutboundsStatus] = useState('');
   const [configOutboundsPath, setConfigOutboundsPath] = useState('');
+  const [configSubscriptionInbound, setConfigSubscriptionInbound] = useState('');
   const [configSubscriptionOutbounds, setConfigSubscriptionOutbounds] = useState([]);
+  const [configSubscriptionDatabases, setConfigSubscriptionDatabases] = useState([]);
+  const [configSubscriptionFull, setConfigSubscriptionFull] = useState([]);
   const [configSubscriptionStatus, setConfigSubscriptionStatus] = useState('');
   const [configSubscriptionPath, setConfigSubscriptionPath] = useState('');
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
@@ -1520,7 +1540,13 @@ export default function App() {
   };
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
+  const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
   const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
+  const filteredLogLines = useMemo(() => {
+    if (page !== 'logs') return [];
+    if (!normalizedLogSearchQuery) return logLines;
+    return logLines.filter((line) => String(line || '').toLowerCase().includes(normalizedLogSearchQuery));
+  }, [page, logLines, normalizedLogSearchQuery]);
   const renderDetailCell = (columnKey, conn, detail, detailRate, detailKey) => {
     switch (columnKey) {
       case 'destination': {
@@ -1863,11 +1889,44 @@ export default function App() {
     }
   };
 
-  const normalizeSubscriptionOutboundList = (value) => {
-    if (!value) return [];
+  const normalizeSubscriptionList = (value) => {
+    if (value === null || value === undefined) return [];
     if (Array.isArray(value)) return value;
     if (typeof value === 'object') return [value];
     return [];
+  };
+
+  const buildSubscriptionPatch = ({ inbound, outbounds, databases, full }) => {
+    const patch = {};
+    const inboundTag = String(inbound || '').trim();
+    if (inboundTag) {
+      patch['subscription-inbound'] = inboundTag;
+    }
+    if (Array.isArray(outbounds) && outbounds.length > 0) {
+      patch.outbound = outbounds;
+    }
+    if (Array.isArray(databases) && databases.length > 0) {
+      patch.database = databases;
+    }
+    if (Array.isArray(full) && full.length > 0) {
+      patch.full = full;
+    }
+    return Object.keys(patch).length > 0 ? patch : null;
+  };
+
+  const writeSubscriptionConfig = async (subscription, base = apiBase) => {
+    const resp = await fetchJson(`${base}/config/subscription`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription,
+        path: configSubscriptionPath || undefined
+      })
+    });
+    if (resp?.path) {
+      setConfigSubscriptionPath(resp.path);
+    }
+    return resp;
   };
 
   const loadSubscriptionConfig = async (base = apiBase) => {
@@ -1875,8 +1934,14 @@ export default function App() {
     try {
       const resp = await fetchJson(`${base}/config/subscription`);
       const subscription = resp && typeof resp.subscription === 'object' ? resp.subscription : {};
-      const outbounds = normalizeSubscriptionOutboundList(subscription?.outbound);
+      const inbound = String(subscription?.['subscription-inbound'] || subscription?.subscriptionInbound || '').trim();
+      const outbounds = normalizeSubscriptionList(subscription?.outbound);
+      const databases = normalizeSubscriptionList(subscription?.database);
+      const full = normalizeSubscriptionList(subscription?.full);
+      setConfigSubscriptionInbound(inbound);
       setConfigSubscriptionOutbounds(outbounds);
+      setConfigSubscriptionDatabases(databases);
+      setConfigSubscriptionFull(full);
       setConfigSubscriptionPath(resp.path || '');
       if (resp.foundSubscription === false) {
         setConfigSubscriptionStatus('Subscription section not found; saving will create it.');
@@ -1890,10 +1955,44 @@ export default function App() {
     }
   };
 
+  const saveSubscriptionBlock = async () => {
+    setConfigSubscriptionStatus('Saving...');
+    try {
+      const subscription = buildSubscriptionPatch({
+        inbound: configSubscriptionInbound,
+        outbounds: configSubscriptionOutbounds,
+        databases: configSubscriptionDatabases,
+        full: configSubscriptionFull
+      });
+      if (!subscription) {
+        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        return;
+      }
+      await writeSubscriptionConfig(subscription);
+      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+    } catch (err) {
+      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+    }
+  };
+
+  const clearSubscriptionBlock = async () => {
+    setConfigSubscriptionStatus('Clearing subscription...');
+    try {
+      await writeSubscriptionConfig(null);
+      setConfigSubscriptionInbound('');
+      setConfigSubscriptionOutbounds([]);
+      setConfigSubscriptionDatabases([]);
+      setConfigSubscriptionFull([]);
+      setConfigSubscriptionStatus('Subscription cleared. Hot reload core to apply.');
+    } catch (err) {
+      setConfigSubscriptionStatus(`Clear failed: ${err.message}`);
+    }
+  };
+
   const setConfigStatus = (target, message) => {
     if (target === 'outbound') {
       setConfigOutboundsStatus(message);
-    } else if (target === 'subscription') {
+    } else if (target === 'subscription' || target === 'subscriptionDatabase') {
       setConfigSubscriptionStatus(message);
     } else {
       setConfigRulesStatus(message);
@@ -2532,6 +2631,11 @@ export default function App() {
     loadSubscriptionConfig(apiBase).catch(() => {});
   }, [page, apiBase]);
 
+  useEffect(() => {
+    if (page !== 'subscriptions') return;
+    loadSubscriptionConfig(apiBase).catch(() => {});
+  }, [page, apiBase]);
+
   const loadRules = async (base = apiBase) => {
     setRulesStatus('Loading...');
     try {
@@ -2579,6 +2683,18 @@ export default function App() {
     return `${index + 1}. subscription`;
   };
 
+  const getSubscriptionDatabaseLabel = (database, index) => {
+    const type = String(database?.type || '').trim();
+    const url = String(database?.url || '').trim();
+    if (type) {
+      return `${index + 1}. ${type}`;
+    }
+    if (url) {
+      return `${index + 1}. ${url}`;
+    }
+    return `${index + 1}. database`;
+  };
+
   const openRulesModal = (target, mode, index = -1, afterIndex = -1, item = null) => {
     const normalizedAfter = Number.isFinite(Number(afterIndex)) ? Number(afterIndex) : -1;
     const template = target === 'rule'
@@ -2587,7 +2703,9 @@ export default function App() {
         ? BALANCER_TEMPLATE
         : target === 'subscription'
           ? SUBSCRIPTION_OUTBOUND_TEMPLATE
-          : OUTBOUND_TEMPLATE;
+          : target === 'subscriptionDatabase'
+            ? SUBSCRIPTION_DATABASE_TEMPLATE
+            : OUTBOUND_TEMPLATE;
     clearTimeoutRef(rulesModalCloseTimerRef);
     setRulesModalVisible(true);
     setRulesModalClosing(false);
@@ -2608,7 +2726,9 @@ export default function App() {
         ? (Array.isArray(configBalancers) ? configBalancers : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? configSubscriptionOutbounds : [])
-        : (Array.isArray(configOutbounds) ? configOutbounds : []);
+          : target === 'subscriptionDatabase'
+            ? (Array.isArray(configSubscriptionDatabases) ? configSubscriptionDatabases : [])
+            : (Array.isArray(configOutbounds) ? configOutbounds : []);
     if (index < 0 || index >= items.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
       return;
@@ -2619,7 +2739,9 @@ export default function App() {
         ? getBalancerLabel(items[index], index)
         : target === 'subscription'
           ? getSubscriptionLabel(items[index], index)
-        : getOutboundLabel(items[index], index);
+          : target === 'subscriptionDatabase'
+            ? getSubscriptionDatabaseLabel(items[index], index)
+            : getOutboundLabel(items[index], index);
     clearTimeoutRef(deleteConfirmCloseTimerRef);
     setDeleteConfirmTarget(target);
     setDeleteConfirmIndex(index);
@@ -2664,7 +2786,9 @@ export default function App() {
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
-        : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
+          : target === 'subscriptionDatabase'
+            ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
+            : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (index < 0 || index >= nextItems.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
       return;
@@ -2682,21 +2806,28 @@ export default function App() {
     }
     setConfigStatus(target, 'Deleting...');
     try {
-      if (target === 'subscription') {
-        const subscription = nextItems.length > 0 ? { outbound: nextItems } : null;
-        const resp = await fetchJson(`${apiBase}/config/subscription`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subscription,
-            path: configSubscriptionPath || undefined
-          })
+      if (target === 'subscription' || target === 'subscriptionDatabase') {
+        const nextOutbounds = target === 'subscription'
+          ? nextItems
+          : (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : []);
+        const nextDatabases = target === 'subscriptionDatabase'
+          ? nextItems
+          : (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : []);
+        const subscription = buildSubscriptionPatch({
+          inbound: configSubscriptionInbound,
+          outbounds: nextOutbounds,
+          databases: nextDatabases,
+          full: configSubscriptionFull
         });
-        if (resp?.path) {
-          setConfigSubscriptionPath(resp.path);
+        await writeSubscriptionConfig(subscription);
+        setConfigSubscriptionOutbounds(nextOutbounds);
+        setConfigSubscriptionDatabases(nextDatabases);
+        if (!subscription) {
+          setConfigSubscriptionInbound('');
+          setConfigSubscriptionFull([]);
         }
-        setConfigSubscriptionOutbounds(nextItems);
-        setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
+        const label = target === 'subscriptionDatabase' ? 'subscription database' : 'subscription outbound';
+        setConfigSubscriptionStatus(`${label} deleted. Hot reload core to apply.`);
         return;
       }
       const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
@@ -2759,6 +2890,8 @@ export default function App() {
         ? 'Balancer'
         : target === 'subscription'
           ? 'Subscription outbound'
+          : target === 'subscriptionDatabase'
+            ? 'Subscription database'
           : 'Outbound';
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       setRulesModalStatus(`${targetLabel} must be a JSON object.`);
@@ -2862,6 +2995,140 @@ export default function App() {
         setRulesModalStatus('insert must be a string.');
         return;
       }
+
+      const intervalRaw = parsed.interval;
+      if (intervalRaw !== undefined && intervalRaw !== null) {
+        if (typeof intervalRaw !== 'string') {
+          setRulesModalStatus('interval must be a string.');
+          return;
+        }
+        const interval = intervalRaw.trim();
+        if (!interval) {
+          delete parsed.interval;
+        } else {
+          parsed.interval = interval;
+        }
+      }
+
+      const cronRaw = parsed.cron;
+      if (cronRaw !== undefined && cronRaw !== null) {
+        if (typeof cronRaw !== 'string') {
+          setRulesModalStatus('cron must be a string.');
+          return;
+        }
+        const cron = cronRaw.trim();
+        if (!cron) {
+          delete parsed.cron;
+        } else {
+          parsed.cron = cron;
+        }
+      }
+
+      const crontabRaw = parsed.crontab;
+      if (crontabRaw !== undefined && crontabRaw !== null) {
+        if (typeof crontabRaw !== 'string') {
+          setRulesModalStatus('crontab must be a string.');
+          return;
+        }
+        const crontab = crontabRaw.trim();
+        if (!crontab) {
+          delete parsed.crontab;
+        } else {
+          parsed.crontab = crontab;
+        }
+      }
+
+      const interval = String(parsed.interval || '').trim();
+      const cronExpr = String(parsed.cron || parsed.crontab || '').trim();
+      if (interval && cronExpr) {
+        setRulesModalStatus('interval and cron/crontab cannot both be set.');
+        return;
+      }
+    }
+
+    if (target === 'subscriptionDatabase') {
+      const typeRaw = parsed.type;
+      if (typeRaw !== undefined && typeRaw !== null && typeof typeRaw !== 'string') {
+        setRulesModalStatus('type must be a string.');
+        return;
+      }
+      const type = String(typeRaw || '').trim().toLowerCase();
+      if (!type) {
+        setRulesModalStatus('type is required.');
+        return;
+      }
+      if (type !== 'geoip' && type !== 'geosite') {
+        setRulesModalStatus('type must be geoip or geosite.');
+        return;
+      }
+      parsed.type = type;
+
+      const urlRaw = parsed.url;
+      if (urlRaw !== undefined && urlRaw !== null && typeof urlRaw !== 'string') {
+        setRulesModalStatus('url must be a string.');
+        return;
+      }
+      const url = String(urlRaw || '').trim();
+      if (!url) {
+        setRulesModalStatus('url is required.');
+        return;
+      }
+      parsed.url = url;
+
+      const enabledRaw = parsed.enabled;
+      if (enabledRaw !== undefined && enabledRaw !== null && typeof enabledRaw !== 'boolean') {
+        setRulesModalStatus('enabled must be a boolean.');
+        return;
+      }
+
+      const intervalRaw = parsed.interval;
+      if (intervalRaw !== undefined && intervalRaw !== null) {
+        if (typeof intervalRaw !== 'string') {
+          setRulesModalStatus('interval must be a string.');
+          return;
+        }
+        const interval = intervalRaw.trim();
+        if (!interval) {
+          delete parsed.interval;
+        } else {
+          parsed.interval = interval;
+        }
+      }
+
+      const cronRaw = parsed.cron;
+      if (cronRaw !== undefined && cronRaw !== null) {
+        if (typeof cronRaw !== 'string') {
+          setRulesModalStatus('cron must be a string.');
+          return;
+        }
+        const cron = cronRaw.trim();
+        if (!cron) {
+          delete parsed.cron;
+        } else {
+          parsed.cron = cron;
+        }
+      }
+
+      const crontabRaw = parsed.crontab;
+      if (crontabRaw !== undefined && crontabRaw !== null) {
+        if (typeof crontabRaw !== 'string') {
+          setRulesModalStatus('crontab must be a string.');
+          return;
+        }
+        const crontab = crontabRaw.trim();
+        if (!crontab) {
+          delete parsed.crontab;
+        } else {
+          parsed.crontab = crontab;
+        }
+      }
+
+      const interval = String(parsed.interval || '').trim();
+      const cronExpr = String(parsed.cron || parsed.crontab || '').trim();
+      if (interval && cronExpr) {
+        setRulesModalStatus('interval and cron/crontab cannot both be set.');
+        return;
+      }
     }
 
     const nextItems = target === 'rule'
@@ -2870,7 +3137,9 @@ export default function App() {
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
-        : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
+          : target === 'subscriptionDatabase'
+            ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
+            : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (rulesModalMode === 'edit') {
       if (rulesModalIndex < 0 || rulesModalIndex >= nextItems.length) {
         setRulesModalStatus(`${target} index out of range.`);
@@ -2909,20 +3178,26 @@ export default function App() {
     }
     setRulesModalStatus('Saving...');
     try {
-      if (target === 'subscription') {
-        const subscription = nextItems.length > 0 ? { outbound: nextItems } : null;
-        const resp = await fetchJson(`${apiBase}/config/subscription`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subscription,
-            path: configSubscriptionPath || undefined
-          })
+      if (target === 'subscription' || target === 'subscriptionDatabase') {
+        const nextOutbounds = target === 'subscription'
+          ? nextItems
+          : (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : []);
+        const nextDatabases = target === 'subscriptionDatabase'
+          ? nextItems
+          : (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : []);
+        const subscription = buildSubscriptionPatch({
+          inbound: configSubscriptionInbound,
+          outbounds: nextOutbounds,
+          databases: nextDatabases,
+          full: configSubscriptionFull
         });
-        if (resp?.path) {
-          setConfigSubscriptionPath(resp.path);
+        await writeSubscriptionConfig(subscription);
+        setConfigSubscriptionOutbounds(nextOutbounds);
+        setConfigSubscriptionDatabases(nextDatabases);
+        if (!subscription) {
+          setConfigSubscriptionInbound('');
+          setConfigSubscriptionFull([]);
         }
-        setConfigSubscriptionOutbounds(nextItems);
       } else {
         const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
         const body =
@@ -3178,6 +3453,8 @@ export default function App() {
         ? configBalancers
         : modalTarget === 'subscription'
           ? configSubscriptionOutbounds
+          : modalTarget === 'subscriptionDatabase'
+            ? configSubscriptionDatabases
         : configOutbounds;
     const modalLabel = modalTarget === 'rule'
       ? getRuleLabel
@@ -3185,6 +3462,8 @@ export default function App() {
         ? getBalancerLabel
         : modalTarget === 'subscription'
           ? getSubscriptionLabel
+          : modalTarget === 'subscriptionDatabase'
+            ? getSubscriptionDatabaseLabel
         : getOutboundLabel;
     const modalTitle = modalTarget === 'rule'
       ? 'rule'
@@ -3192,6 +3471,8 @@ export default function App() {
         ? 'balancer'
         : modalTarget === 'subscription'
           ? 'subscription outbound'
+          : modalTarget === 'subscriptionDatabase'
+            ? 'subscription database'
         : 'outbound';
     return createPortal(
       <div
@@ -3323,6 +3604,8 @@ export default function App() {
         ? 'balancer'
         : deleteConfirmTarget === 'subscription'
           ? 'subscription outbound'
+          : deleteConfirmTarget === 'subscriptionDatabase'
+            ? 'subscription database'
         : 'outbound';
     const titleLabel = deleteConfirmLabel || targetLabel;
     return createPortal(
@@ -4092,6 +4375,8 @@ export default function App() {
                   const insert = String(sub?.insert || 'tail').trim() || 'tail';
                   const tagPrefix = String(sub?.tagPrefix || '').trim();
                   const enabled = sub?.enabled;
+                  const interval = String(sub?.interval || '').trim();
+                  const cron = String(sub?.cron || sub?.crontab || '').trim();
                   const key = `${name || url || 'subscription'}-${index}`;
                   return (
                     <div className="outbound-card" key={key}>
@@ -4113,6 +4398,8 @@ export default function App() {
                           <span className="meta-pill">{format}</span>
                           <span className="meta-pill">{insert}</span>
                           {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
+                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
+                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
                           <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
                         </div>
                         <div className="outbound-actions">
@@ -4232,6 +4519,195 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {page === 'subscriptions' && (
+          <section className="panel subscriptions" style={{ '--delay': '0.14s' }}>
+            <div className="panel-header">
+              <div>
+                <h2>Subscriptions</h2>
+                <p>Edit the top-level subscription block (`subscription`) and persist changes to config.</p>
+              </div>
+              <div className="header-actions">
+                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
+                  Reload config
+                </button>
+                <button className="ghost small" onClick={saveSubscriptionBlock}>
+                  Save
+                </button>
+                <button className="ghost small danger-text" onClick={clearSubscriptionBlock}>
+                  Clear
+                </button>
+                <button
+                  className="primary small"
+                  onClick={triggerHotReloadFromSubscriptions}
+                  disabled={hotReloadBusy}
+                >
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
+                </button>
+                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
+              </div>
+            </div>
+
+            <div className="settings-inline">
+              <div className="control-block">
+                <label>subscription-inbound</label>
+                <input
+                  value={configSubscriptionInbound}
+                  onChange={(event) => setConfigSubscriptionInbound(event.target.value)}
+                  placeholder="(optional) e.g. sub-in"
+                />
+                <span className="hint">
+                  When set, subscription fetch/update traffic is routed through Xray (matchable by inboundTag).
+                </span>
+              </div>
+              <div className="control-block">
+                <label>config file</label>
+                <input value={configSubscriptionPath || '(auto)'} readOnly />
+                <span className="hint">
+                  The UI patches the config file where `subscription` was found (or a fallback config).
+                </span>
+              </div>
+            </div>
+
+            <div className="nodes-subheader">
+              <div>
+                <h3>Outbound subscriptions</h3>
+                <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
+              </div>
+              <div className="header-actions">
+                <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
+                  Add outbound subscription
+                </button>
+              </div>
+            </div>
+            {configSubscriptionOutbounds.length === 0 ? (
+              <div className="empty-state small">
+                <p>No outbound subscriptions configured.</p>
+              </div>
+            ) : (
+              <div className="outbound-grid">
+                {(configSubscriptionOutbounds || []).map((sub, index) => {
+                  const name = String(sub?.name || '').trim();
+                  const url = String(sub?.url || '').trim();
+                  const format = String(sub?.format || 'auto').trim() || 'auto';
+                  const insert = String(sub?.insert || 'tail').trim() || 'tail';
+                  const tagPrefix = String(sub?.tagPrefix || '').trim();
+                  const enabled = sub?.enabled;
+                  const interval = String(sub?.interval || '').trim();
+                  const cron = String(sub?.cron || sub?.crontab || '').trim();
+                  const key = `${name || url || 'subscription'}-${index}`;
+                  return (
+                    <div className="outbound-card" key={key}>
+                      <div className="outbound-info">
+                        <div className="outbound-title">
+                          <span className="rule-index">{index + 1}</span>
+                          <h3>{name || '(unnamed)'}</h3>
+                        </div>
+                        {url ? (
+                          <p className="mono">
+                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                          </p>
+                        ) : (
+                          <p className="group-meta mono">(no url)</p>
+                        )}
+                      </div>
+                      <div className="outbound-side">
+                        <div className="outbound-meta">
+                          <span className="meta-pill">{format}</span>
+                          <span className="meta-pill">{insert}</span>
+                          {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
+                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
+                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
+                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
+                        </div>
+                        <div className="outbound-actions">
+                          <button
+                            className="ghost small danger-text"
+                            onClick={() => openDeleteConfirm('subscription', index)}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="ghost small"
+                            onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="nodes-subheader">
+              <div>
+                <h3>Database subscriptions</h3>
+                <p className="group-meta">Total {configSubscriptionDatabases.length}</p>
+              </div>
+              <div className="header-actions">
+                <button className="primary small" onClick={() => openRulesModal('subscriptionDatabase', 'insert')}>
+                  Add database subscription
+                </button>
+              </div>
+            </div>
+            {configSubscriptionDatabases.length === 0 ? (
+              <div className="empty-state small">
+                <p>No database subscriptions configured.</p>
+              </div>
+            ) : (
+              <div className="outbound-grid">
+                {(configSubscriptionDatabases || []).map((db, index) => {
+                  const type = String(db?.type || '').trim() || '(no type)';
+                  const url = String(db?.url || '').trim();
+                  const enabled = db?.enabled;
+                  const interval = String(db?.interval || '').trim();
+                  const cron = String(db?.cron || db?.crontab || '').trim();
+                  const key = `${type || url || 'database'}-${index}`;
+                  return (
+                    <div className="outbound-card" key={key}>
+                      <div className="outbound-info">
+                        <div className="outbound-title">
+                          <span className="rule-index">{index + 1}</span>
+                          <h3>{type}</h3>
+                        </div>
+                        {url ? (
+                          <p className="mono">
+                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                          </p>
+                        ) : (
+                          <p className="group-meta mono">(no url)</p>
+                        )}
+                      </div>
+                      <div className="outbound-side">
+                        <div className="outbound-meta">
+                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
+                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
+                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
+                        </div>
+                        <div className="outbound-actions">
+                          <button
+                            className="ghost small danger-text"
+                            onClick={() => openDeleteConfirm('subscriptionDatabase', index)}
+                          >
+                            Delete
+                          </button>
+                          <button
+                            className="ghost small"
+                            onClick={() => openRulesModal('subscriptionDatabase', 'edit', index, index, db)}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         )}
 
         {page === 'rules' && (
@@ -4481,6 +4957,15 @@ export default function App() {
                     </option>
                   ))}
                 </select>
+                <div className="connections-search">
+                  <input
+                    type="text"
+                    value={logSearchQuery}
+                    onChange={(event) => setLogSearchQuery(event.target.value)}
+                    placeholder="Search log lines..."
+                    aria-label="Search log lines"
+                  />
+                </div>
                 <button
                   type="button"
                   className={`pill ${autoScroll ? 'live' : 'paused'}`}
@@ -4498,8 +4983,10 @@ export default function App() {
                     ? 'Logs are disabled. Toggle to start.'
                     : 'No logs yet.'}
                 </div>
+              ) : filteredLogLines.length === 0 ? (
+                <div className="log-empty">No matching logs.</div>
               ) : (
-                logLines.map((line, idx) => (
+                filteredLogLines.map((line, idx) => (
                   <div
                     className={`log-line ${getLogLineLevelClass(line)}`}
                     key={`${idx}-${line.slice(0, 16)}`}
