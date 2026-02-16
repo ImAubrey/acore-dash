@@ -134,6 +134,73 @@ const appendAccessKeyParam = (url, key) => {
   return `${url}${separator}${ACCESS_KEY_QUERY}=${encodeURIComponent(key)}`;
 };
 
+const ABSOLUTE_URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
+const RELATIVE_PATH_PREFIX_REGEX = /^(?:[./\\]|[a-zA-Z]:[\\/])/;
+const getSubscriptionUrlDisplay = (rawUrl) => {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+
+  const readHostname = (candidate) => {
+    try {
+      const parsed = new URL(candidate);
+      return String(parsed.hostname || '').trim();
+    } catch (_err) {
+      return '';
+    }
+  };
+
+  const directHost = readHostname(value);
+  if (directHost) return directHost;
+
+  if (value.startsWith('//')) {
+    const protocolRelativeHost = readHostname(`http:${value}`);
+    if (protocolRelativeHost) return protocolRelativeHost;
+  }
+
+  if (!ABSOLUTE_URL_SCHEME_REGEX.test(value) && !RELATIVE_PATH_PREFIX_REGEX.test(value)) {
+    const guessedHost = readHostname(`http://${value}`);
+    if (guessedHost && guessedHost !== '.' && guessedHost !== '..') {
+      return guessedHost;
+    }
+  }
+
+  return value;
+};
+
+const normalizeUiLanguage = (value) => {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw.startsWith('zh') ? 'zh' : 'en';
+};
+
+const getInitialUiLanguage = () => {
+  if (typeof window === 'undefined') return 'zh';
+  const nav = window.navigator || {};
+  if (Array.isArray(nav.languages) && nav.languages.length > 0) {
+    return normalizeUiLanguage(nav.languages[0]);
+  }
+  return normalizeUiLanguage(nav.language || nav.userLanguage || '');
+};
+
+const I18N_MESSAGES = {
+  zh: {
+    subscriptionOneClick: '一键订阅',
+    subscriptionUpdating: '更新中...',
+    subscriptionUpdatingOutbounds: '正在更新出站订阅...',
+    subscriptionUpdatingDatabases: '正在更新数据库订阅...'
+  },
+  en: {
+    subscriptionOneClick: 'One-click subscribe',
+    subscriptionUpdating: 'Updating...',
+    subscriptionUpdatingOutbounds: 'Updating outbound subscriptions...',
+    subscriptionUpdatingDatabases: 'Updating database subscriptions...'
+  }
+};
+
+const getI18nText = (lang, key) => {
+  const group = I18N_MESSAGES[normalizeUiLanguage(lang)] || I18N_MESSAGES.en;
+  return group[key] || I18N_MESSAGES.en[key] || key;
+};
+
 const PAGES = {
   dashboard: {
     label: 'Dashboard',
@@ -150,15 +217,20 @@ const PAGES = {
     title: 'Outbound steering',
     description: 'Clash-style policy groups with live outbound health.'
   },
+  rules: {
+    label: 'Rules',
+    title: 'Routing rule browser',
+    description: 'Inspect router rules and load balancer policies over HTTP.'
+  },
   subscriptions: {
     label: 'Subscriptions',
     title: 'Subscription updates',
     description: 'Edit the subscription block and schedule outbound/database refresh.'
   },
-  rules: {
-    label: 'Rules',
-    title: 'Routing rule browser',
-    description: 'Inspect router rules and load balancer policies over HTTP.'
+  inbounds: {
+    label: 'Inbounds',
+    title: 'Inbound configuration',
+    description: 'Edit the top-level inbounds list and persist it to config.'
   },
   logs: {
     label: 'Logs',
@@ -179,6 +251,7 @@ const getPageFromHash = () => {
     raw === 'dashboard'
     || raw === 'nodes'
     || raw === 'subscriptions'
+    || raw === 'inbounds'
     || raw === 'rules'
     || raw === 'logs'
     || raw === 'connections'
@@ -229,6 +302,27 @@ const formatJson = (value) => {
   } catch (_err) {
     return String(value || '');
   }
+};
+
+const formatJsonText = (text) => {
+  const parsed = JSON.parse(String(text ?? ''));
+  return formatJson(parsed);
+};
+
+const FAILED_STATUS_TEXT_REGEX = /\b(failed|error)\b/i;
+const isFailedStatusText = (value) => FAILED_STATUS_TEXT_REGEX.test(String(value || ''));
+const normalizeBalancerStrategy = (value) => String(value || '').trim().toLowerCase();
+const getBalancerStrategyTone = (balancer, selectors = []) => {
+  const strategy = normalizeBalancerStrategy(balancer?.strategy);
+  if (strategy.includes('fallback')) return 'fallback';
+  if (strategy.includes('selector')) return 'selector';
+  if (strategy.includes('least')) return 'least';
+  if (strategy.includes('random')) return 'random';
+  if (strategy.includes('round')) return 'round';
+  if (strategy) return 'custom';
+  if (String(balancer?.fallbackTag || '').trim()) return 'fallback';
+  if (Array.isArray(selectors) && selectors.length > 0) return 'selector';
+  return 'default';
 };
 
 const clearTimeoutRef = (ref) => {
@@ -298,6 +392,16 @@ const OUTBOUND_TEMPLATE = {
   protocol: 'freedom',
   settings: {}
 };
+
+const INBOUND_TEMPLATE = {
+  tag: 'inbound',
+  protocol: 'socks',
+  listen: '127.0.0.1',
+  port: 1080,
+  settings: {}
+};
+
+const MAIN_EDITOR_ALLOWED_KEYS = ['Observatory', 'log', 'metrics', 'stats'];
 
 const SUBSCRIPTION_OUTBOUND_TEMPLATE = {
   name: '',
@@ -787,6 +891,45 @@ const LOG_LEVEL_TOKEN_REGEX = /^(?:error|fatal|panic|warn|warning|info|debug|tra
 const LOG_TOKEN_REGEX = /(\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[a-fA-F0-9]{0,4}:){2,7}[a-fA-F0-9]{0,4}\b|\b(?:error|fatal|panic|warn|warning|info|debug|trace)\b)/gi;
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+
+const toMainEditorSections = (mainRoot) => {
+  const root = isPlainObject(mainRoot) ? mainRoot : {};
+  const observatoryLower = isPlainObject(root.observatory) ? root.observatory : {};
+  const observatoryUpper = isPlainObject(root.Observatory) ? root.Observatory : {};
+  const observatory = Object.keys(observatoryUpper).length > 0 ? observatoryUpper : observatoryLower;
+  return {
+    Observatory: isPlainObject(observatory) ? observatory : {},
+    log: isPlainObject(root.log) ? root.log : {},
+    metrics: isPlainObject(root.metrics) ? root.metrics : {},
+    stats: isPlainObject(root.stats) ? root.stats : {}
+  };
+};
+
+const applyMainEditorSectionsToRoot = (mainRoot, sections) => {
+  const base = isPlainObject(mainRoot) ? { ...mainRoot } : {};
+  const nextSections = isPlainObject(sections) ? sections : {};
+  const observatory = isPlainObject(nextSections.Observatory) ? nextSections.Observatory : {};
+  const log = isPlainObject(nextSections.log) ? nextSections.log : {};
+  const metrics = isPlainObject(nextSections.metrics) ? nextSections.metrics : {};
+  const stats = isPlainObject(nextSections.stats) ? nextSections.stats : {};
+
+  base.observatory = observatory;
+  if (hasOwn(base, 'Observatory')) {
+    delete base.Observatory;
+  }
+  base.log = log;
+  base.metrics = metrics;
+  base.stats = stats;
+  return base;
+};
+
+const toDnsEditorSection = (mainRoot) => {
+  const root = isPlainObject(mainRoot) ? mainRoot : {};
+  if (isPlainObject(root.dns)) return root.dns;
+  if (isPlainObject(root.DNS)) return root.DNS;
+  return {};
+};
 
 const normalizeSelectionMap = (value) => {
   if (!isPlainObject(value)) return {};
@@ -928,6 +1071,7 @@ const renderLogLine = (line) => {
 
 export default function App() {
   const [page, setPage] = useState(getPageFromHash());
+  const [uiLanguage] = useState(getInitialUiLanguage);
   const [apiBase, setApiBase] = useState(getInitialApiBase());
   const [metricsHttp, setMetricsHttp] = useState(getInitialMetricsHttp());
   const [metricsAccessKey, setMetricsAccessKey] = useState(getInitialMetricsKey());
@@ -965,12 +1109,27 @@ export default function App() {
   const [configOutbounds, setConfigOutbounds] = useState([]);
   const [configOutboundsStatus, setConfigOutboundsStatus] = useState('');
   const [configOutboundsPath, setConfigOutboundsPath] = useState('');
+  const [configInbounds, setConfigInbounds] = useState([]);
+  const [configInboundsStatus, setConfigInboundsStatus] = useState('');
+  const [configInboundsPath, setConfigInboundsPath] = useState('');
   const [configSubscriptionInbound, setConfigSubscriptionInbound] = useState('');
   const [configSubscriptionOutbounds, setConfigSubscriptionOutbounds] = useState([]);
   const [configSubscriptionDatabases, setConfigSubscriptionDatabases] = useState([]);
   const [configSubscriptionFull, setConfigSubscriptionFull] = useState([]);
   const [configSubscriptionStatus, setConfigSubscriptionStatus] = useState('');
   const [configSubscriptionPath, setConfigSubscriptionPath] = useState('');
+  const [configMainText, setConfigMainText] = useState('{}');
+  const [configMainLoaded, setConfigMainLoaded] = useState({});
+  const [configMainPath, setConfigMainPath] = useState('');
+  const [configMainStatus, setConfigMainStatus] = useState('');
+  const [configMainDirty, setConfigMainDirty] = useState(false);
+  const [configMainSaving, setConfigMainSaving] = useState(false);
+  const [configDnsText, setConfigDnsText] = useState('{}');
+  const [configDnsRootLoaded, setConfigDnsRootLoaded] = useState({});
+  const [configDnsPath, setConfigDnsPath] = useState('');
+  const [configDnsStatus, setConfigDnsStatus] = useState('');
+  const [configDnsDirty, setConfigDnsDirty] = useState(false);
+  const [configDnsSaving, setConfigDnsSaving] = useState(false);
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
   const [rulesModalVisible, setRulesModalVisible] = useState(false);
   const [rulesModalClosing, setRulesModalClosing] = useState(false);
@@ -1014,6 +1173,7 @@ export default function App() {
   const [restartInfo, setRestartInfo] = useState(null);
   const [hotReloadBusy, setHotReloadBusy] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState('');
+  const t = useMemo(() => (key) => getI18nText(uiLanguage, key), [uiLanguage]);
   const logsRef = useRef(null);
   const logsPausedRef = useRef(false);
   const logPendingRef = useRef([]);
@@ -1889,6 +2049,25 @@ export default function App() {
     }
   };
 
+  const loadInboundsConfig = async (base = apiBase) => {
+    setConfigInboundsStatus('Loading config...');
+    try {
+      const resp = await fetchJson(`${base}/config/inbounds`);
+      const inbounds = Array.isArray(resp?.inbounds) ? resp.inbounds : [];
+      setConfigInbounds(inbounds);
+      setConfigInboundsPath(resp.path || '');
+      if (resp.foundInbounds === false) {
+        setConfigInboundsStatus('Inbounds section not found; saving will create it.');
+      } else {
+        setConfigInboundsStatus('');
+      }
+      return resp;
+    } catch (err) {
+      setConfigInboundsStatus(`Config load failed: ${err.message}`);
+      throw err;
+    }
+  };
+
   const normalizeSubscriptionList = (value) => {
     if (value === null || value === undefined) return [];
     if (Array.isArray(value)) return value;
@@ -2058,6 +2237,8 @@ export default function App() {
   const setConfigStatus = (target, message) => {
     if (target === 'outbound') {
       setConfigOutboundsStatus(message);
+    } else if (target === 'inbound') {
+      setConfigInboundsStatus(message);
     } else if (target === 'subscription' || target === 'subscriptionDatabase') {
       setConfigSubscriptionStatus(message);
     } else {
@@ -2100,6 +2281,210 @@ export default function App() {
       setSettingsStatus('');
     } catch (err) {
       setSettingsStatus(`Load failed: ${err.message}`);
+    }
+  };
+
+  const loadMainConfig = async (base = apiBase) => {
+    setConfigMainStatus('Loading config...');
+    try {
+      const preferredPath = String(configMainPath || '').trim();
+      const endpoint = preferredPath
+        ? `${base}/config/main?path=${encodeURIComponent(preferredPath)}`
+        : `${base}/config/main`;
+      const resp = await fetchJson(endpoint);
+      const main = resp && typeof resp.main === 'object' && !Array.isArray(resp.main) ? resp.main : {};
+      const sections = toMainEditorSections(main);
+      setConfigMainLoaded(main);
+      setConfigMainText(formatJson(sections));
+      setConfigMainPath(resp.path || '');
+      setConfigMainDirty(false);
+      if (resp.foundMain === false) {
+        setConfigMainStatus('Main config not found.');
+      } else {
+        setConfigMainStatus('');
+      }
+      return resp;
+    } catch (err) {
+      setConfigMainStatus(`Config load failed: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const saveMainConfig = async () => {
+    if (configMainSaving) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(configMainText);
+    } catch (err) {
+      setConfigMainStatus(`Invalid JSON: ${err.message}`);
+      return;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setConfigMainStatus('main must be a JSON object.');
+      return;
+    }
+    const extraKeys = Object.keys(parsed).filter((key) => !MAIN_EDITOR_ALLOWED_KEYS.includes(key));
+    if (extraKeys.length > 0) {
+      setConfigMainStatus(`Only ${MAIN_EDITOR_ALLOWED_KEYS.join(', ')} are editable here.`);
+      return;
+    }
+    const observatory = parsed.Observatory === undefined ? {} : parsed.Observatory;
+    const log = parsed.log === undefined ? {} : parsed.log;
+    const metrics = parsed.metrics === undefined ? {} : parsed.metrics;
+    const stats = parsed.stats === undefined ? {} : parsed.stats;
+    if (!isPlainObject(observatory)) {
+      setConfigMainStatus('Observatory must be a JSON object.');
+      return;
+    }
+    if (!isPlainObject(log)) {
+      setConfigMainStatus('log must be a JSON object.');
+      return;
+    }
+    if (!isPlainObject(metrics)) {
+      setConfigMainStatus('metrics must be a JSON object.');
+      return;
+    }
+    if (!isPlainObject(stats)) {
+      setConfigMainStatus('stats must be a JSON object.');
+      return;
+    }
+    const nextSections = {
+      Observatory: observatory,
+      log,
+      metrics,
+      stats
+    };
+    const nextMain = applyMainEditorSectionsToRoot(configMainLoaded, nextSections);
+    setConfigMainSaving(true);
+    setConfigMainStatus('Saving...');
+    try {
+      const resp = await fetchJson(`${apiBase}/config/main`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          main: nextMain,
+          path: configMainPath || undefined
+        })
+      });
+      if (resp?.path) {
+        setConfigMainPath(resp.path);
+      }
+      setConfigMainLoaded(nextMain);
+      setConfigMainText(formatJson(toMainEditorSections(nextMain)));
+      setConfigMainDirty(false);
+      setConfigMainStatus('Saved to config. Hot reload or restart core to apply.');
+    } catch (err) {
+      setConfigMainStatus(`Save failed: ${err.message}`);
+    } finally {
+      setConfigMainSaving(false);
+    }
+  };
+
+  const resetMainConfigEditor = () => {
+    setConfigMainText(formatJson(toMainEditorSections(configMainLoaded)));
+    setConfigMainDirty(false);
+    setConfigMainStatus('Main editor reset to loaded config.');
+  };
+
+  const formatMainConfigEditor = () => {
+    try {
+      const next = formatJsonText(configMainText);
+      setConfigMainText(next);
+      setConfigMainDirty(true);
+      if (configMainStatus && !isFailedStatusText(configMainStatus)) {
+        setConfigMainStatus('');
+      }
+    } catch (err) {
+      setConfigMainStatus(`Invalid JSON: ${err.message}`);
+    }
+  };
+
+  const loadDnsConfig = async (base = apiBase) => {
+    setConfigDnsStatus('Loading DNS config...');
+    try {
+      const preferredPath = String(configDnsPath || configMainPath || '').trim();
+      const endpoint = preferredPath
+        ? `${base}/config/main?path=${encodeURIComponent(preferredPath)}`
+        : `${base}/config/main`;
+      const resp = await fetchJson(endpoint);
+      const main = resp && typeof resp.main === 'object' && !Array.isArray(resp.main) ? resp.main : {};
+      const dns = toDnsEditorSection(main);
+      setConfigDnsRootLoaded(main);
+      setConfigDnsText(formatJson(dns));
+      setConfigDnsPath(resp.path || '');
+      setConfigDnsDirty(false);
+      const hasDns = hasOwn(main, 'dns') || hasOwn(main, 'DNS');
+      if (!hasDns) {
+        setConfigDnsStatus('DNS section not found; saving will create it.');
+      } else {
+        setConfigDnsStatus('');
+      }
+      return resp;
+    } catch (err) {
+      setConfigDnsStatus(`Config load failed: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const saveDnsConfig = async () => {
+    if (configDnsSaving) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(configDnsText);
+    } catch (err) {
+      setConfigDnsStatus(`Invalid JSON: ${err.message}`);
+      return;
+    }
+    if (!isPlainObject(parsed)) {
+      setConfigDnsStatus('dns must be a JSON object.');
+      return;
+    }
+    const nextMain = isPlainObject(configDnsRootLoaded) ? { ...configDnsRootLoaded } : {};
+    nextMain.dns = parsed;
+    if (hasOwn(nextMain, 'DNS')) {
+      delete nextMain.DNS;
+    }
+    setConfigDnsSaving(true);
+    setConfigDnsStatus('Saving...');
+    try {
+      const resp = await fetchJson(`${apiBase}/config/main`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          main: nextMain,
+          path: configDnsPath || undefined
+        })
+      });
+      if (resp?.path) {
+        setConfigDnsPath(resp.path);
+      }
+      setConfigDnsRootLoaded(nextMain);
+      setConfigDnsText(formatJson(parsed));
+      setConfigDnsDirty(false);
+      setConfigDnsStatus('Saved to config. Hot reload or restart core to apply.');
+    } catch (err) {
+      setConfigDnsStatus(`Save failed: ${err.message}`);
+    } finally {
+      setConfigDnsSaving(false);
+    }
+  };
+
+  const resetDnsEditor = () => {
+    setConfigDnsText(formatJson(toDnsEditorSection(configDnsRootLoaded)));
+    setConfigDnsDirty(false);
+    setConfigDnsStatus('DNS editor reset to loaded config.');
+  };
+
+  const formatDnsEditor = () => {
+    try {
+      const next = formatJsonText(configDnsText);
+      setConfigDnsText(next);
+      setConfigDnsDirty(true);
+      if (configDnsStatus && !isFailedStatusText(configDnsStatus)) {
+        setConfigDnsStatus('');
+      }
+    } catch (err) {
+      setConfigDnsStatus(`Invalid JSON: ${err.message}`);
     }
   };
 
@@ -2155,6 +2540,15 @@ export default function App() {
   const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus);
   const triggerHotReloadFromRules = () => performHotReload(setRulesStatus);
   const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus);
+  const triggerHotReloadFromInbounds = () => performHotReload(setConfigInboundsStatus);
+  const triggerSubscribeOutbounds = () => {
+    setConfigSubscriptionStatus(t('subscriptionUpdatingOutbounds'));
+    triggerHotReloadFromSubscriptions();
+  };
+  const triggerSubscribeDatabases = () => {
+    setConfigSubscriptionStatus(t('subscriptionUpdatingDatabases'));
+    triggerHotReloadFromSubscriptions();
+  };
 
   const saveUiState = async (payload, base = apiBase) => {
     try {
@@ -2702,6 +3096,17 @@ export default function App() {
     loadSubscriptionConfig(apiBase).catch(() => {});
   }, [page, apiBase]);
 
+  useEffect(() => {
+    if (page !== 'inbounds') return;
+    loadInboundsConfig(apiBase).catch(() => {});
+    loadDnsConfig(apiBase).catch(() => {});
+  }, [page, apiBase]);
+
+  useEffect(() => {
+    if (page !== 'settings') return;
+    loadMainConfig(apiBase).catch(() => {});
+  }, [page, apiBase]);
+
   const loadRules = async (base = apiBase) => {
     setRulesStatus('Loading...');
     try {
@@ -2737,14 +3142,27 @@ export default function App() {
     return `${index + 1}. outbound`;
   };
 
+  const getInboundLabel = (inbound, index) => {
+    const tag = String(inbound?.tag || '').trim();
+    const protocol = String(inbound?.protocol || '').trim();
+    if (tag) {
+      return `${index + 1}. ${tag}`;
+    }
+    if (protocol) {
+      return `${index + 1}. ${protocol}`;
+    }
+    return `${index + 1}. inbound`;
+  };
+
   const getSubscriptionLabel = (subscription, index) => {
     const name = String(subscription?.name || '').trim();
     const url = String(subscription?.url || '').trim();
+    const displayUrl = getSubscriptionUrlDisplay(url);
     if (name) {
       return `${index + 1}. ${name}`;
     }
-    if (url) {
-      return `${index + 1}. ${url}`;
+    if (displayUrl) {
+      return `${index + 1}. ${displayUrl}`;
     }
     return `${index + 1}. subscription`;
   };
@@ -2752,11 +3170,12 @@ export default function App() {
   const getSubscriptionDatabaseLabel = (database, index) => {
     const type = String(database?.type || '').trim();
     const url = String(database?.url || '').trim();
+    const displayUrl = getSubscriptionUrlDisplay(url);
     if (type) {
       return `${index + 1}. ${type}`;
     }
-    if (url) {
-      return `${index + 1}. ${url}`;
+    if (displayUrl) {
+      return `${index + 1}. ${displayUrl}`;
     }
     return `${index + 1}. database`;
   };
@@ -2767,6 +3186,8 @@ export default function App() {
       ? RULE_TEMPLATE
       : target === 'balancer'
         ? BALANCER_TEMPLATE
+        : target === 'inbound'
+          ? INBOUND_TEMPLATE
         : target === 'subscription'
           ? SUBSCRIPTION_OUTBOUND_TEMPLATE
           : target === 'subscriptionDatabase'
@@ -2790,6 +3211,8 @@ export default function App() {
       ? (Array.isArray(configRules) ? configRules : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? configBalancers : [])
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? configInbounds : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? configSubscriptionOutbounds : [])
           : target === 'subscriptionDatabase'
@@ -2803,6 +3226,8 @@ export default function App() {
       ? getRuleLabel(items[index], index)
       : target === 'balancer'
         ? getBalancerLabel(items[index], index)
+        : target === 'inbound'
+          ? getInboundLabel(items[index], index)
         : target === 'subscription'
           ? getSubscriptionLabel(items[index], index)
           : target === 'subscriptionDatabase'
@@ -2850,6 +3275,8 @@ export default function App() {
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
           : target === 'subscriptionDatabase'
@@ -2896,19 +3323,29 @@ export default function App() {
         setConfigSubscriptionStatus(`${label} deleted. Hot reload core to apply.`);
         return;
       }
-      const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
+      const endpoint = target === 'outbound'
+        ? 'outbounds'
+        : target === 'inbound'
+          ? 'inbounds'
+          : 'routing';
       const body =
         target === 'rule'
           ? { rules: nextItems }
           : target === 'balancer'
             ? { balancers: nextItems }
+            : target === 'inbound'
+              ? { inbounds: nextItems }
             : { outbounds: nextItems };
-      const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
+      const path = target === 'outbound'
+        ? configOutboundsPath
+        : target === 'inbound'
+          ? configInboundsPath
+          : configRulesPath;
       await fetchJson(`${apiBase}/config/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(target === 'outbound' ? body : { routing: body }),
+          ...(target === 'outbound' || target === 'inbound' ? body : { routing: body }),
           path: path || undefined
         })
       });
@@ -2916,11 +3353,15 @@ export default function App() {
         setConfigRules(nextItems);
       } else if (target === 'balancer') {
         setConfigBalancers(nextItems);
+      } else if (target === 'inbound') {
+        setConfigInbounds(nextItems);
       } else {
         setConfigOutbounds(nextItems);
       }
       setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
-      fetchRules(apiBase).catch(() => {});
+      if (target === 'rule' || target === 'balancer') {
+        fetchRules(apiBase).catch(() => {});
+      }
     } catch (err) {
       setConfigStatus(target, `Delete failed: ${err.message}`);
     }
@@ -2939,6 +3380,18 @@ export default function App() {
     );
   };
 
+  const formatRulesModalJson = () => {
+    try {
+      const next = formatJsonText(rulesModalText);
+      setRulesModalText(next);
+      if (rulesModalStatus && !isFailedStatusText(rulesModalStatus)) {
+        setRulesModalStatus('');
+      }
+    } catch (err) {
+      setRulesModalStatus(`Invalid JSON: ${err.message}`);
+    }
+  };
+
   const saveRulesModal = async () => {
     if (rulesModalSaving) return;
     let parsed;
@@ -2954,6 +3407,8 @@ export default function App() {
       ? 'Rule'
       : target === 'balancer'
         ? 'Balancer'
+        : target === 'inbound'
+          ? 'Inbound'
         : target === 'subscription'
           ? 'Subscription outbound'
           : target === 'subscriptionDatabase'
@@ -3197,10 +3652,40 @@ export default function App() {
       }
     }
 
+    if (target === 'inbound') {
+      const tagRaw = parsed.tag;
+      if (tagRaw !== undefined && tagRaw !== null && typeof tagRaw !== 'string') {
+        setRulesModalStatus('tag must be a string.');
+        return;
+      }
+      const protocolRaw = parsed.protocol;
+      if (protocolRaw !== undefined && protocolRaw !== null && typeof protocolRaw !== 'string') {
+        setRulesModalStatus('protocol must be a string.');
+        return;
+      }
+      const listenRaw = parsed.listen;
+      if (listenRaw !== undefined && listenRaw !== null && typeof listenRaw !== 'string') {
+        setRulesModalStatus('listen must be a string.');
+        return;
+      }
+      const portRaw = parsed.port;
+      if (
+        portRaw !== undefined
+        && portRaw !== null
+        && typeof portRaw !== 'number'
+        && typeof portRaw !== 'string'
+      ) {
+        setRulesModalStatus('port must be a number or string.');
+        return;
+      }
+    }
+
     const nextItems = target === 'rule'
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
         : target === 'subscription'
           ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
           : target === 'subscriptionDatabase'
@@ -3265,19 +3750,29 @@ export default function App() {
           setConfigSubscriptionFull([]);
         }
       } else {
-        const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
+        const endpoint = target === 'outbound'
+          ? 'outbounds'
+          : target === 'inbound'
+            ? 'inbounds'
+            : 'routing';
         const body =
           target === 'rule'
             ? { rules: nextItems }
             : target === 'balancer'
               ? { balancers: nextItems }
+              : target === 'inbound'
+                ? { inbounds: nextItems }
               : { outbounds: nextItems };
-        const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
+        const path = target === 'outbound'
+          ? configOutboundsPath
+          : target === 'inbound'
+            ? configInboundsPath
+            : configRulesPath;
         await fetchJson(`${apiBase}/config/${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...(target === 'outbound' ? body : { routing: body }),
+            ...(target === 'outbound' || target === 'inbound' ? body : { routing: body }),
             path: path || undefined
           })
         });
@@ -3285,10 +3780,14 @@ export default function App() {
           setConfigRules(nextItems);
         } else if (target === 'balancer') {
           setConfigBalancers(nextItems);
+        } else if (target === 'inbound') {
+          setConfigInbounds(nextItems);
         } else {
           setConfigOutbounds(nextItems);
         }
-        fetchRules(apiBase).catch(() => {});
+        if (target === 'rule' || target === 'balancer') {
+          fetchRules(apiBase).catch(() => {});
+        }
       }
       setConfigStatus(target, 'Saved to config. Hot reload core to apply.');
       setRulesModalStatus('Saved');
@@ -3517,6 +4016,8 @@ export default function App() {
       ? configRules
       : modalTarget === 'balancer'
         ? configBalancers
+        : modalTarget === 'inbound'
+          ? configInbounds
         : modalTarget === 'subscription'
           ? configSubscriptionOutbounds
           : modalTarget === 'subscriptionDatabase'
@@ -3526,6 +4027,8 @@ export default function App() {
       ? getRuleLabel
       : modalTarget === 'balancer'
         ? getBalancerLabel
+        : modalTarget === 'inbound'
+          ? getInboundLabel
         : modalTarget === 'subscription'
           ? getSubscriptionLabel
           : modalTarget === 'subscriptionDatabase'
@@ -3535,6 +4038,8 @@ export default function App() {
       ? 'rule'
       : modalTarget === 'balancer'
         ? 'balancer'
+        : modalTarget === 'inbound'
+          ? 'inbound'
         : modalTarget === 'subscription'
           ? 'subscription outbound'
           : modalTarget === 'subscriptionDatabase'
@@ -3585,7 +4090,7 @@ export default function App() {
           <div className="rules-modal-editor">
             <CodeMirror
               value={rulesModalText}
-              height="260px"
+              height="360px"
               theme={githubLight}
               extensions={[
                 json(),
@@ -3604,13 +4109,22 @@ export default function App() {
           </div>
           <div className="rules-modal-footer">
             <span className="status">{rulesModalStatus}</span>
-            <button
-              className="primary small"
-              onClick={saveRulesModal}
-              disabled={rulesModalSaving}
-            >
-              {rulesModalSaving ? 'Saving...' : 'Save'}
-            </button>
+            <div className="confirm-actions">
+              <button
+                className="ghost small"
+                onClick={formatRulesModalJson}
+                disabled={rulesModalSaving}
+              >
+                Format
+              </button>
+              <button
+                className="primary small"
+                onClick={saveRulesModal}
+                disabled={rulesModalSaving}
+              >
+                {rulesModalSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
           </div>
         </div>
       </div>,
@@ -3668,6 +4182,8 @@ export default function App() {
       ? 'routing rule'
       : deleteConfirmTarget === 'balancer'
         ? 'balancer'
+        : deleteConfirmTarget === 'inbound'
+          ? 'inbound'
         : deleteConfirmTarget === 'subscription'
           ? 'subscription outbound'
           : deleteConfirmTarget === 'subscriptionDatabase'
@@ -4405,113 +4921,19 @@ export default function App() {
 
             <div className="nodes-subheader">
               <div>
-                <h3>Subscriptions</h3>
-                <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
-                {configSubscriptionPath ? (
-                  <p className="group-meta mono">Config: {configSubscriptionPath}</p>
-                ) : null}
-              </div>
-              <div className="header-actions">
-                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
-                  Reload config
-                </button>
-                <button
-                  className="primary small"
-                  onClick={triggerHotReloadFromSubscriptions}
-                  disabled={hotReloadBusy}
-                >
-                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
-                </button>
-                <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
-                  Add subscription
-                </button>
-                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
-              </div>
-            </div>
-            {configSubscriptionOutbounds.length === 0 ? (
-              <div className="empty-state small">
-                <p>No subscriptions configured.</p>
-              </div>
-            ) : (
-              <div className="outbound-grid">
-                {(configSubscriptionOutbounds || []).map((sub, index) => {
-                  const name = String(sub?.name || '').trim();
-                  const url = String(sub?.url || '').trim();
-                  const format = String(sub?.format || 'auto').trim() || 'auto';
-                  const insert = String(sub?.insert || 'tail').trim() || 'tail';
-                  const tagPrefix = String(sub?.tagPrefix || '').trim();
-                  const enabled = sub?.enabled;
-                  const interval = String(sub?.interval || '').trim();
-                  const cron = String(sub?.cron || sub?.crontab || '').trim();
-                  const key = `${name || url || 'subscription'}-${index}`;
-                  return (
-                    <div className="outbound-card" key={key}>
-                      <div className="outbound-info">
-                        <div className="outbound-title">
-                          <span className="rule-index">{index + 1}</span>
-                          <h3>{name || '(unnamed)'}</h3>
-                        </div>
-                        {url ? (
-                          <p className="mono">
-                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
-                          </p>
-                        ) : (
-                          <p className="group-meta mono">(no url)</p>
-                        )}
-                      </div>
-                      <div className="outbound-side">
-                        <div className="outbound-meta">
-                          <span className="meta-pill">{format}</span>
-                          <span className="meta-pill">{insert}</span>
-                          {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
-                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
-                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
-                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
-                        </div>
-                        <div className="outbound-actions">
-                          <button
-                            className="ghost small"
-                            onClick={() => toggleSubscriptionOutboundEnabled(index)}
-                            title={enabled === false ? 'Enable this subscription' : 'Disable this subscription'}
-                          >
-                            {enabled === false ? 'Enable' : 'Disable'}
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={triggerHotReloadFromSubscriptions}
-                            disabled={hotReloadBusy}
-                            title="Fetch and apply subscription updates (hot reload core)."
-                          >
-                            {hotReloadBusy ? 'Updating...' : 'Update now'}
-                          </button>
-                          <button
-                            className="ghost small danger-text"
-                            onClick={() => openDeleteConfirm('subscription', index)}
-                          >
-                            Delete
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="nodes-subheader">
-              <div>
                 <h3>All outbounds</h3>
                 {configOutboundsPath ? (
                   <p className="group-meta mono">Config: {configOutboundsPath}</p>
                 ) : null}
               </div>
               <div className="header-actions">
+                {configOutboundsStatus ? (
+                  <div className="header-status">
+                    <span className={`status${isFailedStatusText(configOutboundsStatus) ? ' status-danger' : ''}`}>
+                      {configOutboundsStatus}
+                    </span>
+                  </div>
+                ) : null}
                 <button
                   className="primary small"
                   onClick={triggerDelayTest}
@@ -4529,7 +4951,6 @@ export default function App() {
                 <button className="primary small" onClick={() => openRulesModal('outbound', 'insert')}>
                   Add outbound
                 </button>
-                {configOutboundsStatus ? <span className="status">{configOutboundsStatus}</span> : null}
               </div>
             </div>
             {displayOutbounds.length === 0 ? (
@@ -4559,6 +4980,8 @@ export default function App() {
                       </div>
                       <div className="outbound-side">
                         <div className="outbound-meta">
+                          {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
+                          {managed ? <span className="meta-pill" title={`managed: ${managed}`}>managed</span> : null}
                           {nodeStatus ? (
                             <span className={`status-pill ${alive ? 'up' : 'down'}`}>
                               {alive ? delay : 'down'}
@@ -4566,8 +4989,6 @@ export default function App() {
                           ) : (
                             <span className="meta-pill">no status</span>
                           )}
-                          {managed ? <span className="meta-pill" title={`managed: ${managed}`}>managed</span> : null}
-                          {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
                         </div>
                         <div className="outbound-actions">
                           <button
@@ -4610,9 +5031,13 @@ export default function App() {
                 <p>Edit the top-level subscription block (`subscription`) and persist changes to config.</p>
               </div>
               <div className="header-actions">
-                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
-                  Reload config
-                </button>
+                {configSubscriptionStatus ? (
+                  <div className="header-status">
+                    <span className={`status${isFailedStatusText(configSubscriptionStatus) ? ' status-danger' : ''}`}>
+                      {configSubscriptionStatus}
+                    </span>
+                  </div>
+                ) : null}
                 <button className="ghost small" onClick={saveSubscriptionBlock}>
                   Save
                 </button>
@@ -4626,7 +5051,6 @@ export default function App() {
                 >
                   {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
                 </button>
-                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
               </div>
             </div>
 
@@ -4659,6 +5083,14 @@ export default function App() {
                     <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
                   </div>
                   <div className="rules-editor-actions">
+                    <button
+                      className="ghost small"
+                      onClick={triggerSubscribeOutbounds}
+                      disabled={hotReloadBusy}
+                      title="Fetch and apply outbound subscription updates."
+                    >
+                      {hotReloadBusy ? t('subscriptionUpdating') : t('subscriptionOneClick')}
+                    </button>
                     <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
                       Add outbound subscription
                     </button>
@@ -4674,6 +5106,7 @@ export default function App() {
                     {(configSubscriptionOutbounds || []).map((sub, index) => {
                       const name = String(sub?.name || '').trim();
                       const url = String(sub?.url || '').trim();
+                      const displayUrl = getSubscriptionUrlDisplay(url);
                       const format = String(sub?.format || 'auto').trim() || 'auto';
                       const insert = String(sub?.insert || 'tail').trim() || 'tail';
                       const tagPrefix = String(sub?.tagPrefix || '').trim();
@@ -4690,7 +5123,7 @@ export default function App() {
                             </div>
                             {url ? (
                               <p className="mono">
-                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                                <AutoFoldText className="mono" fullText={displayUrl} foldedText={displayUrl} />
                               </p>
                             ) : (
                               <p className="group-meta mono">(no url)</p>
@@ -4750,6 +5183,14 @@ export default function App() {
                   </div>
                   <div className="rules-editor-actions">
                     <button
+                      className="ghost small"
+                      onClick={triggerSubscribeDatabases}
+                      disabled={hotReloadBusy}
+                      title="Fetch and apply database subscription updates."
+                    >
+                      {hotReloadBusy ? t('subscriptionUpdating') : t('subscriptionOneClick')}
+                    </button>
+                    <button
                       className="primary small"
                       onClick={() => openRulesModal('subscriptionDatabase', 'insert')}
                     >
@@ -4767,6 +5208,7 @@ export default function App() {
                     {(configSubscriptionDatabases || []).map((db, index) => {
                       const type = String(db?.type || '').trim() || '(no type)';
                       const url = String(db?.url || '').trim();
+                      const displayUrl = getSubscriptionUrlDisplay(url);
                       const enabled = db?.enabled;
                       const interval = String(db?.interval || '').trim();
                       const cron = String(db?.cron || db?.crontab || '').trim();
@@ -4780,7 +5222,7 @@ export default function App() {
                             </div>
                             {url ? (
                               <p className="mono">
-                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                                <AutoFoldText className="mono" fullText={displayUrl} foldedText={displayUrl} />
                               </p>
                             ) : (
                               <p className="group-meta mono">(no url)</p>
@@ -4828,6 +5270,194 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+            </div>
+          </section>
+        )}
+
+        {page === 'inbounds' && (
+          <section className="panel inbounds" style={{ '--delay': '0.16s' }}>
+            <div className="panel-header">
+              <div>
+                <h2>Inbounds</h2>
+                <p>Edit top-level inbound definitions (`inbounds`) and persist changes to config.</p>
+              </div>
+              <div className="header-actions">
+                {configInboundsStatus ? (
+                  <div className="header-status">
+                    <span className={`status${isFailedStatusText(configInboundsStatus) ? ' status-danger' : ''}`}>
+                      {configInboundsStatus}
+                    </span>
+                  </div>
+                ) : null}
+                <button
+                  className="ghost small"
+                  onClick={() => {
+                    loadInboundsConfig(apiBase).catch(() => {});
+                  }}
+                >
+                  Reload config
+                </button>
+                <button
+                  className="primary small"
+                  onClick={triggerHotReloadFromInbounds}
+                  disabled={hotReloadBusy}
+                >
+                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
+                </button>
+                <button
+                  className="primary small"
+                  onClick={() => openRulesModal('inbound', 'insert')}
+                >
+                  Add inbound
+                </button>
+              </div>
+            </div>
+            <div className="config-editor-meta">
+              {configInboundsPath ? <span className="status">Config: {configInboundsPath}</span> : null}
+              <span className="status">Total: {configInbounds.length}</span>
+            </div>
+            <div className="rules-grid inbounds-grid">
+              <div className="group-card">
+                <div className="group-header">
+                  <div>
+                    <h3>Inbound list</h3>
+                    <p className="group-meta">Total {configInbounds.length}</p>
+                  </div>
+                </div>
+                {configInbounds.length === 0 ? (
+                  <div className="empty-state small">
+                    <p>No inbounds configured.</p>
+                  </div>
+                ) : (
+                  <div className="outbound-grid inbound-list-grid">
+                    {(configInbounds || []).map((inbound, index) => {
+                      const tag = String(inbound?.tag || '').trim();
+                      const protocol = String(inbound?.protocol || '').trim() || 'unknown';
+                      const listen = String(inbound?.listen || '').trim();
+                      const portRaw = inbound?.port;
+                      const port = (portRaw === 0 || portRaw) ? String(portRaw).trim() : '';
+                      const endpoint = listen || port ? `${listen || '0.0.0.0'}${port ? `:${port}` : ''}` : '';
+                      const sniffingEnabled = inbound?.sniffing?.enabled === true;
+                      const clients = Array.isArray(inbound?.settings?.clients) ? inbound.settings.clients.length : 0;
+                      const key = `${tag || protocol || 'inbound'}-${index}`;
+                      return (
+                        <div className="outbound-card" key={key}>
+                          <div className="outbound-info">
+                            <div className="outbound-title">
+                              <span className="rule-index">{index + 1}</span>
+                              <h3>{tag || '(no tag)'}</h3>
+                            </div>
+                            <p>{protocol}</p>
+                            {endpoint ? <p className="group-meta mono">{endpoint}</p> : null}
+                          </div>
+                          <div className="outbound-side">
+                            <div className="outbound-meta">
+                              {endpoint ? (
+                                <span className="meta-pill" title={endpoint}>{endpoint}</span>
+                              ) : (
+                                <span className="meta-pill">no listen/port</span>
+                              )}
+                              <span className="meta-pill">{sniffingEnabled ? 'sniffing on' : 'sniffing off'}</span>
+                              {clients > 0 ? <span className="meta-pill">{`${clients} clients`}</span> : null}
+                            </div>
+                            <div className="outbound-actions">
+                              <button
+                                className="ghost small"
+                                onClick={() => openInfoModal(`Inbound: ${tag || '(no tag)'}`, inbound || null)}
+                              >
+                                Info
+                              </button>
+                              <button
+                                className="ghost small danger-text"
+                                onClick={() => openDeleteConfirm('inbound', index)}
+                              >
+                                Delete
+                              </button>
+                              <button
+                                className="ghost small"
+                                onClick={() => openRulesModal('inbound', 'edit', index, index, inbound)}
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="group-card inbounds-dns-editor">
+                <div className="group-header">
+                  <div>
+                    <h3>DNS editor</h3>
+                    <p className="group-meta">Edit top-level DNS section (`dns`).</p>
+                  </div>
+                  <div className="rules-editor-actions">
+                    <button
+                      className="ghost small"
+                      onClick={() => {
+                        loadDnsConfig(apiBase).catch(() => {});
+                      }}
+                    >
+                      Reload config
+                    </button>
+                    <button
+                      className="ghost small"
+                      onClick={resetDnsEditor}
+                      disabled={!configDnsDirty}
+                    >
+                      Reset
+                    </button>
+                    <button
+                      className="ghost small"
+                      onClick={formatDnsEditor}
+                      disabled={configDnsSaving}
+                    >
+                      Format
+                    </button>
+                    <button
+                      className="primary small"
+                      onClick={saveDnsConfig}
+                      disabled={configDnsSaving}
+                    >
+                      {configDnsSaving ? 'Saving...' : 'Save DNS'}
+                    </button>
+                  </div>
+                </div>
+                <div className="config-editor-meta">
+                  {configDnsStatus ? (
+                    <span className={`status${isFailedStatusText(configDnsStatus) ? ' status-danger' : ''}`}>
+                      {configDnsStatus}
+                    </span>
+                  ) : null}
+                  {configDnsPath ? <span className="status">Config: {configDnsPath}</span> : null}
+                  {configDnsDirty ? <span className="status">Unsaved changes</span> : null}
+                </div>
+                <div className="rules-modal-editor config-json-editor">
+                  <CodeMirror
+                    value={configDnsText}
+                    height="320px"
+                    theme={githubLight}
+                    extensions={[
+                      json(),
+                      lintGutter(),
+                      linter(jsonParseLinter()),
+                      EditorView.lineWrapping
+                    ]}
+                    onChange={(value) => {
+                      setConfigDnsText(value);
+                      setConfigDnsDirty(true);
+                      if (configDnsStatus && !isFailedStatusText(configDnsStatus)) {
+                        setConfigDnsStatus('');
+                      }
+                    }}
+                    aria-label="Edit DNS config JSON"
+                  />
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -4841,9 +5471,13 @@ export default function App() {
               </div>
               <div className="header-actions">
                 <div className="header-status">
-                  {rulesStatus ? <span className="status">{rulesStatus}</span> : null}
+                  {rulesStatus ? (
+                    <span className={`status${isFailedStatusText(rulesStatus) ? ' status-danger' : ''}`}>
+                      {rulesStatus}
+                    </span>
+                  ) : null}
                   {configRulesStatus ? (
-                    <span className={`status${isRoutingDraftNotice ? ' status-danger' : ''}`}>
+                    <span className={`status${isRoutingDraftNotice || isFailedStatusText(configRulesStatus) ? ' status-danger' : ''}`}>
                       {configRulesStatus}
                     </span>
                   ) : null}
@@ -4917,18 +5551,21 @@ export default function App() {
                         ignoredFields.length > 0 && effectiveField
                           ? `${effectiveField} wins; ignored: ${ignoredFields.join(', ')}`
                           : '';
+                      const destinationLabel = effectiveDestination
+                        ? `Destination: ${effectiveDestination}`
+                        : 'Destination: -';
                       return (
                         <div className="rule-item" key={key}>
                           <div className="rule-summary">
-                            <div>
-                              <div className="rule-title">
+                            <div className="rule-main">
+                              <div className="rule-title rule-title-routing">
                                 <span className="rule-index">{index + 1}</span>
                                 <h4 className="mono">{ruleTag || '(no ruleTag)'}</h4>
+                                <span className="rule-destination-inline mono" title={destinationLabel}>
+                                  {destinationLabel}
+                                </span>
                               </div>
-                              <p className="rule-meta">
-                                {effectiveDestination ? `Destination: ${effectiveDestination}` : 'Destination: -'}
-                                {effectiveNote ? ` · Note: ${effectiveNote}` : ''}
-                              </p>
+                              {effectiveNote ? <p className="rule-meta">{`Note: ${effectiveNote}`}</p> : null}
                             </div>
                             <div className="rule-actions">
                               <button
@@ -4981,9 +5618,10 @@ export default function App() {
                         : Array.isArray(balancer.selectors)
                           ? balancer.selectors
                           : [];
+                      const strategyTone = getBalancerStrategyTone(balancer, selectors);
                       const resolved = resolveOutboundSelectors(selectors);
                       return (
-                        <div className="rule-item" key={key}>
+                        <div className={`rule-item balancer-item balancer-${strategyTone}`} key={key}>
                           <div className="rule-summary">
                             <div>
                               <div className="rule-title">
@@ -5211,7 +5849,9 @@ export default function App() {
                 </button>
               </div>
               <div className="settings-meta">
-                <span className="status">{settingsStatus}</span>
+                <span className={`status${isFailedStatusText(settingsStatus) ? ' status-danger' : ''}`}>
+                  {settingsStatus}
+                </span>
                 {restartInfo ? (
                   <span
                     className={`status${restartInfo.ok ? '' : ' status-danger'}`}
@@ -5235,6 +5875,76 @@ export default function App() {
                 ) : startupInfo.detail ? (
                   <span className="status">Startup info: {startupInfo.detail}</span>
                 ) : null}
+              </div>
+            </div>
+
+            <div className="group-card settings-main-editor">
+              <div className="group-header">
+                <div>
+                  <h3>Main config editor</h3>
+                  <p className="group-meta">Only edits `Observatory`, `log`, `metrics`, and `stats`.</p>
+                </div>
+                <div className="rules-editor-actions">
+                  <button
+                    className="ghost small"
+                    onClick={() => {
+                      loadMainConfig(apiBase).catch(() => {});
+                    }}
+                  >
+                    Reload config
+                  </button>
+                  <button
+                    className="ghost small"
+                    onClick={resetMainConfigEditor}
+                    disabled={!configMainDirty}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    className="ghost small"
+                    onClick={formatMainConfigEditor}
+                    disabled={configMainSaving}
+                  >
+                    Format
+                  </button>
+                  <button
+                    className="primary small"
+                    onClick={saveMainConfig}
+                    disabled={configMainSaving}
+                  >
+                    {configMainSaving ? 'Saving...' : 'Save main'}
+                  </button>
+                </div>
+              </div>
+              <div className="config-editor-meta">
+                {configMainStatus ? (
+                  <span className={`status${isFailedStatusText(configMainStatus) ? ' status-danger' : ''}`}>
+                    {configMainStatus}
+                  </span>
+                ) : null}
+                {configMainPath ? <span className="status">Config: {configMainPath}</span> : null}
+                {configMainDirty ? <span className="status">Unsaved changes</span> : null}
+              </div>
+              <div className="rules-modal-editor config-json-editor">
+                <CodeMirror
+                  value={configMainText}
+                  height="420px"
+                  theme={githubLight}
+                  extensions={[
+                    json(),
+                    lintGutter(),
+                    linter(jsonParseLinter()),
+                    EditorView.lineWrapping
+                  ]}
+                  onChange={(value) => {
+                    setConfigMainText(value);
+                    setConfigMainDirty(true);
+                    if (configMainStatus && !isFailedStatusText(configMainStatus)) {
+                      setConfigMainStatus('');
+                    }
+                  }}
+                  aria-label="Edit main config JSON"
+                />
               </div>
             </div>
           </section>

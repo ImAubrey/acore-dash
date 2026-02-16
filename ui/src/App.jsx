@@ -134,6 +134,39 @@ const appendAccessKeyParam = (url, key) => {
   return `${url}${separator}${ACCESS_KEY_QUERY}=${encodeURIComponent(key)}`;
 };
 
+const ABSOLUTE_URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
+const RELATIVE_PATH_PREFIX_REGEX = /^(?:[./\\]|[a-zA-Z]:[\\/])/;
+const getSubscriptionUrlDisplay = (rawUrl) => {
+  const value = String(rawUrl || '').trim();
+  if (!value) return '';
+
+  const readHostname = (candidate) => {
+    try {
+      const parsed = new URL(candidate);
+      return String(parsed.hostname || '').trim();
+    } catch (_err) {
+      return '';
+    }
+  };
+
+  const directHost = readHostname(value);
+  if (directHost) return directHost;
+
+  if (value.startsWith('//')) {
+    const protocolRelativeHost = readHostname(`http:${value}`);
+    if (protocolRelativeHost) return protocolRelativeHost;
+  }
+
+  if (!ABSOLUTE_URL_SCHEME_REGEX.test(value) && !RELATIVE_PATH_PREFIX_REGEX.test(value)) {
+    const guessedHost = readHostname(`http://${value}`);
+    if (guessedHost && guessedHost !== '.' && guessedHost !== '..') {
+      return guessedHost;
+    }
+  }
+
+  return value;
+};
+
 const PAGES = {
   dashboard: {
     label: 'Dashboard',
@@ -229,6 +262,22 @@ const formatJson = (value) => {
   } catch (_err) {
     return String(value || '');
   }
+};
+
+const FAILED_STATUS_TEXT_REGEX = /\b(failed|error)\b/i;
+const isFailedStatusText = (value) => FAILED_STATUS_TEXT_REGEX.test(String(value || ''));
+const normalizeBalancerStrategy = (value) => String(value || '').trim().toLowerCase();
+const getBalancerStrategyTone = (balancer, selectors = []) => {
+  const strategy = normalizeBalancerStrategy(balancer?.strategy);
+  if (strategy.includes('fallback')) return 'fallback';
+  if (strategy.includes('selector')) return 'selector';
+  if (strategy.includes('least')) return 'least';
+  if (strategy.includes('random')) return 'random';
+  if (strategy.includes('round')) return 'round';
+  if (strategy) return 'custom';
+  if (String(balancer?.fallbackTag || '').trim()) return 'fallback';
+  if (Array.isArray(selectors) && selectors.length > 0) return 'selector';
+  return 'default';
 };
 
 const clearTimeoutRef = (ref) => {
@@ -2740,11 +2789,12 @@ export default function App() {
   const getSubscriptionLabel = (subscription, index) => {
     const name = String(subscription?.name || '').trim();
     const url = String(subscription?.url || '').trim();
+    const displayUrl = getSubscriptionUrlDisplay(url);
     if (name) {
       return `${index + 1}. ${name}`;
     }
-    if (url) {
-      return `${index + 1}. ${url}`;
+    if (displayUrl) {
+      return `${index + 1}. ${displayUrl}`;
     }
     return `${index + 1}. subscription`;
   };
@@ -2752,11 +2802,12 @@ export default function App() {
   const getSubscriptionDatabaseLabel = (database, index) => {
     const type = String(database?.type || '').trim();
     const url = String(database?.url || '').trim();
+    const displayUrl = getSubscriptionUrlDisplay(url);
     if (type) {
       return `${index + 1}. ${type}`;
     }
-    if (url) {
-      return `${index + 1}. ${url}`;
+    if (displayUrl) {
+      return `${index + 1}. ${displayUrl}`;
     }
     return `${index + 1}. database`;
   };
@@ -4405,113 +4456,19 @@ export default function App() {
 
             <div className="nodes-subheader">
               <div>
-                <h3>Subscriptions</h3>
-                <p className="group-meta">Total {configSubscriptionOutbounds.length}</p>
-                {configSubscriptionPath ? (
-                  <p className="group-meta mono">Config: {configSubscriptionPath}</p>
-                ) : null}
-              </div>
-              <div className="header-actions">
-                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
-                  Reload config
-                </button>
-                <button
-                  className="primary small"
-                  onClick={triggerHotReloadFromSubscriptions}
-                  disabled={hotReloadBusy}
-                >
-                  {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
-                </button>
-                <button className="primary small" onClick={() => openRulesModal('subscription', 'insert')}>
-                  Add subscription
-                </button>
-                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
-              </div>
-            </div>
-            {configSubscriptionOutbounds.length === 0 ? (
-              <div className="empty-state small">
-                <p>No subscriptions configured.</p>
-              </div>
-            ) : (
-              <div className="outbound-grid">
-                {(configSubscriptionOutbounds || []).map((sub, index) => {
-                  const name = String(sub?.name || '').trim();
-                  const url = String(sub?.url || '').trim();
-                  const format = String(sub?.format || 'auto').trim() || 'auto';
-                  const insert = String(sub?.insert || 'tail').trim() || 'tail';
-                  const tagPrefix = String(sub?.tagPrefix || '').trim();
-                  const enabled = sub?.enabled;
-                  const interval = String(sub?.interval || '').trim();
-                  const cron = String(sub?.cron || sub?.crontab || '').trim();
-                  const key = `${name || url || 'subscription'}-${index}`;
-                  return (
-                    <div className="outbound-card" key={key}>
-                      <div className="outbound-info">
-                        <div className="outbound-title">
-                          <span className="rule-index">{index + 1}</span>
-                          <h3>{name || '(unnamed)'}</h3>
-                        </div>
-                        {url ? (
-                          <p className="mono">
-                            <AutoFoldText className="mono" fullText={url} foldedText={url} />
-                          </p>
-                        ) : (
-                          <p className="group-meta mono">(no url)</p>
-                        )}
-                      </div>
-                      <div className="outbound-side">
-                        <div className="outbound-meta">
-                          <span className="meta-pill">{format}</span>
-                          <span className="meta-pill">{insert}</span>
-                          {tagPrefix ? <span className="meta-pill">{tagPrefix}</span> : null}
-                          {interval ? <span className="meta-pill">{`every ${interval}`}</span> : null}
-                          {cron ? <span className="meta-pill">{`cron ${cron}`}</span> : null}
-                          <span className="meta-pill">{enabled === false ? 'disabled' : 'enabled'}</span>
-                        </div>
-                        <div className="outbound-actions">
-                          <button
-                            className="ghost small"
-                            onClick={() => toggleSubscriptionOutboundEnabled(index)}
-                            title={enabled === false ? 'Enable this subscription' : 'Disable this subscription'}
-                          >
-                            {enabled === false ? 'Enable' : 'Disable'}
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={triggerHotReloadFromSubscriptions}
-                            disabled={hotReloadBusy}
-                            title="Fetch and apply subscription updates (hot reload core)."
-                          >
-                            {hotReloadBusy ? 'Updating...' : 'Update now'}
-                          </button>
-                          <button
-                            className="ghost small danger-text"
-                            onClick={() => openDeleteConfirm('subscription', index)}
-                          >
-                            Delete
-                          </button>
-                          <button
-                            className="ghost small"
-                            onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="nodes-subheader">
-              <div>
                 <h3>All outbounds</h3>
                 {configOutboundsPath ? (
                   <p className="group-meta mono">Config: {configOutboundsPath}</p>
                 ) : null}
               </div>
               <div className="header-actions">
+                {configOutboundsStatus ? (
+                  <div className="header-status">
+                    <span className={`status${isFailedStatusText(configOutboundsStatus) ? ' status-danger' : ''}`}>
+                      {configOutboundsStatus}
+                    </span>
+                  </div>
+                ) : null}
                 <button
                   className="primary small"
                   onClick={triggerDelayTest}
@@ -4529,7 +4486,6 @@ export default function App() {
                 <button className="primary small" onClick={() => openRulesModal('outbound', 'insert')}>
                   Add outbound
                 </button>
-                {configOutboundsStatus ? <span className="status">{configOutboundsStatus}</span> : null}
               </div>
             </div>
             {displayOutbounds.length === 0 ? (
@@ -4559,6 +4515,7 @@ export default function App() {
                       </div>
                       <div className="outbound-side">
                         <div className="outbound-meta">
+                          {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
                           {nodeStatus ? (
                             <span className={`status-pill ${alive ? 'up' : 'down'}`}>
                               {alive ? delay : 'down'}
@@ -4567,7 +4524,6 @@ export default function App() {
                             <span className="meta-pill">no status</span>
                           )}
                           {managed ? <span className="meta-pill" title={`managed: ${managed}`}>managed</span> : null}
-                          {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
                         </div>
                         <div className="outbound-actions">
                           <button
@@ -4610,9 +4566,13 @@ export default function App() {
                 <p>Edit the top-level subscription block (`subscription`) and persist changes to config.</p>
               </div>
               <div className="header-actions">
-                <button className="ghost small" onClick={() => loadSubscriptionConfig(apiBase)}>
-                  Reload config
-                </button>
+                {configSubscriptionStatus ? (
+                  <div className="header-status">
+                    <span className={`status${isFailedStatusText(configSubscriptionStatus) ? ' status-danger' : ''}`}>
+                      {configSubscriptionStatus}
+                    </span>
+                  </div>
+                ) : null}
                 <button className="ghost small" onClick={saveSubscriptionBlock}>
                   Save
                 </button>
@@ -4626,7 +4586,6 @@ export default function App() {
                 >
                   {hotReloadBusy ? 'Hot reloading...' : 'Hot reload core'}
                 </button>
-                {configSubscriptionStatus ? <span className="status">{configSubscriptionStatus}</span> : null}
               </div>
             </div>
 
@@ -4674,6 +4633,7 @@ export default function App() {
                     {(configSubscriptionOutbounds || []).map((sub, index) => {
                       const name = String(sub?.name || '').trim();
                       const url = String(sub?.url || '').trim();
+                      const displayUrl = getSubscriptionUrlDisplay(url);
                       const format = String(sub?.format || 'auto').trim() || 'auto';
                       const insert = String(sub?.insert || 'tail').trim() || 'tail';
                       const tagPrefix = String(sub?.tagPrefix || '').trim();
@@ -4690,7 +4650,7 @@ export default function App() {
                             </div>
                             {url ? (
                               <p className="mono">
-                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                                <AutoFoldText className="mono" fullText={displayUrl} foldedText={displayUrl} />
                               </p>
                             ) : (
                               <p className="group-meta mono">(no url)</p>
@@ -4767,6 +4727,7 @@ export default function App() {
                     {(configSubscriptionDatabases || []).map((db, index) => {
                       const type = String(db?.type || '').trim() || '(no type)';
                       const url = String(db?.url || '').trim();
+                      const displayUrl = getSubscriptionUrlDisplay(url);
                       const enabled = db?.enabled;
                       const interval = String(db?.interval || '').trim();
                       const cron = String(db?.cron || db?.crontab || '').trim();
@@ -4780,7 +4741,7 @@ export default function App() {
                             </div>
                             {url ? (
                               <p className="mono">
-                                <AutoFoldText className="mono" fullText={url} foldedText={url} />
+                                <AutoFoldText className="mono" fullText={displayUrl} foldedText={displayUrl} />
                               </p>
                             ) : (
                               <p className="group-meta mono">(no url)</p>
@@ -4841,9 +4802,13 @@ export default function App() {
               </div>
               <div className="header-actions">
                 <div className="header-status">
-                  {rulesStatus ? <span className="status">{rulesStatus}</span> : null}
+                  {rulesStatus ? (
+                    <span className={`status${isFailedStatusText(rulesStatus) ? ' status-danger' : ''}`}>
+                      {rulesStatus}
+                    </span>
+                  ) : null}
                   {configRulesStatus ? (
-                    <span className={`status${isRoutingDraftNotice ? ' status-danger' : ''}`}>
+                    <span className={`status${isRoutingDraftNotice || isFailedStatusText(configRulesStatus) ? ' status-danger' : ''}`}>
                       {configRulesStatus}
                     </span>
                   ) : null}
@@ -4917,18 +4882,21 @@ export default function App() {
                         ignoredFields.length > 0 && effectiveField
                           ? `${effectiveField} wins; ignored: ${ignoredFields.join(', ')}`
                           : '';
+                      const destinationLabel = effectiveDestination
+                        ? `Destination: ${effectiveDestination}`
+                        : 'Destination: -';
                       return (
                         <div className="rule-item" key={key}>
                           <div className="rule-summary">
-                            <div>
-                              <div className="rule-title">
+                            <div className="rule-main">
+                              <div className="rule-title rule-title-routing">
                                 <span className="rule-index">{index + 1}</span>
                                 <h4 className="mono">{ruleTag || '(no ruleTag)'}</h4>
+                                <span className="rule-destination-inline mono" title={destinationLabel}>
+                                  {destinationLabel}
+                                </span>
                               </div>
-                              <p className="rule-meta">
-                                {effectiveDestination ? `Destination: ${effectiveDestination}` : 'Destination: -'}
-                                {effectiveNote ? ` · Note: ${effectiveNote}` : ''}
-                              </p>
+                              {effectiveNote ? <p className="rule-meta">{`Note: ${effectiveNote}`}</p> : null}
                             </div>
                             <div className="rule-actions">
                               <button
@@ -4981,9 +4949,10 @@ export default function App() {
                         : Array.isArray(balancer.selectors)
                           ? balancer.selectors
                           : [];
+                      const strategyTone = getBalancerStrategyTone(balancer, selectors);
                       const resolved = resolveOutboundSelectors(selectors);
                       return (
-                        <div className="rule-item" key={key}>
+                        <div className={`rule-item balancer-item balancer-${strategyTone}`} key={key}>
                           <div className="rule-summary">
                             <div>
                               <div className="rule-title">
@@ -5213,7 +5182,9 @@ export default function App() {
                 </button>
               </div>
               <div className="settings-meta">
-                <span className="status">{settingsStatus}</span>
+                <span className={`status${isFailedStatusText(settingsStatus) ? ' status-danger' : ''}`}>
+                  {settingsStatus}
+                </span>
                 {restartInfo ? (
                   <span
                     className={`status${restartInfo.ok ? '' : ' status-danger'}`}
