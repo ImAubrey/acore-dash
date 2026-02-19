@@ -1390,20 +1390,49 @@ export default function App() {
     return list;
   }, [configOutboundTags, runtimeOutboundTags]);
 
-  const resolveOutboundSelectors = (selectors, tags = allOutboundTags) => {
-    if (!Array.isArray(selectors) || selectors.length === 0) return [];
-    if (!Array.isArray(tags) || tags.length === 0) return [];
-
-    const normalizedSelectors = [];
-    selectors.forEach((raw) => {
-      const value = normalizeTag(raw);
-      if (value) normalizedSelectors.push(value);
+  const allBalancerTags = useMemo(() => {
+    const seen = new Set();
+    const list = [];
+    (configBalancers || []).forEach((balancer) => {
+      const tag = normalizeTag(balancer?.tag);
+      if (!tag || seen.has(tag)) return;
+      seen.add(tag);
+      list.push(tag);
     });
-    if (normalizedSelectors.length === 0) return [];
+    list.sort();
+    return list;
+  }, [configBalancers]);
 
+  const resolveOutboundSelectors = (selectors, tags = allOutboundTags, balancerTags = allBalancerTags) => {
+    if (!Array.isArray(selectors) || selectors.length === 0) return [];
+
+    const normalizedTags = Array.isArray(tags) ? tags : [];
+    const normalizedSelectors = [];
+    const balancerSet = new Set(
+      Array.isArray(balancerTags)
+        ? balancerTags.map((tag) => normalizeTag(tag)).filter((tag) => !!tag)
+        : []
+    );
     const seen = new Set();
     const out = [];
-    tags.forEach((rawTag) => {
+    selectors.forEach((raw) => {
+      const value = normalizeTag(raw);
+      if (!value) return;
+      if (balancerSet.has(value)) {
+        if (!seen.has(value)) {
+          seen.add(value);
+          out.push(value);
+        }
+        return;
+      }
+      normalizedSelectors.push(value);
+    });
+    if (normalizedSelectors.length === 0) {
+      out.sort();
+      return out;
+    }
+
+    normalizedTags.forEach((rawTag) => {
       const tag = normalizeTag(rawTag);
       if (!tag || seen.has(tag)) return;
       for (const selector of normalizedSelectors) {
