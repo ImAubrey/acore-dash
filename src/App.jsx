@@ -203,42 +203,42 @@ const getI18nText = (lang, key) => {
 
 const PAGES = {
   dashboard: {
-    label: 'Dashboard',
+    label: '📊 Dashboard',
     title: 'Operational heartbeat',
     description: 'Throughput, destinations, and outbound mix at a glance.'
   },
   connections: {
-    label: 'Connections',
+    label: '🔗 Connections',
     title: 'Live connection intelligence',
     description: 'Grouped by source IP and destination host/IP with real-time traffic totals.'
   },
   nodes: {
-    label: 'Nodes',
+    label: '🧭 Nodes',
     title: 'Outbound steering',
     description: 'Clash-style policy groups with live outbound health.'
   },
   rules: {
-    label: 'Rules',
+    label: '📐 Rules',
     title: 'Routing rule browser',
     description: 'Inspect router rules and load balancer policies over HTTP.'
   },
   subscriptions: {
-    label: 'Subscriptions',
+    label: '📡 Subscriptions',
     title: 'Subscription updates',
     description: 'Edit the subscription block and schedule outbound/database refresh.'
   },
   inbounds: {
-    label: 'Inbounds',
+    label: '📥 Inbounds',
     title: 'Inbound configuration',
     description: 'Edit the top-level inbounds list and persist it to config.'
   },
   logs: {
-    label: 'Logs',
+    label: '🧾 Logs',
     title: 'Streaming logs',
     description: 'Tail Xray logs from the configured log file.'
   },
   settings: {
-    label: 'Settings',
+    label: '⚙️ Settings',
     title: 'Xray control plane',
     description: 'Configure metrics entry point and control actions.'
   }
@@ -519,6 +519,16 @@ const toSearchText = (value) => {
   const tokens = [];
   collectSearchTokens(value, tokens, new WeakSet());
   return tokens.join(' ');
+};
+
+const hasRuleReLookup = (rule) => {
+  if (!rule || typeof rule !== 'object') return false;
+  return rule.reLookup === true;
+};
+
+const toRuleSearchText = (rule) => {
+  const base = toSearchText(rule);
+  return hasRuleReLookup(rule) ? `${base} reLookup` : base;
 };
 
 const highlightSearchText = (value, queryLower) => {
@@ -1092,6 +1102,7 @@ export default function App() {
   const [connSortKey, setConnSortKey] = useState('default');
   const [connSortDir, setConnSortDir] = useState('desc');
   const [connSearchQuery, setConnSearchQuery] = useState('');
+  const [ruleSearchQuery, setRuleSearchQuery] = useState('');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [connRates, setConnRates] = useState(new Map());
   const [detailRates, setDetailRates] = useState(new Map());
@@ -1700,8 +1711,10 @@ export default function App() {
   };
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
+  const normalizedRuleSearchQuery = ruleSearchQuery.trim().toLowerCase();
   const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
   const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
+  const highlightRuleCell = (value) => highlightSearchText(value, normalizedRuleSearchQuery);
   const filteredLogLines = useMemo(() => {
     if (page !== 'logs') return [];
     if (!normalizedLogSearchQuery) return logLines;
@@ -1749,6 +1762,7 @@ export default function App() {
         const alpnLower = rawAlpn.toLowerCase();
         const typeRawParts = type === '-' ? [] : type.split('+').map((part) => part.trim()).filter(Boolean);
         const typeParts = typeRawParts.map((part) => part.toLowerCase());
+        const hasSplice = typeParts.includes(SPLICE_LABEL);
         const hasTLS = typeParts.includes('tls');
         const hasQUIC = typeParts.includes('quic');
         const hasHTTP = typeParts.includes('http');
@@ -1782,6 +1796,7 @@ export default function App() {
         const extraTypeParts = typeRawParts.filter((part, index) => {
           const lower = typeParts[index];
           if (!lower) return false;
+          if (lower === SPLICE_LABEL) return false;
           if (lower === 'tls' || lower === 'quic' || lower === 'http' || lower === 'http1' || lower === 'http2') return false;
           if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
           return true;
@@ -1795,7 +1810,13 @@ export default function App() {
         const ruleDisplay = ruleName && ruleLower !== outboundLower
           ? ` · ${ruleName}`
           : '';
-        return highlightConnCell(`${baseDisplay}${ruleDisplay}`);
+        const protocolDisplay = `${baseDisplay}${ruleDisplay}`;
+        return (
+          <span className="protocol-cell">
+            <span>{highlightConnCell(protocolDisplay)}</span>
+            {hasSplice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
+          </span>
+        );
       }
       case 'upload':
         return highlightConnCell(formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type)));
@@ -1937,6 +1958,18 @@ export default function App() {
     if (!normalizedConnSearchQuery) return sortedConnections;
     return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
   }, [isConnectionsPage, normalizedConnSearchQuery, sortedConnections]);
+  const filteredRuleEntries = useMemo(() => {
+    if (page !== 'rules') return [];
+    const entries = (configRules || []).map((rule, index) => ({ rule, index }));
+    if (!normalizedRuleSearchQuery) return entries;
+    return entries.filter(({ rule }) => toRuleSearchText(rule).toLowerCase().includes(normalizedRuleSearchQuery));
+  }, [page, configRules, normalizedRuleSearchQuery]);
+  const filteredBalancerEntries = useMemo(() => {
+    if (page !== 'rules') return [];
+    const entries = (configBalancers || []).map((balancer, index) => ({ balancer, index }));
+    if (!normalizedRuleSearchQuery) return entries;
+    return entries.filter(({ balancer }) => toSearchText(balancer).toLowerCase().includes(normalizedRuleSearchQuery));
+  }, [page, configBalancers, normalizedRuleSearchQuery]);
   useEffect(() => {
     if (!isConnectionsPage || !normalizedConnSearchQuery) return;
     setExpandedConnections((prev) => {
@@ -4717,7 +4750,10 @@ export default function App() {
                       foldedText={sourceFolded}
                       renderText={highlightConnCell}
                     />
-                    <span className="mono">{highlightConnCell(conn.connectionCount || 1)}</span>
+                    <span className="mono session-cell">
+                      <span>{highlightConnCell(conn.connectionCount || 1)}</span>
+                      {connIsSplice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
+                    </span>
                     <span className="mono">
                       {highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice))}
                     </span>
@@ -5482,6 +5518,15 @@ export default function App() {
                     </span>
                   ) : null}
                 </div>
+                <div className="connections-search">
+                  <input
+                    type="text"
+                    value={ruleSearchQuery}
+                    onChange={(event) => setRuleSearchQuery(event.target.value)}
+                    placeholder="Search rules and balancers..."
+                    aria-label="Search rules and balancers"
+                  />
+                </div>
                 <button
                   className="primary small"
                   onClick={triggerHotReloadFromRules}
@@ -5503,7 +5548,10 @@ export default function App() {
                 <div className="group-header">
                   <div>
                     <h3>Routing rules</h3>
-                    <p className="group-meta">Total {configRules.length}</p>
+                    <p className="group-meta">
+                      Total {configRules.length}
+                      {normalizedRuleSearchQuery ? ` · Match ${filteredRuleEntries.length}` : ''}
+                    </p>
                     {configRulesPath ? (
                       <p className="group-meta mono">Config: {configRulesPath}</p>
                     ) : null}
@@ -5518,15 +5566,20 @@ export default function App() {
                   <div className="empty-state small">
                     <p>No routing rules configured.</p>
                   </div>
+                ) : filteredRuleEntries.length === 0 ? (
+                  <div className="empty-state small">
+                    <p>No matching routing rules.</p>
+                  </div>
                 ) : (
                   <div className="rules-list">
-                    {configRules.map((rule, index) => {
-                      const ruleTag = rule.ruleTag || '';
+                    {filteredRuleEntries.map(({ rule, index }) => {
+                      const ruleTag = String(rule.ruleTag || '').trim();
                       const key = `rule:${index}:${ruleTag}`;
                       const destination = String(rule.destination || '').trim();
                       const outboundTag = String(rule.outboundTag || '').trim();
                       const balancerTag = String(rule.balancerTag || '').trim();
                       const targetTag = String(rule.targetTag || '').trim();
+                      const hasReLookup = hasRuleReLookup(rule);
 
                       let effectiveDestination = '';
                       let effectiveField = '';
@@ -5560,12 +5613,22 @@ export default function App() {
                             <div className="rule-main">
                               <div className="rule-title rule-title-routing">
                                 <span className="rule-index">{index + 1}</span>
-                                <h4 className="mono">{ruleTag || '(no ruleTag)'}</h4>
+                                <h4 className="mono">{highlightRuleCell(ruleTag || '(no ruleTag)')}</h4>
                                 <span className="rule-destination-inline mono" title={destinationLabel}>
-                                  {destinationLabel}
+                                  {highlightRuleCell(destinationLabel)}
                                 </span>
                               </div>
-                              {effectiveNote ? <p className="rule-meta">{`Note: ${effectiveNote}`}</p> : null}
+                              {effectiveNote ? (
+                                <p className="rule-meta">{highlightRuleCell(`Note: ${effectiveNote}`)}</p>
+                              ) : null}
+                              {hasReLookup ? (
+                                <p className="rule-meta">
+                                  {highlightRuleCell('Flags:')}
+                                  <span className="candidate-tags">
+                                    <span className="candidate-tag">{highlightRuleCell('reLookup=true')}</span>
+                                  </span>
+                                </p>
+                              ) : null}
                             </div>
                             <div className="rule-actions">
                               <button
@@ -5593,7 +5656,10 @@ export default function App() {
                 <div className="group-header">
                   <div>
                     <h3>Balancers</h3>
-                    <p className="group-meta">Total {configBalancers.length}</p>
+                    <p className="group-meta">
+                      Total {configBalancers.length}
+                      {normalizedRuleSearchQuery ? ` · Match ${filteredBalancerEntries.length}` : ''}
+                    </p>
                     {configRulesPath ? (
                       <p className="group-meta mono">Config: {configRulesPath}</p>
                     ) : null}
@@ -5608,10 +5674,14 @@ export default function App() {
                   <div className="empty-state small">
                     <p>No balancers configured.</p>
                   </div>
+                ) : filteredBalancerEntries.length === 0 ? (
+                  <div className="empty-state small">
+                    <p>No matching balancers.</p>
+                  </div>
                 ) : (
                   <div className="rules-list">
-                    {configBalancers.map((balancer, index) => {
-                      const tag = balancer.tag || '';
+                    {filteredBalancerEntries.map(({ balancer, index }) => {
+                      const tag = String(balancer.tag || '').trim();
                       const key = `balancer:${tag || index}`;
                       const selectors = Array.isArray(balancer.selector)
                         ? balancer.selector
@@ -5620,33 +5690,36 @@ export default function App() {
                           : [];
                       const strategyTone = getBalancerStrategyTone(balancer, selectors);
                       const resolved = resolveOutboundSelectors(selectors);
+                      const strategyText = balancer.strategy ? `Strategy: ${balancer.strategy}` : 'Strategy: -';
+                      const fallbackText = balancer.fallbackTag ? ` · Fallback: ${balancer.fallbackTag}` : '';
                       return (
                         <div className={`rule-item balancer-item balancer-${strategyTone}`} key={key}>
                           <div className="rule-summary">
                             <div>
                               <div className="rule-title">
                                 <span className="rule-index">{index + 1}</span>
-                                <h4 className="mono">{tag || '(no tag)'}</h4>
+                                <h4 className="mono">{highlightRuleCell(tag || '(no tag)')}</h4>
                               </div>
-                              <p className="rule-meta">
-                                {balancer.strategy ? `Strategy: ${balancer.strategy}` : 'Strategy: -'}
-                                {balancer.fallbackTag ? ` · Fallback: ${balancer.fallbackTag}` : ''}
-                              </p>
+                              <p className="rule-meta">{highlightRuleCell(`${strategyText}${fallbackText}`)}</p>
                               {selectors.length > 0 ? (
                                 <React.Fragment>
-                                  <p className="rule-meta">Selector prefixes: {selectors.join(', ')}</p>
+                                  <p className="rule-meta">
+                                    {highlightRuleCell(`Selector prefixes: ${selectors.join(', ')}`)}
+                                  </p>
                                   <p className="rule-meta">
                                     {resolved.length > 0 ? (
                                       <React.Fragment>
-                                        Candidates ({resolved.length}):
+                                        {highlightRuleCell(`Candidates (${resolved.length}):`)}
                                         <span className="candidate-tags">
                                           {resolved.map((candidate) => (
-                                            <span className="candidate-tag" key={`${key}-${candidate}`}>{candidate}</span>
+                                            <span className="candidate-tag" key={`${key}-${candidate}`}>
+                                              {highlightRuleCell(candidate)}
+                                            </span>
                                           ))}
                                         </span>
                                       </React.Fragment>
                                     ) : (
-                                      'Candidates: (none)'
+                                      highlightRuleCell('Candidates: (none)')
                                     )}
                                   </p>
                                 </React.Fragment>

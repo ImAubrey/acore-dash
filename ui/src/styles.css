@@ -150,10 +150,14 @@ body {
 }
 
 .nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
   text-decoration: none;
   font-size: 13px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
   padding: 8px 14px;
   border-radius: 999px;
   border: 1px solid var(--stroke);
@@ -960,6 +964,37 @@ body {
   gap: 8px;
 }
 
+.session-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.protocol-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.splice-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 154, 160, 0.35);
+  background: rgba(47, 154, 160, 0.14);
+  color: #1e6f74;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
 .conn-close {
   border-radius: 999px;
   border: 1px solid rgba(255, 107, 74, 0.35);
@@ -1338,6 +1373,17 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.rules .panel-header .header-actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+.rules .panel-header .header-actions .primary.small {
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .rule-item {
