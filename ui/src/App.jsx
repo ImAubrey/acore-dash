@@ -754,6 +754,38 @@ const normalizeConnectionIds = (ids) => {
   });
   return out;
 };
+const collectCloseIdCandidates = (value, out) => {
+  if (!value || typeof value !== 'object') return;
+  out.push(
+    value.id,
+    value.ID,
+    value.connectionId,
+    value.connectionID,
+    value.connId,
+    value.ConnID
+  );
+};
+const collectNestedCloseIds = (items, out) => {
+  if (!Array.isArray(items)) return;
+  items.forEach((item) => {
+    collectCloseIdCandidates(item, out);
+    if (!item || typeof item !== 'object') return;
+    collectNestedCloseIds(item.details, out);
+    collectNestedCloseIds(item.children, out);
+    collectNestedCloseIds(item.items, out);
+  });
+};
+const getGroupCloseIds = (conn) => {
+  if (!conn || typeof conn !== 'object') return [];
+  const ids = [];
+  collectNestedCloseIds(conn.details, ids);
+  collectNestedCloseIds(conn.children, ids);
+  collectNestedCloseIds(conn.items, ids);
+  if (ids.length === 0) {
+    collectCloseIdCandidates(conn, ids);
+  }
+  return normalizeConnectionIds(ids);
+};
 const CONNECTION_SORT_FIELDS = {
   destination: {
     label: 'Destination',
@@ -1590,10 +1622,10 @@ export default function App() {
     }
   };
 
-  const handleCloseGroup = (event, conn) => {
+  const handleCloseGroup = (event, closeIds) => {
     event.preventDefault();
     event.stopPropagation();
-    closeConnections((conn.details || []).map((detail) => detail.id));
+    closeConnections(closeIds);
   };
 
   const handleInfoGroup = (event, conn) => {
@@ -4265,8 +4297,8 @@ export default function App() {
                 <span></span>
               </div>
                 {filteredConnections.map((conn, connIndex) => {
-                const detailIds = (conn.details || []).map((detail) => detail.id);
-                const canClose = detailIds.length > 0;
+                const groupCloseIds = getGroupCloseIds(conn);
+                const canClose = groupCloseIds.length > 0;
                 const isExpanded = expandedConnections.has(conn.id);
                 const visibleDetails = normalizedConnSearchQuery
                   ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
@@ -4330,7 +4362,7 @@ export default function App() {
                       <button
                         type="button"
                         className="conn-close"
-                        onClick={(event) => handleCloseGroup(event, conn)}
+                        onClick={(event) => handleCloseGroup(event, groupCloseIds)}
                         disabled={!canClose}
                         title={canClose ? 'Close all connections in this group' : 'No connections to close'}
                       >
