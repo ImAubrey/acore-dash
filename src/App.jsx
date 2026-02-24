@@ -1837,12 +1837,6 @@ export default function App() {
         const detailSourceBadge = getDetailDomainSourceBadge(detail);
         return (
           <span className="destination-cell">
-            <AutoFoldText
-              className="destination-cell-text"
-              fullText={full}
-              foldedText={display}
-              renderText={highlightConnCell}
-            />
             {detailSourceBadge ? (
               <span
                 className={`domain-source-pill ${normalizeDomainSource(detail?.metadata?.domainSource)}`}
@@ -1851,6 +1845,12 @@ export default function App() {
                 {detailSourceBadge}
               </span>
             ) : null}
+            <AutoFoldText
+              className="destination-cell-text"
+              fullText={full}
+              foldedText={display}
+              renderText={highlightConnCell}
+            />
           </span>
         );
       }
@@ -4863,20 +4863,20 @@ export default function App() {
                     }}
                   >
                     <span className="destination-cell">
+                      {destinationSourceBadge ? (
+                        <span
+                          className={`domain-source-pill ${normalizeDomainSource(destinationSourceBadge)}`}
+                          title={`Domain source: ${destinationSourceBadge}`}
+                        >
+                          {destinationSourceBadge}
+                        </span>
+                      ) : null}
                       <AutoFoldText
                         className="mono destination-cell-text"
                         fullText={destinationRaw}
                         foldedText={destinationFolded}
                         renderText={highlightConnCell}
                       />
-                      {destinationSourceBadge ? (
-                        <span
-                          className={`domain-source-pill ${normalizeDomainSource(conn?.metadata?.domainSource)}`}
-                          title={`Domain source: ${destinationSourceBadge}`}
-                        >
-                          {destinationSourceBadge}
-                        </span>
-                      ) : null}
                     </span>
                     <AutoFoldText
                       className="mono"
