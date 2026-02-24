@@ -532,7 +532,15 @@ const getDomainSourceBadgeLabel = (value) => {
       return '';
   }
 };
-const getConnectionDomainSourceBadge = (conn) => getDomainSourceBadgeLabel(conn?.metadata?.domainSource);
+const getConnectionDomainSourceBadge = (conn) => {
+  let merged = normalizeDomainSource(conn?.metadata?.domainSource);
+  const details = Array.isArray(conn?.details) ? conn.details : [];
+  details.forEach((detail) => {
+    merged = mergeDomainSource(merged, detail?.metadata?.domainSource);
+  });
+  return getDomainSourceBadgeLabel(merged);
+};
+const getDetailDomainSourceBadge = (detail) => getDomainSourceBadgeLabel(detail?.metadata?.domainSource);
 const getDetailLastSeen = (detail) => detail?.lastSeen || detail?.last_seen || detail?.LastSeen || '';
 const IPV6_FOLD_TAIL_GROUPS = 4;
 const splitZoneIndex = (value) => {
@@ -1709,8 +1717,24 @@ export default function App() {
         const port = detail.metadata?.destinationPort;
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
+        const detailSourceBadge = getDetailDomainSourceBadge(detail);
         return (
-          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+          <span className="destination-cell">
+            <AutoFoldText
+              className="destination-cell-text"
+              fullText={full}
+              foldedText={display}
+              renderText={highlightConnCell}
+            />
+            {detailSourceBadge ? (
+              <span
+                className={`domain-source-pill ${normalizeDomainSource(detail?.metadata?.domainSource)}`}
+                title={`Domain source: ${detailSourceBadge}`}
+              >
+                {detailSourceBadge}
+              </span>
+            ) : null}
+          </span>
         );
       }
       case 'source': {
