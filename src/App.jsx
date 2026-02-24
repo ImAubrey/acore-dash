@@ -563,6 +563,31 @@ const getSourceLabel = (meta, fallback = '0.0.0.0') => meta?.sourceIP || fallbac
 const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metadata, 'unknown');
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
 const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
+const normalizeDomainSource = (value) => {
+  const source = String(value || '').trim().toLowerCase();
+  if (!source) return '';
+  if (source === 'dns') return 'dns';
+  if (source === 'sni') return 'sni';
+  if (source === 'sniff' || source === 'sniffer') return 'sniff';
+  if (source === 'mixed') return 'mixed';
+  return '';
+};
+const getDomainSourceBadgeLabel = (value) => {
+  const source = normalizeDomainSource(value);
+  switch (source) {
+    case 'dns':
+      return 'DNS';
+    case 'sni':
+      return 'SNI';
+    case 'sniff':
+      return 'SNIFF';
+    case 'mixed':
+      return 'MIXED';
+    default:
+      return '';
+  }
+};
+const getConnectionDomainSourceBadge = (conn) => getDomainSourceBadgeLabel(conn?.metadata?.domainSource);
 const getDetailLastSeen = (detail) => detail?.lastSeen || detail?.last_seen || detail?.LastSeen || '';
 const IPV6_FOLD_TAIL_GROUPS = 4;
 const splitZoneIndex = (value) => {
@@ -4780,6 +4805,7 @@ export default function App() {
                 const connActivity = getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
                 const destinationRaw = getConnectionDestination(conn);
                 const sourceRaw = getConnectionSource(conn);
+                const destinationSourceBadge = getConnectionDomainSourceBadge(conn);
                 const destinationFolded = formatHostDisplay(destinationRaw);
                 const sourceFolded = formatHostDisplay(sourceRaw);
                 const rowBg = ZEBRA_ROW_BACKGROUNDS[connIndex % ZEBRA_ROW_BACKGROUNDS.length];
@@ -4799,12 +4825,22 @@ export default function App() {
                       }
                     }}
                   >
-                    <AutoFoldText
-                      className="mono"
-                      fullText={destinationRaw}
-                      foldedText={destinationFolded}
-                      renderText={highlightConnCell}
-                    />
+                    <span className="destination-cell">
+                      <AutoFoldText
+                        className="mono destination-cell-text"
+                        fullText={destinationRaw}
+                        foldedText={destinationFolded}
+                        renderText={highlightConnCell}
+                      />
+                      {destinationSourceBadge ? (
+                        <span
+                          className={`domain-source-pill ${normalizeDomainSource(conn?.metadata?.domainSource)}`}
+                          title={`Domain source: ${destinationSourceBadge}`}
+                        >
+                          {destinationSourceBadge}
+                        </span>
+                      ) : null}
+                    </span>
                     <AutoFoldText
                       className="mono"
                       fullText={sourceRaw}
