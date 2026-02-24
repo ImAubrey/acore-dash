@@ -706,6 +706,14 @@ const mergeLabel = (current, incoming) => {
   return 'mixed';
 };
 
+const mergeDomainSource = (current, incoming) => {
+  const currentSource = normalizeDomainSource(current);
+  const incomingSource = normalizeDomainSource(incoming);
+  if (!currentSource) return incomingSource;
+  if (!incomingSource || currentSource === incomingSource) return currentSource;
+  return 'mixed';
+};
+
 const buildConnectionsView = (list, mode) => {
   if (!Array.isArray(list) || mode === 'current') return list || [];
   const groups = new Map();
@@ -740,6 +748,11 @@ const buildConnectionsView = (list, mode) => {
         group.destLabel = dest;
         groups.set(id, group);
       }
+
+      group.metadata.domainSource = mergeDomainSource(
+        group.metadata.domainSource,
+        detail?.metadata?.domainSource
+      );
 
       group.upload += detail.upload || 0;
       group.download += detail.download || 0;
