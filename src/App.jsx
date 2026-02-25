@@ -422,6 +422,67 @@ const SUBSCRIPTION_DATABASE_TEMPLATE = {
   enabled: true
 };
 
+const EMPTY_DNS_CACHE_STATS = Object.freeze({
+  available: false,
+  error: '',
+  usageBytes: 0,
+  limitBytes: 0,
+  entryCount: 0,
+  validCount: 0,
+  expiredCount: 0,
+  usageRatio: 0,
+  validRatio: 0,
+  expiredRatio: 0,
+  updatedAt: '',
+  stores: []
+});
+
+const normalizeRatioValue = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 0;
+  return Math.min(Math.max(num, 0), 1);
+};
+
+const normalizeCountValue = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  return Math.trunc(num);
+};
+
+const normalizeDnsCacheStats = (payload) => {
+  const source = isPlainObject(payload) ? payload : {};
+  const stores = Array.isArray(source.stores)
+    ? source.stores
+      .filter((item) => isPlainObject(item))
+      .map((item) => ({
+        name: String(item.name || '').trim(),
+        type: String(item.type || '').trim(),
+        usageBytes: normalizeCountValue(item.usageBytes),
+        limitBytes: normalizeCountValue(item.limitBytes),
+        entryCount: normalizeCountValue(item.entryCount),
+        validCount: normalizeCountValue(item.validCount),
+        expiredCount: normalizeCountValue(item.expiredCount),
+        usageRatio: normalizeRatioValue(item.usageRatio),
+        validRatio: normalizeRatioValue(item.validRatio),
+        expiredRatio: normalizeRatioValue(item.expiredRatio)
+      }))
+    : [];
+  return {
+    available: !!source.available,
+    error: String(source.error || '').trim(),
+    usageBytes: normalizeCountValue(source.usageBytes),
+    limitBytes: normalizeCountValue(source.limitBytes),
+    entryCount: normalizeCountValue(source.entryCount),
+    validCount: normalizeCountValue(source.validCount),
+    expiredCount: normalizeCountValue(source.expiredCount),
+    usageRatio: normalizeRatioValue(source.usageRatio),
+    validRatio: normalizeRatioValue(source.validRatio),
+    expiredRatio: normalizeRatioValue(source.expiredRatio),
+    updatedAt: String(source.updatedAt || '').trim(),
+    stores
+  };
+};
+
 const clamp = (value, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 const CONNECTION_ACTIVITY_SCALE = 256 * 1024;
 const DETAIL_ACTIVITY_SCALE = 64 * 1024;
@@ -486,6 +547,7 @@ const TRAFFIC_WINDOW = Math.max(2, Math.round(DASHBOARD_CACHE_WINDOW_MS / 1000))
 const TRAFFIC_ANIMATION_MS = 1000;
 const TRAFFIC_GRID_LINES = [40, 100, 160];
 const TRAFFIC_CLIP_ID = 'traffic-clip';
+const DNS_CACHE_NETWORK_ERROR_REGEX = /\b(failed to fetch|network ?error|network request failed|load failed)\b/i;
 
 const parseTimestamp = (value) => {
   if (!value) return 0;
@@ -1166,6 +1228,9 @@ export default function App() {
   const [accessKey, setAccessKey] = useState(getInitialAccessKey());
   const [connRefreshInterval, setConnRefreshInterval] = useState(getInitialRefreshInterval());
   const [connections, setConnections] = useState({ uploadTotal: 0, downloadTotal: 0, connections: [] });
+  const [dnsCacheStats, setDnsCacheStats] = useState(() => ({ ...EMPTY_DNS_CACHE_STATS }));
+  const [dnsCacheStatus, setDnsCacheStatus] = useState('');
+  const [dnsCacheFlushBusy, setDnsCacheFlushBusy] = useState(false);
   const [trafficSeries, setTrafficSeries] = useState([]);
   const [outbounds, setOutbounds] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -1579,8 +1644,8 @@ export default function App() {
     });
     const list = Array.from(map.entries()).map(([label, value]) => ({ label, value }));
     list.sort((a, b) => b.value - a.value);
-    const total = list.reduce((sum, item) => sum + item.value, 0);
-    return list.map((item) => ({ ...item, percent: total ? (item.value / total) * 100 : 0 }));
+    const maxValue = Math.max(...list.map((item) => item.value), 0);
+    return list.map((item) => ({ ...item, percent: maxValue ? (item.value / maxValue) * 100 : 0 }));
   }, [connections]);
 
   const protocolTotal = useMemo(
@@ -1596,25 +1661,27 @@ export default function App() {
   const latestSample = trafficSeries.length ? trafficSeries[trafficSeries.length - 1] : null;
   const visibleSamples = Math.max(trafficSeries.length - 1, 0);
   const latestSpeed = latestSample ? latestSample.up + latestSample.down : 0;
-  const peakSpeed = useMemo(
-    () => Math.max(...throughputSeries, 0),
-    [throughputSeries]
-  );
   const averageSpeed = useMemo(() => {
     if (!throughputSeries.length) return 0;
     const total = throughputSeries.reduce((sum, value) => sum + value, 0);
     return total / throughputSeries.length;
   }, [throughputSeries]);
-  const sessionPeak = useMemo(() => {
-    const peaks = trafficSeries.map((sample) => sample.sessions || 0);
-    return Math.max(...peaks, totalSessions || 0, 1);
+  const sessionBaseline = useMemo(() => {
+    const sessionSamples = trafficSeries.map((sample) => sample.sessions || 0);
+    return Math.max(...sessionSamples, totalSessions || 0, 1);
   }, [trafficSeries, totalSessions]);
 
-  const utilization = clamp(peakSpeed ? latestSpeed / peakSpeed : 0, 0, 1);
+  const utilization = clamp(averageSpeed ? latestSpeed / averageSpeed : 0, 0, 1);
   const gaugeDegrees = utilization * 360;
-  const totalTraffic = (connections.uploadTotal || 0) + (connections.downloadTotal || 0);
-  const sessionRatio = clamp(sessionPeak ? totalSessions / sessionPeak : 0, 0, 1);
+  const sessionRatio = clamp(sessionBaseline ? totalSessions / sessionBaseline : 0, 0, 1);
   const destinationRatio = clamp(totalConnections ? uniqueDestinations / totalConnections : 0, 0, 1);
+  const dnsUsageRatio = clamp(dnsCacheStats.usageRatio || 0, 0, 1);
+  const dnsValidRatio = clamp(dnsCacheStats.validRatio || 0, 0, 1);
+  const dnsExpiredRatio = clamp(dnsCacheStats.expiredRatio || 0, 0, 1);
+  const dnsUsagePercent = Math.round(dnsUsageRatio * 100);
+  const dnsValidPercent = Math.round(dnsValidRatio * 100);
+  const dnsExpiredPercent = Math.round(dnsExpiredRatio * 100);
+  const dnsUpdatedLabel = dnsCacheStats.updatedAt ? formatTime(dnsCacheStats.updatedAt) : '-';
 
   const trafficChart = useMemo(() => {
     const width = 520;
@@ -2123,6 +2190,76 @@ export default function App() {
     return data;
   };
 
+  const fetchDnsCacheStats = async (base = apiBase, options = {}) => {
+    const { silent = false } = options;
+    try {
+      const data = await fetchJson(`${base}/dns/cache`);
+      const normalized = normalizeDnsCacheStats(data);
+      setDnsCacheStats(normalized);
+      if (normalized.available) {
+        setDnsCacheStatus('');
+      } else if (!silent) {
+        if (normalized.error) {
+          setDnsCacheStatus(`DNS cache unavailable: ${normalized.error}`);
+        } else {
+          setDnsCacheStatus('DNS cache unavailable.');
+        }
+      } else {
+        setDnsCacheStatus('');
+      }
+      return normalized;
+    } catch (err) {
+      const errMessage = String(err?.message || '').trim();
+      const networkError = DNS_CACHE_NETWORK_ERROR_REGEX.test(errMessage);
+      const message = `DNS cache load failed: ${errMessage || 'unknown error'}`;
+      setDnsCacheStats((prev) => ({
+        ...prev,
+        available: false,
+        error: networkError ? '' : errMessage,
+        updatedAt: new Date().toISOString()
+      }));
+      if (networkError) {
+        setDnsCacheStatus('');
+      } else if (!silent) {
+        setDnsCacheStatus(message);
+      }
+      throw err;
+    }
+  };
+
+  const flushDnsCache = async (base = apiBase) => {
+    await fetchJson(`${base}/dns/cache/flush`, { method: 'POST' });
+    await fetchDnsCacheStats(base, { silent: true }).catch(() => {});
+  };
+
+  const triggerDnsCacheFlushFromDashboard = async () => {
+    if (dnsCacheFlushBusy) return;
+    setDnsCacheFlushBusy(true);
+    setDnsCacheStatus('Flushing DNS cache...');
+    try {
+      await flushDnsCache(apiBase);
+      setDnsCacheStatus('DNS cache flushed.');
+    } catch (err) {
+      setDnsCacheStatus(`DNS cache flush failed: ${err.message}`);
+    } finally {
+      setDnsCacheFlushBusy(false);
+    }
+  };
+
+  const triggerDnsCacheFlushFromSettings = async () => {
+    if (dnsCacheFlushBusy) return;
+    setDnsCacheFlushBusy(true);
+    setSettingsStatus('Flushing DNS cache...');
+    try {
+      await flushDnsCache(apiBase);
+      setSettingsStatus('DNS cache flushed.');
+    } catch (err) {
+      setSettingsStatus(`DNS cache flush failed: ${err.message}`);
+    } finally {
+      setDnsCacheFlushBusy(false);
+    }
+  };
+
   const fetchRules = async (base = apiBase) => {
     const data = await fetchJson(`${base}/rules`);
     setRulesData({
@@ -2407,7 +2544,8 @@ export default function App() {
     try {
       const [conn, out] = await Promise.all([
         fetchJson(`${base}/connections`),
-        fetchNodes(base)
+        fetchNodes(base),
+        fetchDnsCacheStats(base, { silent: true }).catch(() => null)
       ]);
       setConnections(conn);
       if (out && out.errors && Object.keys(out.errors).length > 0) {
@@ -2845,6 +2983,18 @@ export default function App() {
   useEffect(() => {
     setTrafficSeries([]);
   }, [apiBase]);
+
+  useEffect(() => {
+    if (page !== 'dashboard') return undefined;
+    fetchDnsCacheStats(apiBase, { silent: true }).catch(() => {});
+    if (typeof window === 'undefined') return undefined;
+    const timer = window.setInterval(() => {
+      fetchDnsCacheStats(apiBase, { silent: true }).catch(() => {});
+    }, 5000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [page, apiBase]);
 
   useEffect(() => {
     if (!uiStateLoaded || uiStateHydratingRef.current) return;
@@ -4498,14 +4648,6 @@ export default function App() {
                   </svg>
                 </div>
                 <div className="metric-card">
-                  <span className="metric-label">Peak window</span>
-                  <strong className="metric-value">{formatRate(peakSpeed)}</strong>
-                  <span className="metric-meta">Total {formatBytes(totalTraffic)}</span>
-                  <div className="meter">
-                    <span style={{ transform: 'scaleX(1)' }} />
-                  </div>
-                </div>
-                <div className="metric-card">
                   <span className="metric-label">Active sessions</span>
                   <strong className="metric-value">{totalSessions}</strong>
                   <span className="metric-meta">{totalConnections} active connections</span>
@@ -4527,7 +4669,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel span-7 chart-panel" style={{ '--delay': '0.08s' }}>
+            <section className="panel span-7 chart-panel traffic-tempo-panel" style={{ '--delay': '0.08s' }}>
               <div className="panel-header">
                 <div>
                   <h2>Traffic tempo</h2>
@@ -4535,7 +4677,7 @@ export default function App() {
                 </div>
                 <div className="chart-meta">
                   <span className="meta-pill">Now {formatRate(latestSpeed)}</span>
-                  <span className="meta-pill">Peak {formatRate(peakSpeed)}</span>
+                  <span className="meta-pill">Avg {formatRate(averageSpeed)}</span>
                 </div>
               </div>
               <div className="chart-wrap">
@@ -4624,7 +4766,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel span-5 chart-panel" style={{ '--delay': '0.1s' }}>
+            <section className="panel span-5 chart-panel session-health-panel" style={{ '--delay': '0.1s' }}>
               <div className="panel-header">
                 <div>
                   <h2>Session health</h2>
@@ -4658,7 +4800,76 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel span-7 chart-panel" style={{ '--delay': '0.12s' }}>
+            <section className="panel span-12 chart-panel dns-cache-panel" style={{ '--delay': '0.12s' }}>
+              <div className="panel-header">
+                <div>
+                  <h2>DNS cache health</h2>
+                  <p>Cache usage and valid/expired entry split.</p>
+                </div>
+                <div className="chart-meta">
+                  <span className="meta-pill">Entries {dnsCacheStats.entryCount}</span>
+                  <span className="meta-pill">Updated {dnsUpdatedLabel}</span>
+                  <button
+                    className="ghost small"
+                    onClick={triggerDnsCacheFlushFromDashboard}
+                    disabled={dnsCacheFlushBusy}
+                  >
+                    {dnsCacheFlushBusy ? 'Flushing...' : 'Flush DNS cache'}
+                  </button>
+                </div>
+              </div>
+              {dnsCacheStatus ? (
+                <div className="chart-empty">{dnsCacheStatus}</div>
+              ) : !dnsCacheStats.available ? (
+                <div className="chart-empty">
+                  {dnsCacheStats.error ? `DNS cache unavailable: ${dnsCacheStats.error}` : 'DNS cache unavailable.'}
+                </div>
+              ) : (
+                <div className="metric-grid">
+                  <div className="metric-card">
+                    <span className="metric-label">Cache usage</span>
+                    <strong className="metric-value">{formatBytes(dnsCacheStats.usageBytes)}</strong>
+                    <span className="metric-meta">
+                      {dnsCacheStats.limitBytes > 0
+                        ? `${formatBytes(dnsCacheStats.limitBytes)} limit`
+                        : 'No cache size limit'}
+                    </span>
+                    <div className="meter">
+                      <span style={{ transform: `scaleX(${dnsUsageRatio})` }} />
+                    </div>
+                    <span className="metric-meta">{dnsUsagePercent}% used</span>
+                  </div>
+                  <div className="metric-card">
+                    <span className="metric-label">Valid cache</span>
+                    <strong className="metric-value">{dnsCacheStats.validCount}</strong>
+                    <span className="metric-meta">{dnsValidPercent}% of all entries</span>
+                    <div className="meter">
+                      <span
+                        style={{
+                          transform: `scaleX(${dnsValidRatio})`,
+                          background: 'linear-gradient(90deg, #2f9aa0, #7cc57a)'
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="metric-card">
+                    <span className="metric-label">Expired cache</span>
+                    <strong className="metric-value">{dnsCacheStats.expiredCount}</strong>
+                    <span className="metric-meta">{dnsExpiredPercent}% of all entries</span>
+                    <div className="meter">
+                      <span
+                        style={{
+                          transform: `scaleX(${dnsExpiredRatio})`,
+                          background: 'linear-gradient(90deg, #f2b354, #cf8450)'
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="panel span-7 chart-panel top-destinations-panel" style={{ '--delay': '0.14s' }}>
                 <div className="panel-header">
                   <div>
                     <h2>Top destinations</h2>
@@ -4691,7 +4902,7 @@ export default function App() {
               )}
             </section>
 
-            <section className="panel span-5 chart-panel" style={{ '--delay': '0.14s' }}>
+            <section className="panel span-5 chart-panel outbound-mix-panel" style={{ '--delay': '0.16s' }}>
               <div className="panel-header">
                 <div>
                   <h2>Outbound mix</h2>
@@ -4732,7 +4943,7 @@ export default function App() {
               </div>
             </section>
 
-            <section className="panel span-12 chart-panel" style={{ '--delay': '0.16s' }}>
+            <section className="panel span-12 chart-panel protocol-split-panel" style={{ '--delay': '0.18s' }}>
               <div className="panel-header">
                 <div>
                   <h2>Protocol split</h2>
@@ -6046,6 +6257,14 @@ export default function App() {
                   disabled={hotReloadBusy}
                 >
                   {hotReloadBusy ? 'Hot reloading...' : 'Hot reload'}
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  onClick={triggerDnsCacheFlushFromSettings}
+                  disabled={dnsCacheFlushBusy}
+                >
+                  {dnsCacheFlushBusy ? 'Flushing DNS...' : 'Flush DNS cache'}
                 </button>
                 <button
                   className="danger"

@@ -266,16 +266,22 @@ body {
 }
 
 @media (min-width: 1024px) and (min-resolution: 1.5dppx), (min-width: 1600px) {
-  /* Hi-DPI / ultra-wide: fit three dashboard modules on a single row when possible. */
-  .dashboard-grid .span-7.chart-panel,
-  .dashboard-grid .span-5.chart-panel {
+  /* Hi-DPI / ultra-wide: keep dashboard modules in balanced 3-column rows. */
+  .dashboard-grid .traffic-tempo-panel,
+  .dashboard-grid .session-health-panel,
+  .dashboard-grid .top-destinations-panel,
+  .dashboard-grid .dns-cache-panel,
+  .dashboard-grid .outbound-mix-panel,
+  .dashboard-grid .protocol-split-panel {
     grid-column: span 4;
   }
 
-  /* Keep "Protocol split" sharing the row with Outbound mix instead of dropping to a new line. */
-  .dashboard-grid .span-12.chart-panel {
-    grid-column: span 8;
-  }
+  .dashboard-grid .traffic-tempo-panel { order: 1; }
+  .dashboard-grid .session-health-panel { order: 2; }
+  .dashboard-grid .top-destinations-panel { order: 3; }
+  .dashboard-grid .dns-cache-panel { order: 4; }
+  .dashboard-grid .outbound-mix-panel { order: 5; }
+  .dashboard-grid .protocol-split-panel { order: 6; }
 }
 
 .span-12 {
