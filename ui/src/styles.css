@@ -1,3 +1,5 @@
+@import './styles/nodes.css';
+
 :root {
   --bg-1: #f6efe3;
   --bg-2: #d7ece8;
@@ -1408,12 +1410,6 @@ select {
   font-size: 13px;
 }
 
-.nodes-grid {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
 .rules-grid {
   display: grid;
   gap: 16px;
@@ -1449,45 +1445,6 @@ select {
   padding: 8px 10px;
   display: grid;
   gap: 6px;
-}
-
-.balancer-item {
-  border-style: solid;
-}
-
-.balancer-default {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(236, 242, 247, 0.72));
-  border-color: rgba(74, 104, 125, 0.24);
-}
-
-.balancer-selector {
-  background: linear-gradient(135deg, rgba(232, 251, 247, 0.82), rgba(217, 240, 251, 0.76));
-  border-color: rgba(47, 154, 160, 0.32);
-}
-
-.balancer-fallback {
-  background: linear-gradient(135deg, rgba(255, 245, 229, 0.84), rgba(255, 233, 208, 0.78));
-  border-color: rgba(207, 132, 80, 0.38);
-}
-
-.balancer-random {
-  background: linear-gradient(135deg, rgba(239, 242, 255, 0.84), rgba(228, 234, 255, 0.78));
-  border-color: rgba(92, 110, 211, 0.34);
-}
-
-.balancer-round {
-  background: linear-gradient(135deg, rgba(246, 240, 255, 0.84), rgba(236, 227, 255, 0.78));
-  border-color: rgba(133, 95, 190, 0.35);
-}
-
-.balancer-least {
-  background: linear-gradient(135deg, rgba(240, 252, 238, 0.84), rgba(223, 246, 221, 0.78));
-  border-color: rgba(106, 168, 79, 0.36);
-}
-
-.balancer-custom {
-  background: linear-gradient(135deg, rgba(247, 247, 247, 0.84), rgba(233, 238, 241, 0.78));
-  border-color: rgba(107, 122, 131, 0.32);
 }
 
 .rule-summary {
@@ -1763,123 +1720,6 @@ select {
   text-align: right;
 }
 
-.group-card {
-  border-radius: 16px;
-  border: 1px solid rgba(28, 43, 42, 0.12);
-  background: rgba(255, 255, 255, 0.82);
-  padding: 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.group-card h3 {
-  margin: 0;
-}
-
-.group-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.group-meta {
-  font-size: 13px;
-  color: var(--muted);
-  margin-top: 4px;
-}
-
-.group-error {
-  font-size: 12px;
-  color: var(--accent);
-  margin-top: 6px;
-}
-
-.chip-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.chip {
-  border-radius: 999px;
-  border: 1px solid rgba(28, 43, 42, 0.22);
-  background: rgba(255, 255, 255, 0.7);
-  padding: 8px 12px;
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
-  transition: transform var(--motion-fast) ease, box-shadow var(--motion-fast) ease, border-color var(--motion-fast) ease;
-}
-
-.chip:hover {
-  transform: translateY(-1px);
-  border-color: rgba(28, 43, 42, 0.34);
-  box-shadow: 0 8px 14px rgba(28, 43, 42, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.34);
-}
-
-.chip:disabled {
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
-  opacity: 0.6;
-}
-
-.chip.active:disabled {
-  opacity: 1;
-}
-
-.chip.active {
-  background: var(--ink);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-}
-
-.chip.active .status-pill {
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.chip-label {
-  font-weight: 600;
-}
-
-.status-pill {
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  border: 1px solid var(--stroke);
-}
-
-.status-pill.up {
-  background: rgba(47, 154, 160, 0.18);
-  color: var(--accent-2);
-  border-color: rgba(47, 154, 160, 0.45);
-}
-
-.status-pill.down {
-  background: rgba(255, 107, 74, 0.18);
-  color: var(--accent);
-  border-color: rgba(255, 107, 74, 0.45);
-}
-
-.nodes-subheader {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 8px 0 12px;
-}
-
-.nodes-subheader h3 {
-  margin: 0 0 4px;
-}
-
 .outbound-meta {
   display: flex;
   align-items: center;
@@ -1897,11 +1737,7 @@ select {
 
 /* Treat very wide viewports (>=1600px) similar to "hi-DPI" for multi-column/split layouts. */
 @media (min-width: 900px) and (min-resolution: 1.5dppx), (min-width: 1600px) {
-  .nodes-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .nav {
+    .nav {
     flex-wrap: nowrap;
   }
 
@@ -2396,3 +2232,4 @@ select.pill {
     display: none;
   }
 }
+
