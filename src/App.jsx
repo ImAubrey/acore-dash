@@ -3093,6 +3093,10 @@ export default function App() {
       return [pendingTag];
     }
     const strategy = getGroupStrategy(group);
+    const currentTarget = String(group?.currentTarget || '').trim();
+    if (currentTarget && (strategy === 'fallback' || !!getFallbackTag(group))) {
+      return [currentTarget];
+    }
     if (strategy === 'fallback') {
       // For fallback strategy, only highlight the currently picked outbound
       // rather than all candidates.
@@ -5243,8 +5247,10 @@ export default function App() {
                   const selectedTags = getGroupSelectedTags(group, selected);
                   const selectedSet = new Set(selectedTags);
                   const pendingSelection = groupSelections[group.tag];
+                  const currentTarget = String(group?.currentTarget || '').trim();
                   const current = group.overrideTarget
                     || pendingSelection
+                    || currentTarget
                     || (isFallbackStrategy
                       ? pickSelectorStrategyTarget(Array.isArray(group?.principleTargets) ? group.principleTargets : [])
                       : (group.principleTargets && group.principleTargets[0]))
@@ -5284,8 +5290,9 @@ export default function App() {
                             const alive = nodeStatus ? nodeStatus.alive : null;
                             const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
                             const isFallbackTag = fallbackTag && tag === fallbackTag;
+                            const isCurrentTarget = currentTarget && tag === currentTarget;
                             const isActive = selectedSet.has(tag)
-                              && (!isFallbackTag || isFallbackStrategy || group.overrideTarget === tag || pendingSelection === tag);
+                              && (!isFallbackTag || isFallbackStrategy || isCurrentTarget || group.overrideTarget === tag || pendingSelection === tag);
                             const canSelectTag = canManualSelect;
                             return (
                               <button
