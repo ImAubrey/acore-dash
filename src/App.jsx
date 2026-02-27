@@ -2800,7 +2800,15 @@ export default function App() {
     }
   };
 
-  const performHotReload = async (announceFn) => {
+  const HOT_RELOAD_TARGETS = {
+    all: ['outbounds', 'inbounds', 'routing', 'subscription'],
+    routing: ['routing'],
+    outbounds: ['outbounds'],
+    inbounds: ['inbounds'],
+    subscription: ['subscription']
+  };
+
+  const performHotReload = async (announceFn, targets = HOT_RELOAD_TARGETS.all) => {
     if (hotReloadBusy) return;
     setHotReloadBusy(true);
     announceHotReloadStatus('Triggering hot reload...', announceFn);
@@ -2810,7 +2818,11 @@ export default function App() {
         announceHotReloadStatus('Uploading pending routing edits...', announceFn);
         await uploadRoutingDraft(apiBase);
       }
-      const resp = await fetchJson(`${apiBase}/core/hotreload`, { method: 'POST' });
+      const resp = await fetchJson(`${apiBase}/core/hotreload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets })
+      });
       const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
       const warnings = Array.isArray(resp?.hotReload?.warnings) ? resp.hotReload.warnings : [];
       const baseMsg = resp?.id ? `Hot reload applied (id ${resp.id}).` : 'Hot reload applied.';
@@ -2830,11 +2842,11 @@ export default function App() {
     }
   };
 
-  const triggerHotReload = () => performHotReload(setSettingsStatus);
-  const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus);
-  const triggerHotReloadFromRules = () => performHotReload(setRulesStatus);
-  const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus);
-  const triggerHotReloadFromInbounds = () => performHotReload(setConfigInboundsStatus);
+  const triggerHotReload = () => performHotReload(setSettingsStatus, HOT_RELOAD_TARGETS.all);
+  const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus, HOT_RELOAD_TARGETS.outbounds);
+  const triggerHotReloadFromRules = () => performHotReload(setRulesStatus, HOT_RELOAD_TARGETS.routing);
+  const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus, HOT_RELOAD_TARGETS.subscription);
+  const triggerHotReloadFromInbounds = () => performHotReload(setConfigInboundsStatus, HOT_RELOAD_TARGETS.inbounds);
   const triggerSubscribeOutbounds = () => {
     setConfigSubscriptionStatus(t('subscriptionUpdatingOutbounds'));
     triggerHotReloadFromSubscriptions();
