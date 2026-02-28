@@ -759,9 +759,17 @@ body {
 
 .donut-wrap {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 1fr;
   gap: 18px;
-  align-items: center;
+  align-items: start;
+}
+
+.donut-wrap .donut {
+  justify-self: center;
+}
+
+.donut-wrap .legend {
+  width: 100%;
 }
 
 .donut {

@@ -2,9 +2,12 @@ import {
   RULE_TEMPLATE,
   BALANCER_TEMPLATE,
   OUTBOUND_TEMPLATE,
+  INBOUND_TEMPLATE,
   SUBSCRIPTION_OUTBOUND_TEMPLATE,
   SUBSCRIPTION_DATABASE_TEMPLATE,
   formatJson,
+  formatJsonText,
+  isFailedStatusText,
   clearTimeoutRef,
   scheduleModalClose,
   getSubscriptionUrlDisplay,
@@ -17,6 +20,8 @@ export function useRulesModalCrud({
   setConfigRules,
   configBalancers,
   setConfigBalancers,
+  configInbounds,
+  setConfigInbounds,
   configOutbounds,
   setConfigOutbounds,
   configSubscriptionInbound,
@@ -29,14 +34,18 @@ export function useRulesModalCrud({
   setConfigSubscriptionFull,
   configRulesPath,
   configOutboundsPath,
+  configInboundsPath,
   setConfigRulesStatus,
   setConfigOutboundsStatus,
+  setConfigInboundsStatus,
   setConfigSubscriptionStatus,
   buildSubscriptionPatch,
   writeSubscriptionConfig,
   stageRoutingDraft,
   fetchRules,
+  rulesModalOpen,
   setRulesModalOpen,
+  rulesModalVisible,
   setRulesModalVisible,
   rulesModalClosing,
   setRulesModalClosing,
@@ -48,13 +57,16 @@ export function useRulesModalCrud({
   setRulesModalIndex,
   rulesModalText,
   setRulesModalText,
+  rulesModalStatus,
   setRulesModalStatus,
   rulesModalInsertAfter,
   setRulesModalInsertAfter,
   rulesModalSaving,
   setRulesModalSaving,
   rulesModalCloseTimerRef,
+  deleteConfirmOpen,
   setDeleteConfirmOpen,
+  deleteConfirmVisible,
   setDeleteConfirmVisible,
   deleteConfirmClosing,
   setDeleteConfirmClosing,
@@ -70,6 +82,8 @@ export function useRulesModalCrud({
   const setConfigStatus = (target, message) => {
     if (target === 'outbound') {
       setConfigOutboundsStatus(message);
+    } else if (target === 'inbound') {
+      setConfigInboundsStatus(message);
     } else if (target === 'subscription' || target === 'subscriptionDatabase') {
       setConfigSubscriptionStatus(message);
     } else {
@@ -99,6 +113,18 @@ export function useRulesModalCrud({
       return `${index + 1}. ${tag}`;
     }
     return `${index + 1}. outbound`;
+  };
+
+  const getInboundLabel = (inbound, index) => {
+    const tag = String(inbound?.tag || '').trim();
+    const protocol = String(inbound?.protocol || '').trim();
+    if (tag) {
+      return `${index + 1}. ${tag}`;
+    }
+    if (protocol) {
+      return `${index + 1}. ${protocol}`;
+    }
+    return `${index + 1}. inbound`;
   };
 
   const getSubscriptionLabel = (subscription, index) => {
@@ -133,11 +159,13 @@ export function useRulesModalCrud({
       ? RULE_TEMPLATE
       : target === 'balancer'
         ? BALANCER_TEMPLATE
-        : target === 'subscription'
-          ? SUBSCRIPTION_OUTBOUND_TEMPLATE
-          : target === 'subscriptionDatabase'
-            ? SUBSCRIPTION_DATABASE_TEMPLATE
-            : OUTBOUND_TEMPLATE;
+        : target === 'inbound'
+          ? INBOUND_TEMPLATE
+          : target === 'subscription'
+            ? SUBSCRIPTION_OUTBOUND_TEMPLATE
+            : target === 'subscriptionDatabase'
+              ? SUBSCRIPTION_DATABASE_TEMPLATE
+              : OUTBOUND_TEMPLATE;
     clearTimeoutRef(rulesModalCloseTimerRef);
     setRulesModalVisible(true);
     setRulesModalClosing(false);
@@ -156,11 +184,13 @@ export function useRulesModalCrud({
       ? (Array.isArray(configRules) ? configRules : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? configBalancers : [])
-        : target === 'subscription'
-          ? (Array.isArray(configSubscriptionOutbounds) ? configSubscriptionOutbounds : [])
-          : target === 'subscriptionDatabase'
-            ? (Array.isArray(configSubscriptionDatabases) ? configSubscriptionDatabases : [])
-            : (Array.isArray(configOutbounds) ? configOutbounds : []);
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? configInbounds : [])
+          : target === 'subscription'
+            ? (Array.isArray(configSubscriptionOutbounds) ? configSubscriptionOutbounds : [])
+            : target === 'subscriptionDatabase'
+              ? (Array.isArray(configSubscriptionDatabases) ? configSubscriptionDatabases : [])
+              : (Array.isArray(configOutbounds) ? configOutbounds : []);
     if (index < 0 || index >= items.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
       return;
@@ -169,11 +199,13 @@ export function useRulesModalCrud({
       ? getRuleLabel(items[index], index)
       : target === 'balancer'
         ? getBalancerLabel(items[index], index)
-        : target === 'subscription'
-          ? getSubscriptionLabel(items[index], index)
-          : target === 'subscriptionDatabase'
-            ? getSubscriptionDatabaseLabel(items[index], index)
-            : getOutboundLabel(items[index], index);
+        : target === 'inbound'
+          ? getInboundLabel(items[index], index)
+          : target === 'subscription'
+            ? getSubscriptionLabel(items[index], index)
+            : target === 'subscriptionDatabase'
+              ? getSubscriptionDatabaseLabel(items[index], index)
+              : getOutboundLabel(items[index], index);
     clearTimeoutRef(deleteConfirmCloseTimerRef);
     setDeleteConfirmTarget(target);
     setDeleteConfirmIndex(index);
@@ -199,11 +231,13 @@ export function useRulesModalCrud({
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
-        : target === 'subscription'
-          ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
-          : target === 'subscriptionDatabase'
-            ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
-            : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
+          : target === 'subscription'
+            ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
+            : target === 'subscriptionDatabase'
+              ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
+              : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (index < 0 || index >= nextItems.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
       return;
@@ -245,19 +279,29 @@ export function useRulesModalCrud({
         setConfigSubscriptionStatus(`${label} deleted. Hot reload core to apply.`);
         return;
       }
-      const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
+      const endpoint = target === 'outbound'
+        ? 'outbounds'
+        : target === 'inbound'
+          ? 'inbounds'
+          : 'routing';
       const body =
         target === 'rule'
           ? { rules: nextItems }
           : target === 'balancer'
             ? { balancers: nextItems }
-            : { outbounds: nextItems };
-      const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
+            : target === 'inbound'
+              ? { inbounds: nextItems }
+              : { outbounds: nextItems };
+      const path = target === 'outbound'
+        ? configOutboundsPath
+        : target === 'inbound'
+          ? configInboundsPath
+          : configRulesPath;
       await fetchJson(`${apiBase}/config/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...(target === 'outbound' ? body : { routing: body }),
+          ...(target === 'outbound' || target === 'inbound' ? body : { routing: body }),
           path: path || undefined
         })
       });
@@ -265,11 +309,15 @@ export function useRulesModalCrud({
         setConfigRules(nextItems);
       } else if (target === 'balancer') {
         setConfigBalancers(nextItems);
+      } else if (target === 'inbound') {
+        setConfigInbounds(nextItems);
       } else {
         setConfigOutbounds(nextItems);
       }
       setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
-      fetchRules(apiBase).catch(() => {});
+      if (target === 'rule' || target === 'balancer') {
+        fetchRules(apiBase).catch(() => {});
+      }
     } catch (err) {
       setConfigStatus(target, `Delete failed: ${err.message}`);
     }
@@ -305,6 +353,18 @@ export function useRulesModalCrud({
     );
   };
 
+  const formatRulesModalJson = () => {
+    try {
+      const next = formatJsonText(rulesModalText);
+      setRulesModalText(next);
+      if (rulesModalStatus && !isFailedStatusText(rulesModalStatus)) {
+        setRulesModalStatus('');
+      }
+    } catch (err) {
+      setRulesModalStatus(`Invalid JSON: ${err.message}`);
+    }
+  };
+
   const saveRulesModal = async () => {
     if (rulesModalSaving) return;
     let parsed;
@@ -320,11 +380,13 @@ export function useRulesModalCrud({
       ? 'Rule'
       : target === 'balancer'
         ? 'Balancer'
-        : target === 'subscription'
-          ? 'Subscription outbound'
-          : target === 'subscriptionDatabase'
-            ? 'Subscription database'
-            : 'Outbound';
+        : target === 'inbound'
+          ? 'Inbound'
+          : target === 'subscription'
+            ? 'Subscription outbound'
+            : target === 'subscriptionDatabase'
+              ? 'Subscription database'
+              : 'Outbound';
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       setRulesModalStatus(`${targetLabel} must be a JSON object.`);
       return;
@@ -562,15 +624,45 @@ export function useRulesModalCrud({
       }
     }
 
+    if (target === 'inbound') {
+      const tagRaw = parsed.tag;
+      if (tagRaw !== undefined && tagRaw !== null && typeof tagRaw !== 'string') {
+        setRulesModalStatus('tag must be a string.');
+        return;
+      }
+      const protocolRaw = parsed.protocol;
+      if (protocolRaw !== undefined && protocolRaw !== null && typeof protocolRaw !== 'string') {
+        setRulesModalStatus('protocol must be a string.');
+        return;
+      }
+      const listenRaw = parsed.listen;
+      if (listenRaw !== undefined && listenRaw !== null && typeof listenRaw !== 'string') {
+        setRulesModalStatus('listen must be a string.');
+        return;
+      }
+      const portRaw = parsed.port;
+      if (
+        portRaw !== undefined
+        && portRaw !== null
+        && typeof portRaw !== 'number'
+        && typeof portRaw !== 'string'
+      ) {
+        setRulesModalStatus('port must be a number or string.');
+        return;
+      }
+    }
+
     const nextItems = target === 'rule'
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
-        : target === 'subscription'
-          ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
-          : target === 'subscriptionDatabase'
-            ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
-            : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
+        : target === 'inbound'
+          ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
+          : target === 'subscription'
+            ? (Array.isArray(configSubscriptionOutbounds) ? [...configSubscriptionOutbounds] : [])
+            : target === 'subscriptionDatabase'
+              ? (Array.isArray(configSubscriptionDatabases) ? [...configSubscriptionDatabases] : [])
+              : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (rulesModalMode === 'edit') {
       if (rulesModalIndex < 0 || rulesModalIndex >= nextItems.length) {
         setRulesModalStatus(`${target} index out of range.`);
@@ -630,19 +722,29 @@ export function useRulesModalCrud({
           setConfigSubscriptionFull([]);
         }
       } else {
-        const endpoint = target === 'outbound' ? 'outbounds' : 'routing';
+        const endpoint = target === 'outbound'
+          ? 'outbounds'
+          : target === 'inbound'
+            ? 'inbounds'
+            : 'routing';
         const body =
           target === 'rule'
             ? { rules: nextItems }
             : target === 'balancer'
               ? { balancers: nextItems }
-              : { outbounds: nextItems };
-        const path = target === 'outbound' ? configOutboundsPath : configRulesPath;
+              : target === 'inbound'
+                ? { inbounds: nextItems }
+                : { outbounds: nextItems };
+        const path = target === 'outbound'
+          ? configOutboundsPath
+          : target === 'inbound'
+            ? configInboundsPath
+            : configRulesPath;
         await fetchJson(`${apiBase}/config/${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...(target === 'outbound' ? body : { routing: body }),
+            ...(target === 'outbound' || target === 'inbound' ? body : { routing: body }),
             path: path || undefined
           })
         });
@@ -650,10 +752,14 @@ export function useRulesModalCrud({
           setConfigRules(nextItems);
         } else if (target === 'balancer') {
           setConfigBalancers(nextItems);
+        } else if (target === 'inbound') {
+          setConfigInbounds(nextItems);
         } else {
           setConfigOutbounds(nextItems);
         }
-        fetchRules(apiBase).catch(() => {});
+        if (target === 'rule' || target === 'balancer') {
+          fetchRules(apiBase).catch(() => {});
+        }
       }
       setConfigStatus(target, 'Saved to config. Hot reload core to apply.');
       setRulesModalStatus('Saved');
@@ -669,6 +775,7 @@ export function useRulesModalCrud({
     getRuleLabel,
     getBalancerLabel,
     getOutboundLabel,
+    getInboundLabel,
     getSubscriptionLabel,
     getSubscriptionDatabaseLabel,
     openRulesModal,
@@ -676,6 +783,7 @@ export function useRulesModalCrud({
     closeDeleteConfirm,
     confirmDelete,
     closeRulesModal,
+    formatRulesModalJson,
     saveRulesModal
   };
 }
