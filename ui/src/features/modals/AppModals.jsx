@@ -1,9 +1,27 @@
+import { useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import CodeMirror from '@uiw/react-codemirror';
 import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { linter, lintGutter } from '@codemirror/lint';
 import { EditorView } from '@codemirror/view';
 import { githubLight } from '@uiw/codemirror-theme-github';
+
+const INFO_MODAL_EDITOR_EXTENSIONS = [
+  json(),
+  EditorView.lineWrapping,
+  EditorView.editable.of(false),
+  EditorView.theme({
+    '&.cm-focused .cm-cursor, & .cm-cursor': {
+      display: 'none'
+    },
+    '& .cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
+      backgroundColor: 'transparent'
+    },
+    '& .cm-activeLine, & .cm-activeLineGutter': {
+      backgroundColor: 'transparent'
+    }
+  })
+];
 
 export function AppModals({
   rulesModalVisible,
@@ -51,6 +69,15 @@ export function AppModals({
   closeInfoModal
 }) {
   if (typeof document === 'undefined') return null;
+  const infoModalEditor = useMemo(() => (
+    <CodeMirror
+      value={infoModalText}
+      height="520px"
+      theme={githubLight}
+      extensions={INFO_MODAL_EDITOR_EXTENSIONS}
+      aria-label="Info JSON"
+    />
+  ), [infoModalText]);
 
   const renderRulesModal = () => {
     if (!rulesModalVisible) return null;
@@ -221,13 +248,7 @@ export function AppModals({
             <button className="ghost small" onClick={closeInfoModal}>Close</button>
           </div>
           <div className="rules-modal-editor info-modal-editor">
-            <CodeMirror
-              value={infoModalText}
-              height="520px"
-              theme={githubLight}
-              extensions={[json(), EditorView.lineWrapping, EditorView.editable.of(false)]}
-              aria-label="Info JSON"
-            />
+            {infoModalEditor}
           </div>
           <div className="rules-modal-footer">
             <span className="status">{infoModalStatus}</span>

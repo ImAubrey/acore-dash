@@ -7,6 +7,11 @@ import {
   toRuleSearchText
 } from '../../dashboardShared';
 
+const CONNECTION_TEXT_COLLATOR = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base'
+});
+
 export function useConnectionsViewModel({
   page,
   connections,
@@ -86,7 +91,7 @@ export function useConnectionsViewModel({
   );
 
   const displayConnections = useMemo(
-    () => buildConnectionsView(connections.connections || [], connViewMode),
+    () => buildConnectionsView(connections?.connections || [], connViewMode),
     [connections, connViewMode]
   );
 
@@ -109,12 +114,7 @@ export function useConnectionsViewModel({
       const aValue = getValue(a);
       const bValue = getValue(b);
       if (field.type !== 'number') {
-        return (
-          String(aValue).localeCompare(String(bValue), undefined, {
-            numeric: true,
-            sensitivity: 'base'
-          }) * dir
-        );
+        return CONNECTION_TEXT_COLLATOR.compare(String(aValue), String(bValue)) * dir;
       }
       const diff = (aValue || 0) - (bValue || 0);
       if (Number.isNaN(diff)) return 0;

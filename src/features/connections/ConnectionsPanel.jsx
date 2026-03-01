@@ -1,9 +1,117 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
+import { CloseIcon, InfoIcon } from './actionIcons';
+import { DetailActionButtons } from './detailCellRenderer';
 
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
+const MAX_RENDER_CONNECTION_ROWS = 400;
+const MAX_RENDER_DETAILS_PER_GROUP = 200;
+const COMMON_CC_SECOND_LEVEL_LABELS = new Set(['ac', 'co', 'com', 'edu', 'gov', 'net', 'org']);
 
 const getClosedTimestamp = (conn) => conn?.closedAt || conn?.lastSeen || conn?.start || '';
+const getHostFromConnectionDetail = (detail) => (
+  detail?.metadata?.host
+  || detail?.metadata?.destinationHost
+  || detail?.metadata?.destinationIP
+  || ''
+);
+const normalizeHostText = (value) => {
+  let host = String(value || '').trim().toLowerCase();
+  if (!host) return '';
+  if (host.startsWith('[') && host.endsWith(']')) {
+    host = host.slice(1, -1);
+  }
+  const slashIndex = host.indexOf('/');
+  if (slashIndex >= 0) {
+    host = host.slice(0, slashIndex);
+  }
+  const portMatch = host.match(/^(.*):(\d+)$/);
+  if (portMatch && !portMatch[1].includes(':')) {
+    host = portMatch[1];
+  }
+  return host;
+};
+const IPV4_HOST_REGEX = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+const toRootDomain = (value) => {
+  const host = normalizeHostText(value);
+  if (!host) return '';
+  if (host === 'mixed' || host === 'unknown') return '';
+  if (IPV4_HOST_REGEX.test(host) || host.includes(':')) return host;
+  const labels = host.split('.').filter(Boolean);
+  if (labels.length <= 2) return host;
+  const tld = labels[labels.length - 1];
+  const sld = labels[labels.length - 2];
+  if (tld.length === 2 && COMMON_CC_SECOND_LEVEL_LABELS.has(sld) && labels.length >= 3) {
+    return labels.slice(-3).join('.');
+  }
+  return labels.slice(-2).join('.');
+};
+const extractSearchHostCandidate = (query) => {
+  const normalized = String(query || '').trim().toLowerCase();
+  if (!normalized) return '';
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    const cleaned = token.replace(/^[`"'(\[]+|[`"')\]]+$/g, '');
+    if (!cleaned) continue;
+    let host = '';
+    if (cleaned.includes('://')) {
+      try {
+        host = normalizeHostText(new URL(cleaned).hostname);
+      } catch (_err) {
+        host = '';
+      }
+    }
+    if (!host) {
+      host = normalizeHostText(cleaned);
+    }
+    if (!host) continue;
+    if (host.includes('.') || IPV4_HOST_REGEX.test(host) || host.includes(':')) {
+      return host;
+    }
+  }
+  return '';
+};
+const resolveMixedDestinationRoot = (conn, visibleDetails, destinationRaw, normalizedConnSearchQuery) => {
+  const base = String(destinationRaw || '').trim();
+  if (base.toLowerCase() !== 'mixed') return base;
+  const details = visibleDetails.length
+    ? visibleDetails
+    : (Array.isArray(conn?.details) ? conn.details : []);
+  const rootCounts = new Map();
+  details.forEach((detail) => {
+    const rootDomain = toRootDomain(getHostFromConnectionDetail(detail));
+    if (!rootDomain) return;
+    rootCounts.set(rootDomain, (rootCounts.get(rootDomain) || 0) + 1);
+  });
+  if (rootCounts.size === 0) {
+    return base;
+  }
+  const queryHost = extractSearchHostCandidate(normalizedConnSearchQuery);
+  const queryRoot = toRootDomain(queryHost);
+  if (queryRoot) {
+    if (rootCounts.has(queryRoot)) {
+      return queryRoot;
+    }
+    for (const candidate of rootCounts.keys()) {
+      if (candidate.includes(queryRoot) || queryRoot.includes(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  let selected = '';
+  let maxCount = -1;
+  rootCounts.forEach((count, root) => {
+    if (count > maxCount) {
+      maxCount = count;
+      selected = root;
+      return;
+    }
+    if (count === maxCount && selected && root < selected) {
+      selected = root;
+    }
+  });
+  return selected || base;
+};
 const getConnectionRuleLabel = (conn) => {
   const direct = String(conn?.rulePayload || conn?.rule || '').trim();
   if (direct) return direct;
@@ -79,18 +187,18 @@ export function ConnectionsPanel({
 
   const isClosedMode = connListMode === 'closed';
   const visibleConnections = isClosedMode ? filteredClosedConnections : filteredConnections;
+  const overflowConnectionsCount = Math.max(visibleConnections.length - MAX_RENDER_CONNECTION_ROWS, 0);
+  const renderedConnections = overflowConnectionsCount > 0
+    ? visibleConnections.slice(0, MAX_RENDER_CONNECTION_ROWS)
+    : visibleConnections;
   const connectionsPerfMode = visibleConnections.length >= CONNECTIONS_PERF_MODE_THRESHOLD;
-  const activeDetailColumns = DETAIL_COLUMNS.filter((column) => {
-    if (!isClosedMode) return true;
-    return column.key !== 'close' && column.key !== 'upload' && column.key !== 'download';
-  });
+  const forceCompactText = connectionsPerfMode || overflowConnectionsCount > 0;
+  const activeDetailColumns = DETAIL_COLUMNS;
   const visibleDetailColumnsForMode = activeDetailColumns.filter((column) => detailColumnsVisible.has(column.key));
   const renderedDetailColumns = visibleDetailColumnsForMode.length
     ? visibleDetailColumnsForMode
     : activeDetailColumns;
-  const detailGridStyleForMode = isClosedMode
-    ? { '--detail-columns': renderedDetailColumns.map((column) => column.width).join(' ') }
-    : detailGridStyle;
+  const detailGridStyleForMode = detailGridStyle;
   const renderDetailColumnControls = (extraClassName = '') => (
     <div className={joinClassNames('detail-categories', extraClassName)}>
       <span className="detail-categories-label">Columns</span>
@@ -222,7 +330,7 @@ export function ConnectionsPanel({
             {renderSortHeader('Download', 'download', TRAFFIC_DIRECTION_HINTS.download)}
             <span></span>
           </div>
-          {visibleConnections.map((conn, connIndex) => {
+          {renderedConnections.map((conn, connIndex) => {
             const groupCloseIds = isClosedMode ? [] : getGroupCloseIds(conn);
             const canClose = groupCloseIds.length > 0;
             const isExpanded = expandedConnections.has(conn.id);
@@ -235,7 +343,10 @@ export function ConnectionsPanel({
             const connActivity = isClosedMode
               ? 0
               : getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
-            const destinationRaw = getConnectionDestination(conn);
+            const destinationRawBase = getConnectionDestination(conn);
+            const destinationRaw = connViewMode === 'current'
+              ? resolveMixedDestinationRoot(conn, visibleDetails, destinationRawBase, normalizedConnSearchQuery)
+              : destinationRawBase;
             const sourceRaw = getConnectionSource(conn);
             const destinationSourceBadge = isClosedMode
               ? getDomainSourceBadgeLabel(conn?.metadata?.domainSource)
@@ -246,8 +357,9 @@ export function ConnectionsPanel({
             const rowBg = ZEBRA_ROW_BACKGROUNDS[connIndex % ZEBRA_ROW_BACKGROUNDS.length];
             const connStyle = { '--activity': String(connActivity), '--row-bg': rowBg };
             const closedTimestamp = getClosedTimestamp(conn);
+            const connKey = conn.id ? String(conn.id) : `conn-${connIndex}`;
             return (
-              <React.Fragment key={`${conn.id || 'conn'}-${connIndex}`}>
+              <React.Fragment key={connKey}>
                 <div
                   className={joinClassNames('row', 'clickable', isExpanded ? 'expanded' : '')}
                   style={connStyle}
@@ -275,6 +387,8 @@ export function ConnectionsPanel({
                       fullText={destinationRaw}
                       foldedText={destinationFolded}
                       renderText={highlightConnCell}
+                      disableAdaptive={forceCompactText}
+                      forceFold={forceCompactText}
                     />
                   </span>
                   <AutoFoldText
@@ -282,12 +396,21 @@ export function ConnectionsPanel({
                     fullText={sourceRaw}
                     foldedText={sourceFolded}
                     renderText={highlightConnCell}
+                    disableAdaptive={forceCompactText}
+                    forceFold={forceCompactText}
                   />
                   <span className="mono rule-cell" title={ruleLabel}>
                     {highlightConnCell(ruleLabel)}
                   </span>
                   {isClosedMode ? (
-                    <span className="mono">{highlightConnCell(formatTime(closedTimestamp))}</span>
+                    <AutoFoldText
+                      className="mono"
+                      fullText={formatTime(closedTimestamp)}
+                      foldedText={formatTime(closedTimestamp)}
+                      renderText={highlightConnCell}
+                      disableAdaptive={forceCompactText}
+                      forceFold={forceCompactText}
+                    />
                   ) : (
                     <span className="mono session-cell">
                       <span>{highlightConnCell(conn.connectionCount || 1)}</span>
@@ -310,8 +433,9 @@ export function ConnectionsPanel({
                       className="conn-info"
                       onClick={(event) => (isClosedMode ? handleInfoClosed(event, conn) : handleInfoGroup(event, conn))}
                       title="Info"
+                      aria-label="Info"
                     >
-                      Info
+                      <InfoIcon />
                     </button>
                     {!isClosedMode ? (
                       <button
@@ -320,8 +444,9 @@ export function ConnectionsPanel({
                         onClick={(event) => handleCloseGroup(event, groupCloseIds)}
                         disabled={!canClose}
                         title={canClose ? 'Close all connections in this group' : 'No connections to close'}
+                        aria-label="Close"
                       >
-                        Close
+                        <CloseIcon />
                       </button>
                     ) : null}
                     <span className="chevron">{isExpanded ? '▾' : '▸'}</span>
@@ -344,7 +469,9 @@ export function ConnectionsPanel({
                         </button>
                       ))}
                     </div>
-                    {visibleDetails.map((detail, idx) => {
+                    {(visibleDetails.length > MAX_RENDER_DETAILS_PER_GROUP
+                      ? visibleDetails.slice(0, MAX_RENDER_DETAILS_PER_GROUP)
+                      : visibleDetails).map((detail, idx) => {
                       const detailKey = getDetailKey(conn.id, detail, idx);
                       const detailRate = isClosedMode ? null : detailRates.get(detailKey);
                       const detailActivity = isClosedMode ? 0 : getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
@@ -352,19 +479,50 @@ export function ConnectionsPanel({
                       const detailStyle = { '--activity': String(detailActivity), '--row-bg': detailBg };
                       return (
                         <div className="detail-row" key={detailKey} style={detailStyle}>
-                          {renderedDetailColumns.map((column) => (
-                            <span key={`${detailKey}-${column.key}`} className={column.cellClassName || ''}>
-                              {renderDetailCell(column.key, conn, detail, detailRate, detailKey)}
-                            </span>
-                          ))}
+                          {renderedDetailColumns.map((column) => {
+                            let cell = renderDetailCell(column.key, conn, detail, detailRate, detailKey);
+                            if (isClosedMode && column.key === 'upload') {
+                              cell = highlightConnCell(formatBytes(detail.upload || 0));
+                            } else if (isClosedMode && column.key === 'download') {
+                              cell = highlightConnCell(formatBytes(detail.download || 0));
+                            } else if (isClosedMode && column.key === 'close') {
+                              cell = (
+                                <DetailActionButtons
+                                  onInfo={(event) => handleInfoClosed(event, conn)}
+                                  onClose={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                  }}
+                                  closeDisabled
+                                  closeTitle="Closed connection"
+                                  closeAriaLabel="Closed connection"
+                                />
+                              );
+                            }
+                            return (
+                              <span key={`${detailKey}-${column.key}`} className={column.cellClassName || ''}>
+                                {cell}
+                              </span>
+                            );
+                          })}
                         </div>
                       );
                     })}
+                    {visibleDetails.length > MAX_RENDER_DETAILS_PER_GROUP ? (
+                      <div className="detail-overflow-note">
+                        Showing first {MAX_RENDER_DETAILS_PER_GROUP} details in this group.
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </React.Fragment>
             );
           })}
+          {overflowConnectionsCount > 0 ? (
+            <div className="connections-overflow-note">
+              Showing first {MAX_RENDER_CONNECTION_ROWS} of {visibleConnections.length} connections. Refine search to narrow results.
+            </div>
+          ) : null}
           {visibleConnections.length === 0 ? (
             <div className="connections-closed-empty">
               {connSearchQuery.trim()

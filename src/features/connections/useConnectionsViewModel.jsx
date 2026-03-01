@@ -7,10 +7,16 @@ import {
   toRuleSearchText
 } from '../../dashboardShared';
 
+const CONNECTION_TEXT_COLLATOR = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base'
+});
+
 export function useConnectionsViewModel({
   page,
   connections,
   closedConnections,
+  connListMode,
   connViewMode,
   connRates,
   connSortKey,
@@ -26,6 +32,7 @@ export function useConnectionsViewModel({
   setExpandedConnections
 }) {
   const isConnectionsPage = page === 'connections';
+  const isClosedMode = connListMode === 'closed';
 
   const toggleConnSort = (key) => {
     if (!key || key === 'default') return;
@@ -86,6 +93,9 @@ export function useConnectionsViewModel({
     [detailGridTemplate]
   );
 
+  const liveConnections = Array.isArray(connections?.connections) ? connections.connections : [];
+  const closedList = Array.isArray(closedConnections) ? closedConnections : [];
+
   const sortConnections = (list, useRateForTraffic = true) => {
     if (connSortKey === 'default' || !CONNECTION_SORT_FIELDS[connSortKey]) return list;
     const dir = connSortDir === 'asc' ? 1 : -1;
@@ -103,12 +113,7 @@ export function useConnectionsViewModel({
       const aValue = getValue(a);
       const bValue = getValue(b);
       if (field.type !== 'number') {
-        return (
-          String(aValue).localeCompare(String(bValue), undefined, {
-            numeric: true,
-            sensitivity: 'base'
-          }) * dir
-        );
+        return CONNECTION_TEXT_COLLATOR.compare(String(aValue), String(bValue)) * dir;
       }
       const diff = (aValue || 0) - (bValue || 0);
       if (Number.isNaN(diff)) return 0;
@@ -117,13 +122,13 @@ export function useConnectionsViewModel({
   };
 
   const displayConnections = useMemo(
-    () => buildConnectionsView(connections.connections || [], connViewMode),
-    [connections, connViewMode]
+    () => (isConnectionsPage ? buildConnectionsView(liveConnections, connViewMode) : []),
+    [isConnectionsPage, liveConnections, connViewMode]
   );
 
   const displayClosedConnections = useMemo(
-    () => buildConnectionsView(closedConnections || [], connViewMode),
-    [closedConnections, connViewMode]
+    () => (isConnectionsPage ? buildConnectionsView(closedList, connViewMode) : []),
+    [isConnectionsPage, closedList, connViewMode]
   );
 
   const sortedConnections = useMemo(() => {
@@ -164,10 +169,11 @@ export function useConnectionsViewModel({
 
   useEffect(() => {
     if (!isConnectionsPage || !normalizedConnSearchQuery) return;
+    const visibleConnections = isClosedMode ? filteredClosedConnections : filteredConnections;
     setExpandedConnections((prev) => {
       const next = new Set(prev);
       if (next.size === 0) return prev;
-      const visibleIds = new Set(filteredConnections.map((conn) => conn.id));
+      const visibleIds = new Set(visibleConnections.map((conn) => conn.id));
       let changed = false;
       next.forEach((id) => {
         if (!visibleIds.has(id)) {
@@ -177,7 +183,14 @@ export function useConnectionsViewModel({
       });
       return changed ? next : prev;
     });
-  }, [isConnectionsPage, normalizedConnSearchQuery, filteredConnections, setExpandedConnections]);
+  }, [
+    isConnectionsPage,
+    isClosedMode,
+    normalizedConnSearchQuery,
+    filteredConnections,
+    filteredClosedConnections,
+    setExpandedConnections
+  ]);
 
   return {
     isConnectionsPage,

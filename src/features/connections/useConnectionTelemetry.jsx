@@ -1,10 +1,19 @@
-import { useEffect } from 'react';
+import { startTransition, useEffect, useRef } from 'react';
 import {
   appendAccessKeyParam,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
-  TRAFFIC_WINDOW
+  TRAFFIC_WINDOW,
+  normalizeConnectionsPayload,
+  parseConnectionsPayload
 } from '../../dashboardShared';
+
+const HIDDEN_CONN_FLUSH_DELAY_MS = 250;
+const FRAME_FLUSH_DELAY_MS = 16;
+const STREAM_STALE_MULTIPLIER = 4;
+const STREAM_STALE_MIN_MS = 4000;
+const STREAM_MIN_APPLY_INTERVAL_MS = 120;
+const CONN_RATE_SAMPLE_MIN_INTERVAL_MS = 180;
 
 export function useConnectionTelemetry({
   apiBase,
@@ -30,7 +39,17 @@ export function useConnectionTelemetry({
   setConnRates,
   setDetailRates
 }) {
+  const lastRatesSampleAtRef = useRef(0);
+
   useEffect(() => {
+    let disposed = false;
+    let lastSnapshotAt = 0;
+    let lastAppliedAt = 0;
+    const staleThresholdMs = Math.max(
+      connRefreshIntervalMs * STREAM_STALE_MULTIPLIER,
+      STREAM_STALE_MIN_MS
+    );
+
     const cancelScheduledConnFlush = () => {
       if (connStreamFrameRef.current === null || typeof window === 'undefined') return;
       window.cancelAnimationFrame(connStreamFrameRef.current);
@@ -40,10 +59,67 @@ export function useConnectionTelemetry({
 
     const flushPendingConnections = () => {
       connStreamFrameRef.current = null;
-      const latest = pendingConnRef.current;
+      const latestPayload = pendingConnRef.current;
+      if (!latestPayload || disposed) return;
+      const now = Date.now();
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      const minInterval = hidden ? HIDDEN_CONN_FLUSH_DELAY_MS : STREAM_MIN_APPLY_INTERVAL_MS;
+      const elapsed = now - lastAppliedAt;
+      if (elapsed < minInterval && typeof window !== 'undefined') {
+        connStreamFrameRef.current = window.setTimeout(
+          flushPendingConnections,
+          minInterval - elapsed
+        );
+        return;
+      }
       pendingConnRef.current = null;
-      if (!latest) return;
-      setConnections(latest);
+      lastAppliedAt = now;
+      const normalized = normalizeConnectionsPayload(latestPayload);
+      startTransition(() => {
+        setConnections(normalized);
+      });
+    };
+
+    const scheduleConnFlush = () => {
+      if (connStreamFrameRef.current !== null || typeof window === 'undefined') return;
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      if (hidden || typeof window.requestAnimationFrame !== 'function') {
+        const delay = hidden ? HIDDEN_CONN_FLUSH_DELAY_MS : FRAME_FLUSH_DELAY_MS;
+        connStreamFrameRef.current = window.setTimeout(flushPendingConnections, delay);
+        return;
+      }
+      connStreamFrameRef.current = window.requestAnimationFrame(flushPendingConnections);
+    };
+
+    const applySnapshot = (snapshot) => {
+      if (!snapshot || disposed) return false;
+      pendingConnRef.current = snapshot;
+      lastSnapshotAt = Date.now();
+      scheduleConnFlush();
+      return true;
+    };
+
+    const fetchSnapshot = async () => {
+      try {
+        const snapshotUrl = appendAccessKeyParam(`${apiBase}/connections`, accessKey);
+        const response = await fetch(snapshotUrl);
+        if (!response.ok || disposed) return false;
+        const payload = parseConnectionsPayload(await response.text());
+        if (!payload) return false;
+        return applySnapshot(payload);
+      } catch (_err) {
+        return false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible' || disposed) return;
+      cancelScheduledConnFlush();
+      if (pendingConnRef.current) {
+        scheduleConnFlush();
+        return;
+      }
+      fetchSnapshot().catch(() => {});
     };
 
     if (connStreamRef.current) {
@@ -60,36 +136,49 @@ export function useConnectionTelemetry({
       `${apiBase}/connections/stream?interval=${connRefreshIntervalMs}`,
       accessKey
     );
+    fetchSnapshot().catch(() => {});
     const es = new EventSource(url);
     connStreamRef.current = es;
     setConnStreamStatus('connecting');
+    const staleWatchdog = typeof window !== 'undefined'
+      ? window.setInterval(() => {
+        if (disposed) return;
+        const stale = !lastSnapshotAt || Date.now() - lastSnapshotAt >= staleThresholdMs;
+        if (!stale) return;
+        fetchSnapshot().catch(() => {});
+      }, staleThresholdMs)
+      : null;
 
     es.onopen = () => {
       setConnStreamStatus('live');
     };
     es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+      const nextPayload = parseConnectionsPayload(event?.data);
+      if (!nextPayload) return;
+      if (applySnapshot(nextPayload)) {
         setConnStreamStatus('live');
-        pendingConnRef.current = data;
-        if (connStreamFrameRef.current !== null || typeof window === 'undefined') return;
-        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-          connStreamFrameRef.current = window.setTimeout(flushPendingConnections, 16);
-          return;
-        }
-        connStreamFrameRef.current = window.requestAnimationFrame(flushPendingConnections);
-      } catch (err) {
-        // ignore malformed payloads
       }
     };
     es.onerror = () => {
-      setConnStreamStatus('reconnecting');
+      if (!disposed) {
+        setConnStreamStatus('reconnecting');
+      }
     };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
 
     return () => {
+      disposed = true;
       es.close();
       cancelScheduledConnFlush();
       pendingConnRef.current = null;
+      if (staleWatchdog !== null && typeof window !== 'undefined') {
+        window.clearInterval(staleWatchdog);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
       if (connStreamRef.current === es) {
         connStreamRef.current = null;
       }
@@ -130,6 +219,10 @@ export function useConnectionTelemetry({
   useEffect(() => {
     if (!isConnectionsPage) return;
     const now = Date.now();
+    if (now - lastRatesSampleAtRef.current < CONN_RATE_SAMPLE_MIN_INTERVAL_MS) {
+      return;
+    }
+    lastRatesSampleAtRef.current = now;
     const nextConnRates = new Map();
     const nextConnTotals = new Map();
     const nextDetailRates = new Map();
@@ -180,6 +273,7 @@ export function useConnectionTelemetry({
   useEffect(() => {
     connTotalsRef.current = new Map();
     detailTotalsRef.current = new Map();
+    lastRatesSampleAtRef.current = 0;
     setConnRates(new Map());
     setDetailRates(new Map());
   }, [isConnectionsPage, connViewMode]);

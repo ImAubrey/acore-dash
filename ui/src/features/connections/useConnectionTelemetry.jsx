@@ -1,10 +1,17 @@
-import { startTransition, useEffect } from 'react';
+import { useEffect } from 'react';
 import {
   appendAccessKeyParam,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
-  TRAFFIC_WINDOW
+  TRAFFIC_WINDOW,
+  normalizeConnectionsPayload,
+  parseConnectionsPayload
 } from '../../dashboardShared';
+
+const HIDDEN_CONN_FLUSH_DELAY_MS = 250;
+const FRAME_FLUSH_DELAY_MS = 16;
+const STREAM_STALE_MULTIPLIER = 4;
+const STREAM_STALE_MIN_MS = 4000;
 
 export function useConnectionTelemetry({
   apiBase,
@@ -30,15 +37,76 @@ export function useConnectionTelemetry({
   setDetailRates
 }) {
   useEffect(() => {
+    let disposed = false;
+    let lastSnapshotAt = 0;
+    const staleThresholdMs = Math.max(
+      connRefreshIntervalMs * STREAM_STALE_MULTIPLIER,
+      STREAM_STALE_MIN_MS
+    );
+
+    const cancelScheduledConnFlush = () => {
+      if (connStreamFrameRef.current === null || typeof window === 'undefined') return;
+      window.cancelAnimationFrame(connStreamFrameRef.current);
+      window.clearTimeout(connStreamFrameRef.current);
+      connStreamFrameRef.current = null;
+    };
+
+    const flushPendingConnections = () => {
+      connStreamFrameRef.current = null;
+      const latestPayload = pendingConnRef.current;
+      pendingConnRef.current = null;
+      if (!latestPayload || disposed) return;
+      setConnections(normalizeConnectionsPayload(latestPayload));
+    };
+
+    const scheduleConnFlush = () => {
+      if (connStreamFrameRef.current !== null || typeof window === 'undefined') return;
+      const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+      if (hidden || typeof window.requestAnimationFrame !== 'function') {
+        const delay = hidden ? HIDDEN_CONN_FLUSH_DELAY_MS : FRAME_FLUSH_DELAY_MS;
+        connStreamFrameRef.current = window.setTimeout(flushPendingConnections, delay);
+        return;
+      }
+      connStreamFrameRef.current = window.requestAnimationFrame(flushPendingConnections);
+    };
+
+    const applySnapshot = (snapshot) => {
+      if (!snapshot || disposed) return false;
+      pendingConnRef.current = snapshot;
+      lastSnapshotAt = Date.now();
+      scheduleConnFlush();
+      return true;
+    };
+
+    const fetchSnapshot = async () => {
+      try {
+        const snapshotUrl = appendAccessKeyParam(`${apiBase}/connections`, accessKey);
+        const response = await fetch(snapshotUrl);
+        if (!response.ok || disposed) return false;
+        const payload = parseConnectionsPayload(await response.text());
+        if (!payload) return false;
+        return applySnapshot(payload);
+      } catch (_err) {
+        return false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible' || disposed) return;
+      cancelScheduledConnFlush();
+      if (pendingConnRef.current) {
+        scheduleConnFlush();
+        return;
+      }
+      fetchSnapshot().catch(() => {});
+    };
+
     if (connStreamRef.current) {
       connStreamRef.current.close();
       connStreamRef.current = null;
     }
     if (!shouldStreamConnections || connStreamPaused) {
-      if (connStreamFrameRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(connStreamFrameRef.current);
-      }
-      connStreamFrameRef.current = null;
+      cancelScheduledConnFlush();
       pendingConnRef.current = null;
       setConnStreamStatus(connStreamPaused ? 'paused' : 'idle');
       return undefined;
@@ -47,46 +115,49 @@ export function useConnectionTelemetry({
       `${apiBase}/connections/stream?interval=${connRefreshIntervalMs}`,
       accessKey
     );
+    fetchSnapshot().catch(() => {});
     const es = new EventSource(url);
     connStreamRef.current = es;
     setConnStreamStatus('connecting');
+    const staleWatchdog = typeof window !== 'undefined'
+      ? window.setInterval(() => {
+        if (disposed) return;
+        const stale = !lastSnapshotAt || Date.now() - lastSnapshotAt >= staleThresholdMs;
+        if (!stale) return;
+        fetchSnapshot().catch(() => {});
+      }, staleThresholdMs)
+      : null;
 
     es.onopen = () => {
       setConnStreamStatus('live');
     };
     es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+      const nextPayload = parseConnectionsPayload(event?.data);
+      if (!nextPayload) return;
+      if (applySnapshot(nextPayload)) {
         setConnStreamStatus('live');
-        if (typeof window === 'undefined' || !window.requestAnimationFrame) {
-          startTransition(() => setConnections(data));
-          return;
-        }
-        pendingConnRef.current = data;
-        if (connStreamFrameRef.current !== null) return;
-        connStreamFrameRef.current = window.requestAnimationFrame(() => {
-          connStreamFrameRef.current = null;
-          const next = pendingConnRef.current;
-          pendingConnRef.current = null;
-          if (next) {
-            startTransition(() => setConnections(next));
-          }
-        });
-      } catch (err) {
-        // ignore malformed payloads
       }
     };
     es.onerror = () => {
-      setConnStreamStatus('reconnecting');
+      if (!disposed) {
+        setConnStreamStatus('reconnecting');
+      }
     };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
 
     return () => {
+      disposed = true;
       es.close();
-      if (connStreamFrameRef.current !== null && typeof window !== 'undefined') {
-        window.cancelAnimationFrame(connStreamFrameRef.current);
-      }
-      connStreamFrameRef.current = null;
+      cancelScheduledConnFlush();
       pendingConnRef.current = null;
+      if (staleWatchdog !== null && typeof window !== 'undefined') {
+        window.clearInterval(staleWatchdog);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
       if (connStreamRef.current === es) {
         connStreamRef.current = null;
       }

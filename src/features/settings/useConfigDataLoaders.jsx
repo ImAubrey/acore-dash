@@ -3,6 +3,7 @@ import {
   getRoutingDraft,
   saveRoutingDraft,
   fetchJson,
+  normalizeConnectionsPayload,
   normalizeDnsCacheStats,
   DNS_CACHE_NETWORK_ERROR_REGEX
 } from '../../dashboardShared';
@@ -227,7 +228,7 @@ export function useConfigDataLoaders({
         fetchNodes(base),
         fetchDnsCacheStats(base, { silent: true }).catch(() => null)
       ]);
-      setConnections(conn);
+      setConnections(normalizeConnectionsPayload(conn));
       if (out && out.errors && Object.keys(out.errors).length > 0) {
         const message = Object.entries(out.errors)
           .map(([key, value]) => `${key}: ${value}`)

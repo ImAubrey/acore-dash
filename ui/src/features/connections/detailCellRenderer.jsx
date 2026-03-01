@@ -1,4 +1,5 @@
 import React from 'react';
+import { CloseIcon, InfoIcon } from './actionIcons';
 import {
   AutoFoldText,
   SPLICE_LABEL,
@@ -15,6 +16,40 @@ import {
   formatHostPortDisplay,
   isSpliceType
 } from '../../dashboardShared';
+
+export function DetailActionButtons({
+  onInfo,
+  onClose,
+  closeDisabled = false,
+  infoTitle = 'Info',
+  closeTitle = 'Close this connection',
+  infoAriaLabel = 'Info',
+  closeAriaLabel = 'Close this connection'
+}) {
+  return (
+    <span className="detail-actions">
+      <button
+        type="button"
+        className="conn-info"
+        onClick={onInfo}
+        title={infoTitle}
+        aria-label={infoAriaLabel}
+      >
+        <InfoIcon />
+      </button>
+      <button
+        type="button"
+        className="conn-close"
+        onClick={onClose}
+        disabled={closeDisabled}
+        title={closeDisabled ? closeTitle : 'Close this connection'}
+        aria-label={closeAriaLabel}
+      >
+        <CloseIcon />
+      </button>
+    </span>
+  );
+}
 
 export function createDetailCellRenderer({
   highlightConnCell,
@@ -145,24 +180,12 @@ export function createDetailCellRenderer({
         return highlightConnCell(formatTime(getDetailLastSeen(detail)));
       case 'close':
         return (
-          <React.Fragment>
-            <button
-              type="button"
-              className="conn-info"
-              onClick={(event) => handleInfoDetail(event, conn, detail, detailRate, detailKey)}
-              title="Info"
-            >
-              Info
-            </button>
-            <button
-              type="button"
-              className="conn-close"
-              onClick={(event) => handleCloseDetail(event, detail)}
-              title="Close this connection"
-            >
-              Close
-            </button>
-          </React.Fragment>
+          <DetailActionButtons
+            onInfo={(event) => handleInfoDetail(event, conn, detail, detailRate, detailKey)}
+            onClose={(event) => handleCloseDetail(event, detail)}
+            closeDisabled={!detail?.id}
+            closeTitle="No connection to close"
+          />
         );
       default:
         return '-';

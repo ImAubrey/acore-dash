@@ -2,7 +2,8 @@ import {
   ROUTING_DRAFT_NOTICE,
   getRoutingDraft,
   saveRoutingDraft,
-  fetchJson
+  fetchJson,
+  normalizeConnectionsPayload
 } from '../../dashboardShared';
 
 export function useConfigDataLoaders({
@@ -128,7 +129,7 @@ export function useConfigDataLoaders({
         fetchJson(`${base}/connections`),
         fetchNodes(base)
       ]);
-      setConnections(conn);
+      setConnections(normalizeConnectionsPayload(conn));
       if (out && out.errors && Object.keys(out.errors).length > 0) {
         const message = Object.entries(out.errors)
           .map(([key, value]) => `${key}: ${value}`)

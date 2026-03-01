@@ -1010,11 +1010,15 @@ body {
   border: 1px solid rgba(255, 107, 74, 0.35);
   background: rgba(255, 107, 74, 0.12);
   color: #b54a33;
-  font-size: 11px;
-  padding: 4px 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   font-family: inherit;
   cursor: pointer;
-  line-height: 1;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .conn-info {
@@ -1022,11 +1026,32 @@ body {
   border: 1px solid rgba(28, 43, 42, 0.2);
   background: rgba(28, 43, 42, 0.08);
   color: var(--muted);
-  font-size: 11px;
-  padding: 4px 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   font-family: inherit;
   cursor: pointer;
-  line-height: 1;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.conn-action-icon {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.detail-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .conn-info:hover {

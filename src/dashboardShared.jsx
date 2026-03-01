@@ -60,19 +60,32 @@ const saveRoutingDraft = (draft) => {
   window.localStorage.setItem(ROUTING_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 };
 
+const ABSOLUTE_URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
+const RELATIVE_PATH_PREFIX_REGEX = /^(?:[./\\]|[a-zA-Z]:[\\/])/;
+
 const normalizeApiBase = (raw) => {
   const value = String(raw || '').trim();
   if (!value) return DEFAULT_API_BASE;
+  if (value === '/') return '';
   const trimmed = value.replace(/\/+$/, '');
-  if (trimmed === '/') return '';
+  if (!trimmed || trimmed === '/') return '';
+  if (ABSOLUTE_URL_SCHEME_REGEX.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `http:${trimmed}`;
+  if (!RELATIVE_PATH_PREFIX_REGEX.test(trimmed)) {
+    try {
+      return new URL(`http://${trimmed}`).href.replace(/\/+$/, '');
+    } catch (_err) {
+      // fall through
+    }
+  }
   return trimmed;
 };
 
 const getInitialMetricsHttp = () => {
   if (typeof window === 'undefined') return DEFAULT_API_BASE;
   const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
-  if (stored !== null) return stored;
-  return DEFAULT_API_BASE;
+  if (stored !== null) return normalizeApiBase(stored);
+  return normalizeApiBase(DEFAULT_API_BASE);
 };
 
 const normalizeAccessKey = (raw) => String(raw || '').trim();
@@ -151,8 +164,6 @@ const appendAccessKeyParam = (url, key) => {
   return `${url}${separator}${ACCESS_KEY_QUERY}=${encodeURIComponent(key)}`;
 };
 
-const ABSOLUTE_URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
-const RELATIVE_PATH_PREFIX_REGEX = /^(?:[./\\]|[a-zA-Z]:[\\/])/;
 const getSubscriptionUrlDisplay = (rawUrl) => {
   const value = String(rawUrl || '').trim();
   if (!value) return '';
@@ -723,6 +734,46 @@ const getConnectionStats = (payload) => {
   };
 };
 
+const normalizeConnectionsPayload = (payload) => {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const uploadRaw = Number(source.uploadTotal);
+  const downloadRaw = Number(source.downloadTotal);
+  return {
+    uploadTotal: Number.isFinite(uploadRaw) ? uploadRaw : 0,
+    downloadTotal: Number.isFinite(downloadRaw) ? downloadRaw : 0,
+    connections: Array.isArray(source.connections) ? source.connections : []
+  };
+};
+
+const CONNECTION_PAYLOAD_CANDIDATE_KEYS = ['data', 'payload', 'result', 'snapshot', 'body'];
+const extractConnectionsPayload = (value, depth = 0) => {
+  if (!value || typeof value !== 'object') return null;
+  if (Array.isArray(value.connections)) {
+    return normalizeConnectionsPayload(value);
+  }
+  if (depth >= 2) return null;
+  for (const key of CONNECTION_PAYLOAD_CANDIDATE_KEYS) {
+    const nested = extractConnectionsPayload(value[key], depth + 1);
+    if (nested) return nested;
+  }
+  return null;
+};
+
+const parseConnectionsPayload = (raw) => {
+  let value = raw;
+  for (let i = 0; i < 2; i += 1) {
+    if (typeof value !== 'string') break;
+    const text = value.trim();
+    if (!text) return null;
+    try {
+      value = JSON.parse(text);
+    } catch (_err) {
+      return null;
+    }
+  }
+  return extractConnectionsPayload(value, 0);
+};
+
 const collectSearchTokens = (value, out, seen) => {
   if (value === null || value === undefined) return;
   const valueType = typeof value;
@@ -745,7 +796,19 @@ const collectSearchTokens = (value, out, seen) => {
   Object.values(value).forEach((item) => collectSearchTokens(item, out, seen));
 };
 
+const SEARCH_TEXT_CACHE = new WeakMap();
 const toSearchText = (value) => {
+  if (value && typeof value === 'object') {
+    const cached = SEARCH_TEXT_CACHE.get(value);
+    if (typeof cached === 'string') {
+      return cached;
+    }
+    const tokens = [];
+    collectSearchTokens(value, tokens, new WeakSet());
+    const joined = tokens.join(' ');
+    SEARCH_TEXT_CACHE.set(value, joined);
+    return joined;
+  }
   const tokens = [];
   collectSearchTokens(value, tokens, new WeakSet());
   return tokens.join(' ');
@@ -794,7 +857,6 @@ const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metada
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
 const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
 const JA4_DB_REF_PREFIX = 'xray.internal.ja4db:';
-const JA4_FINGERPRINT_PATTERN = /^[tq]\d{2}[a-z]\d{4}[a-z0-9]{2}_[a-f0-9]{12}_[a-f0-9]{12}$/i;
 const normalizeJa4Text = (value) => {
   const text = String(value || '').trim();
   if (!text || text === '-') return '';
@@ -803,12 +865,7 @@ const normalizeJa4Text = (value) => {
 const normalizeUniqueJa4Label = (value) => {
   const text = normalizeJa4Text(value);
   if (!text) return '';
-  const lower = text.toLowerCase();
-  if (lower.startsWith('unique-label:')) return lower;
-  if (lower.startsWith('label:')) return `unique-label:${lower.slice('label:'.length)}`;
-  if (lower.startsWith('threat:')) return `unique-label:${lower.slice('threat:'.length)}`;
-  if (!lower.includes(':') && !JA4_FINGERPRINT_PATTERN.test(lower)) return `unique-label:${lower}`;
-  return lower;
+  return text.toLowerCase();
 };
 const pickJa4Text = (obj, keys) => {
   if (!obj || typeof obj !== 'object') return '';
@@ -1067,7 +1124,14 @@ const formatHostPortDisplay = (host, port) => {
   return `[${foldIpv6Front(ip)}${zone}]:${portValue}`;
 };
 
-const AutoFoldText = ({ fullText, foldedText, renderText, className }) => {
+const AutoFoldText = ({
+  fullText,
+  foldedText,
+  renderText,
+  className,
+  disableAdaptive = false,
+  forceFold = false
+}) => {
   const containerRef = useRef(null);
   const measureRef = useRef(null);
   const [shouldFold, setShouldFold] = useState(false);
@@ -1076,12 +1140,18 @@ const AutoFoldText = ({ fullText, foldedText, renderText, className }) => {
   const folded = foldedText === null || foldedText === undefined ? '' : String(foldedText);
   const canFold = folded && folded !== full;
 
-  const display = canFold && shouldFold ? folded : full;
-  const title = canFold && shouldFold ? full : undefined;
+  const staticFold = disableAdaptive && canFold;
+  const effectiveFold = canFold && (staticFold || forceFold || shouldFold);
+  const display = effectiveFold ? folded : full;
+  const title = effectiveFold ? full : undefined;
 
   useLayoutEffect(() => {
     if (!canFold) {
       setShouldFold(false);
+      return;
+    }
+    if (disableAdaptive) {
+      if (shouldFold) setShouldFold(false);
       return;
     }
     const container = containerRef.current;
@@ -1090,10 +1160,11 @@ const AutoFoldText = ({ fullText, foldedText, renderText, className }) => {
     const available = container.clientWidth;
     const fullWidth = measure.getBoundingClientRect().width;
     setShouldFold(fullWidth > available + 0.5);
-  }, [canFold, full, folded, renderText]);
+  }, [canFold, disableAdaptive, full, folded, shouldFold]);
 
   useEffect(() => {
     if (!canFold) return undefined;
+    if (disableAdaptive) return undefined;
     const container = containerRef.current;
     const measure = measureRef.current;
     if (!container || !measure) return undefined;
@@ -1115,7 +1186,7 @@ const AutoFoldText = ({ fullText, foldedText, renderText, className }) => {
     const onResize = () => check();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [canFold, full, folded]);
+  }, [canFold, disableAdaptive, full, folded]);
 
   return (
     <span ref={containerRef} className={`auto-fold ${className || ''}`.trim()} title={title}>
@@ -1698,6 +1769,8 @@ export {
   DNS_CACHE_NETWORK_ERROR_REGEX,
   parseTimestamp,
   getConnectionStats,
+  normalizeConnectionsPayload,
+  parseConnectionsPayload,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,

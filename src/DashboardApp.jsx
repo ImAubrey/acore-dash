@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createNodeGroupHelpers } from './features/nodes/groupHelpers';
 import { HeroHeader } from './features/layout/HeroHeader';
 import { MainPanels } from './features/layout/MainPanels';
@@ -97,6 +97,7 @@ import {
   TRAFFIC_CLIP_ID,
   parseTimestamp,
   getConnectionStats,
+  normalizeConnectionsPayload,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -466,15 +467,17 @@ export default function App() {
   }, [connections]);
 
   const uniqueDestinations = useMemo(() => {
+    if (page !== 'dashboard') return 0;
     const set = new Set();
     activeConnections.forEach((conn) => {
       const label = getConnectionDestination(conn);
       set.add(label);
     });
     return set.size;
-  }, [activeConnections]);
+  }, [activeConnections, page]);
 
   const topSources = useMemo(() => {
+    if (page !== 'dashboard') return [];
     const toMeta = (value) => (value && typeof value === 'object' ? value : {});
     const toText = (value) => String(value || '').trim();
 
@@ -538,7 +541,7 @@ export default function App() {
         percent: ratio * 100
       };
     });
-  }, [activeConnections]);
+  }, [activeConnections, page]);
 
   const outboundMix = useMemo(() => {
     const map = new Map();
@@ -696,6 +699,7 @@ export default function App() {
   };
 
   const protocolMix = useMemo(() => {
+    if (page !== 'dashboard') return [];
     const map = new Map();
     activeConnections.forEach((conn) => {
       (conn.details || []).forEach((detail) => {
@@ -751,7 +755,7 @@ export default function App() {
     list.sort((a, b) => b.value - a.value);
     const maxValue = Math.max(...list.map((item) => item.value), 0);
     return list.map((item) => ({ ...item, percent: maxValue ? (item.value / maxValue) * 100 : 0 }));
-  }, [activeConnections]);
+  }, [activeConnections, page]);
 
   const protocolTotal = useMemo(
     () => protocolMix.reduce((sum, item) => sum + item.value, 0),
@@ -905,7 +909,7 @@ export default function App() {
         body: JSON.stringify({ ids: normalized })
       });
       const latest = await fetchJson(`${apiBase}/connections`);
-      startTransition(() => setConnections(latest));
+      startTransition(() => setConnections(normalizeConnectionsPayload(latest)));
     } catch (err) {
       console.warn('Failed to close connections:', err);
     }
@@ -1027,8 +1031,14 @@ export default function App() {
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
   const normalizedRuleSearchQuery = ruleSearchQuery.trim().toLowerCase();
   const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
-  const highlightConnCell = (value) => highlightSearchText(value, normalizedConnSearchQuery);
-  const highlightRuleCell = (value) => highlightSearchText(value, normalizedRuleSearchQuery);
+  const highlightConnCell = useCallback(
+    (value) => highlightSearchText(value, normalizedConnSearchQuery),
+    [normalizedConnSearchQuery]
+  );
+  const highlightRuleCell = useCallback(
+    (value) => highlightSearchText(value, normalizedRuleSearchQuery),
+    [normalizedRuleSearchQuery]
+  );
   const filteredLogLines = useMemo(() => {
     if (page !== 'logs') return [];
     if (!normalizedLogSearchQuery) return logLines;
@@ -1057,6 +1067,7 @@ export default function App() {
     page,
     connections,
     closedConnections,
+    connListMode,
     connViewMode,
     connRates,
     connSortKey,

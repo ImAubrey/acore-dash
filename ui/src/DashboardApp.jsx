@@ -80,6 +80,7 @@ import {
   TRAFFIC_CLIP_ID,
   parseTimestamp,
   getConnectionStats,
+  normalizeConnectionsPayload,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -680,7 +681,7 @@ export default function App() {
         body: JSON.stringify({ ids: normalized })
       });
       const latest = await fetchJson(`${apiBase}/connections`);
-      startTransition(() => setConnections(latest));
+      startTransition(() => setConnections(normalizeConnectionsPayload(latest)));
     } catch (err) {
       console.warn('Failed to close connections:', err);
     }

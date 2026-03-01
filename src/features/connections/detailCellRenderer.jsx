@@ -1,4 +1,5 @@
 import React from 'react';
+import { CloseIcon, InfoIcon } from './actionIcons';
 import {
   AutoFoldText,
   SPLICE_LABEL,
@@ -17,12 +18,49 @@ import {
   isSpliceType
 } from '../../dashboardShared';
 
+const DETAIL_AUTOFOLD_PERF_THRESHOLD = 80;
+
+export function DetailActionButtons({
+  onInfo,
+  onClose,
+  closeDisabled = false,
+  infoTitle = 'Info',
+  closeTitle = 'Close this connection',
+  infoAriaLabel = 'Info',
+  closeAriaLabel = 'Close this connection'
+}) {
+  return (
+    <span className="detail-actions">
+      <button
+        type="button"
+        className="conn-info"
+        onClick={onInfo}
+        title={infoTitle}
+        aria-label={infoAriaLabel}
+      >
+        <InfoIcon />
+      </button>
+      <button
+        type="button"
+        className="conn-close"
+        onClick={onClose}
+        disabled={closeDisabled}
+        title={closeDisabled ? closeTitle : 'Close this connection'}
+        aria-label={closeAriaLabel}
+      >
+        <CloseIcon />
+      </button>
+    </span>
+  );
+}
+
 export function createDetailCellRenderer({
   highlightConnCell,
   handleInfoDetail,
   handleCloseDetail
 }) {
   return (columnKey, conn, detail, detailRate, detailKey) => {
+    const disableAdaptiveFold = (conn?.details?.length || 0) >= DETAIL_AUTOFOLD_PERF_THRESHOLD;
     switch (columnKey) {
       case 'destination': {
         const host = getDetailDestinationLabel(detail);
@@ -45,6 +83,8 @@ export function createDetailCellRenderer({
               fullText={full}
               foldedText={display}
               renderText={highlightConnCell}
+              disableAdaptive={disableAdaptiveFold}
+              forceFold={disableAdaptiveFold}
             />
           </span>
         );
@@ -55,7 +95,13 @@ export function createDetailCellRenderer({
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
         return (
-          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+          <AutoFoldText
+            fullText={full}
+            foldedText={display}
+            renderText={highlightConnCell}
+            disableAdaptive={disableAdaptiveFold}
+            forceFold={disableAdaptiveFold}
+          />
         );
       }
       case 'xraySrc': {
@@ -64,7 +110,13 @@ export function createDetailCellRenderer({
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
         return (
-          <AutoFoldText fullText={full} foldedText={display} renderText={highlightConnCell} />
+          <AutoFoldText
+            fullText={full}
+            foldedText={display}
+            renderText={highlightConnCell}
+            disableAdaptive={disableAdaptiveFold}
+            forceFold={disableAdaptiveFold}
+          />
         );
       }
       case 'user':
@@ -158,24 +210,12 @@ export function createDetailCellRenderer({
         return highlightConnCell(formatTime(getDetailLastSeen(detail)));
       case 'close':
         return (
-          <React.Fragment>
-            <button
-              type="button"
-              className="conn-info"
-              onClick={(event) => handleInfoDetail(event, conn, detail, detailRate, detailKey)}
-              title="Info"
-            >
-              Info
-            </button>
-            <button
-              type="button"
-              className="conn-close"
-              onClick={(event) => handleCloseDetail(event, detail)}
-              title="Close this connection"
-            >
-              Close
-            </button>
-          </React.Fragment>
+          <DetailActionButtons
+            onInfo={(event) => handleInfoDetail(event, conn, detail, detailRate, detailKey)}
+            onClose={(event) => handleCloseDetail(event, detail)}
+            closeDisabled={!detail?.id}
+            closeTitle="No connection to close"
+          />
         );
       default:
         return '-';

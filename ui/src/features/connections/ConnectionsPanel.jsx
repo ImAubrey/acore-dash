@@ -1,4 +1,5 @@
 import React from 'react';
+import { CloseIcon, InfoIcon } from './actionIcons';
 
 export function ConnectionsPanel({
   page,
@@ -178,8 +179,9 @@ export function ConnectionsPanel({
                       className="conn-info"
                       onClick={(event) => handleInfoGroup(event, conn)}
                       title="Info"
+                      aria-label="Info"
                     >
-                      Info
+                      <InfoIcon />
                     </button>
                     <button
                       type="button"
@@ -187,8 +189,9 @@ export function ConnectionsPanel({
                       onClick={(event) => handleCloseGroup(event, groupCloseIds)}
                       disabled={!canClose}
                       title={canClose ? 'Close all connections in this group' : 'No connections to close'}
+                      aria-label="Close"
                     >
-                      Close
+                      <CloseIcon />
                     </button>
                     <span className="chevron">{isExpanded ? '▾' : '▸'}</span>
                   </span>
