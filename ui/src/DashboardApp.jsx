@@ -79,6 +79,7 @@ import {
   TRAFFIC_GRID_LINES,
   TRAFFIC_CLIP_ID,
   parseTimestamp,
+  getConnectionStats,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -294,24 +295,23 @@ export default function App() {
 
   const connRefreshIntervalMs = connRefreshInterval * 1000;
 
-  const totalSessions = useMemo(() => {
-    return (connections.connections || []).reduce((sum, c) => sum + (c.connectionCount || 1), 0);
-  }, [connections]);
-
-  const totalConnections = connections.connections ? connections.connections.length : 0;
+  const connectionStats = useMemo(() => getConnectionStats(connections), [connections]);
+  const activeConnections = connectionStats.connections;
+  const totalSessions = connectionStats.totalSessions;
+  const totalConnections = connectionStats.totalConnections;
 
   const uniqueDestinations = useMemo(() => {
     const set = new Set();
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       const label = getConnectionDestination(conn);
       set.add(label);
     });
     return set.size;
-  }, [connections]);
+  }, [activeConnections]);
 
   const topDestinations = useMemo(() => {
     const map = new Map();
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       const label = getConnectionDestination(conn);
       const count = conn.connectionCount || 1;
       map.set(label, (map.get(label) || 0) + count);
@@ -328,7 +328,7 @@ export default function App() {
         percent: ratio * 100
       };
     });
-  }, [connections]);
+  }, [activeConnections]);
 
   const outboundMix = useMemo(() => {
     const map = new Map();
@@ -481,7 +481,7 @@ export default function App() {
 
   const protocolMix = useMemo(() => {
     const map = new Map();
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       (conn.details || []).forEach((detail) => {
         const network = String(detail.metadata?.network || '').trim();
         const type = String(detail.metadata?.type || '').trim();
@@ -535,7 +535,7 @@ export default function App() {
     list.sort((a, b) => b.value - a.value);
     const total = list.reduce((sum, item) => sum + item.value, 0);
     return list.map((item) => ({ ...item, percent: total ? (item.value / total) * 100 : 0 }));
-  }, [connections]);
+  }, [activeConnections]);
 
   const protocolTotal = useMemo(
     () => protocolMix.reduce((sum, item) => sum + item.value, 0),

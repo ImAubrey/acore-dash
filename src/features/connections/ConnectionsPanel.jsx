@@ -4,6 +4,24 @@ import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelP
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
 
 const getClosedTimestamp = (conn) => conn?.closedAt || conn?.lastSeen || conn?.start || '';
+const getConnectionRuleLabel = (conn) => {
+  const direct = String(conn?.rulePayload || conn?.rule || '').trim();
+  if (direct) return direct;
+  const details = Array.isArray(conn?.details) ? conn.details : [];
+  let merged = '';
+  for (const detail of details) {
+    const value = String(detail?.rulePayload || detail?.rule || '').trim();
+    if (!value) continue;
+    if (!merged) {
+      merged = value;
+      continue;
+    }
+    if (merged !== value) {
+      return 'mixed';
+    }
+  }
+  return merged || '-';
+};
 
 export function ConnectionsPanel({
   page,
@@ -73,6 +91,29 @@ export function ConnectionsPanel({
   const detailGridStyleForMode = isClosedMode
     ? { '--detail-columns': renderedDetailColumns.map((column) => column.width).join(' ') }
     : detailGridStyle;
+  const renderDetailColumnControls = (extraClassName = '') => (
+    <div className={joinClassNames('detail-categories', extraClassName)}>
+      <span className="detail-categories-label">Columns</span>
+      <div className="detail-categories-list">
+        {activeDetailColumns.map((column) => {
+          const isVisible = detailColumnsVisible.has(column.key);
+          const columnHint = column.hint ? ` (${column.hint})` : '';
+          return (
+            <button
+              key={column.key}
+              type="button"
+              className={`detail-category ${isVisible ? 'active' : 'inactive'}`}
+              onClick={() => toggleDetailColumn(column.key)}
+              title={`${isVisible ? 'Hide' : 'Show'} ${column.label}${columnHint}`}
+              aria-pressed={isVisible}
+            >
+              {column.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -167,11 +208,13 @@ export function ConnectionsPanel({
           </>
         )}
       />
+      {renderDetailColumnControls('connections-columns-toolbar')}
       <div className={`connections-table-wrap${connectionsPerfMode ? ' connections-table-wrap-perf' : ''}`}>
         <div className="table connections-table">
           <div className="row header">
             {renderSortHeader('Destination', 'destination')}
             {renderSortHeader('Source', 'source')}
+            {renderSortHeader('Rule', 'rule')}
             {isClosedMode
               ? <span>Closed</span>
               : renderSortHeader('Sessions', 'sessions')}
@@ -199,6 +242,7 @@ export function ConnectionsPanel({
               : getConnectionDomainSourceBadge(conn);
             const destinationFolded = formatHostDisplay(destinationRaw);
             const sourceFolded = formatHostDisplay(sourceRaw);
+            const ruleLabel = getConnectionRuleLabel(conn);
             const rowBg = ZEBRA_ROW_BACKGROUNDS[connIndex % ZEBRA_ROW_BACKGROUNDS.length];
             const connStyle = { '--activity': String(connActivity), '--row-bg': rowBg };
             const closedTimestamp = getClosedTimestamp(conn);
@@ -239,6 +283,9 @@ export function ConnectionsPanel({
                     foldedText={sourceFolded}
                     renderText={highlightConnCell}
                   />
+                  <span className="mono rule-cell" title={ruleLabel}>
+                    {highlightConnCell(ruleLabel)}
+                  </span>
                   {isClosedMode ? (
                     <span className="mono">{highlightConnCell(formatTime(closedTimestamp))}</span>
                   ) : (
@@ -282,27 +329,7 @@ export function ConnectionsPanel({
                 </div>
                 {isExpanded && (
                   <div className="detail-wrap" style={detailGridStyleForMode}>
-                    <div className="detail-categories">
-                      <span className="detail-categories-label">Columns</span>
-                      <div className="detail-categories-list">
-                        {activeDetailColumns.map((column) => {
-                          const isVisible = detailColumnsVisible.has(column.key);
-                          const columnHint = column.hint ? ` (${column.hint})` : '';
-                          return (
-                            <button
-                              key={column.key}
-                              type="button"
-                              className={`detail-category ${isVisible ? 'active' : 'inactive'}`}
-                              onClick={() => toggleDetailColumn(column.key)}
-                              title={`${isVisible ? 'Hide' : 'Show'} ${column.label}${columnHint}`}
-                              aria-pressed={isVisible}
-                            >
-                              {column.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    {renderDetailColumnControls()}
                     <div className="detail-row header">
                       {renderedDetailColumns.map((column) => (
                         <button

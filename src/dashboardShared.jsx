@@ -709,6 +709,20 @@ const parseTimestamp = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const getConnectionStats = (payload) => {
+  const list = Array.isArray(payload?.connections) ? payload.connections : [];
+  const totalSessions = list.reduce((sum, conn) => {
+    const raw = Number(conn?.connectionCount);
+    const count = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 1;
+    return sum + count;
+  }, 0);
+  return {
+    connections: list,
+    totalSessions,
+    totalConnections: list.length
+  };
+};
+
 const collectSearchTokens = (value, out, seen) => {
   if (value === null || value === undefined) return;
   const valueType = typeof value;
@@ -780,10 +794,21 @@ const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metada
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
 const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
 const JA4_DB_REF_PREFIX = 'xray.internal.ja4db:';
+const JA4_FINGERPRINT_PATTERN = /^[tq]\d{2}[a-z]\d{4}[a-z0-9]{2}_[a-f0-9]{12}_[a-f0-9]{12}$/i;
 const normalizeJa4Text = (value) => {
   const text = String(value || '').trim();
   if (!text || text === '-') return '';
   return text;
+};
+const normalizeUniqueJa4Label = (value) => {
+  const text = normalizeJa4Text(value);
+  if (!text) return '';
+  const lower = text.toLowerCase();
+  if (lower.startsWith('unique-label:')) return lower;
+  if (lower.startsWith('label:')) return `unique-label:${lower.slice('label:'.length)}`;
+  if (lower.startsWith('threat:')) return `unique-label:${lower.slice('threat:'.length)}`;
+  if (!lower.includes(':') && !JA4_FINGERPRINT_PATTERN.test(lower)) return `unique-label:${lower}`;
+  return lower;
 };
 const pickJa4Text = (obj, keys) => {
   if (!obj || typeof obj !== 'object') return '';
@@ -947,8 +972,8 @@ const getDetailJa4Info = (detail) => {
     if (parsedRef) break;
   }
 
-  const finalDbTag = dbTag || parsedRef?.dbTag || '';
-  const finalDbLabel = dbLabel || finalDbTag || parsedRef?.dbLabel || '';
+  const finalDbTag = normalizeUniqueJa4Label(dbTag || parsedRef?.dbTag || '');
+  const finalDbLabel = normalizeUniqueJa4Label(dbLabel || finalDbTag || parsedRef?.dbLabel || '');
   const finalDbFile = dbFile || parsedRef?.dbFile || '';
   const out = {};
   if (fingerprint) out.fingerprint = fingerprint;
@@ -1240,6 +1265,24 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
 
 const getConnectionDestination = (conn) => getDestinationLabel(conn?.metadata, 'unknown');
 const getConnectionSource = (conn) => getSourceLabel(conn?.metadata, '0.0.0.0');
+const getConnectionRule = (conn) => {
+  const direct = String(conn?.rulePayload || conn?.rule || '').trim();
+  if (direct) return direct;
+  const details = Array.isArray(conn?.details) ? conn.details : [];
+  let merged = '';
+  for (const detail of details) {
+    const value = String(detail?.rulePayload || detail?.rule || '').trim();
+    if (!value) continue;
+    if (!merged) {
+      merged = value;
+      continue;
+    }
+    if (merged !== value) {
+      return 'mixed';
+    }
+  }
+  return merged || '-';
+};
 const getDetailKey = (connId, detail, index) => (detail.id ? String(detail.id) : `${connId}-${index}`);
 const normalizeConnectionIds = (ids) => {
   const seen = new Set();
@@ -1297,6 +1340,11 @@ const CONNECTION_SORT_FIELDS = {
     type: 'string',
     getValue: (conn) => getConnectionSource(conn)
   },
+  rule: {
+    label: 'Rule',
+    type: 'string',
+    getValue: (conn) => getConnectionRule(conn)
+  },
   sessions: {
     label: 'Sessions',
     type: 'number',
@@ -1321,6 +1369,7 @@ const DETAIL_COLUMNS = [
   { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
+  { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   { key: 'ja4', label: 'JA4 DB', width: 'minmax(0, 1fr)', cellClassName: 'mono', hint: 'JA4 database label' },
   {
@@ -1648,6 +1697,7 @@ export {
   TRAFFIC_CLIP_ID,
   DNS_CACHE_NETWORK_ERROR_REGEX,
   parseTimestamp,
+  getConnectionStats,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -1678,6 +1728,7 @@ export {
   pruneConnectionsPayload,
   getConnectionDestination,
   getConnectionSource,
+  getConnectionRule,
   getDetailKey,
   normalizeConnectionIds,
   collectCloseIdCandidates,

@@ -7,6 +7,7 @@ import {
   getDetailDestinationLabel,
   getDetailSourceLabel,
   getDetailXraySrcLabel,
+  getDetailUniqueJa4Label,
   normalizeDomainSource,
   getDetailDomainSourceBadge,
   getDetailLastSeen,
@@ -134,6 +135,8 @@ export function createDetailCellRenderer({
           </span>
         );
       }
+      case 'ja4Tag':
+        return highlightConnCell(getDetailUniqueJa4Label(detail, '-'));
       case 'upload':
         return highlightConnCell(formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type)));
       case 'download':

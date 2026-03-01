@@ -66,7 +66,7 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     const isRoundRobin = isRoundRobinStrategy(strategy);
     const currentTarget = String(group?.currentTarget || '').trim();
     if (currentTarget && strategy === 'fallback') {
-      return [currentTarget];
+      return isNodeDown(currentTarget) ? [] : [currentTarget];
     }
     if (isRoundRobin) {
       const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
@@ -92,7 +92,7 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     if (strategy === 'fallback') {
       const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
       const picked = pickSelectorStrategyTarget(raw);
-      return picked ? [picked] : [];
+      return picked && !isNodeDown(picked) ? [picked] : [];
     }
     const excludeFallback = !isManualGroup(group) && !!fallbackTag;
     const raw = isManualGroup(group)
@@ -103,6 +103,7 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
       const value = String(tag || '').trim();
       if (!value || seen.has(value)) return false;
       if (excludeFallback && value === fallbackTag) return false;
+      if (!isManualGroup(group) && isNodeDown(value)) return false;
       seen.add(value);
       return true;
     });

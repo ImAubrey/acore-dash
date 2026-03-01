@@ -1,7 +1,6 @@
 import { startTransition, useEffect } from 'react';
 import {
   appendAccessKeyParam,
-  pruneConnectionsPayload,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
   TRAFFIC_WINDOW
@@ -59,14 +58,11 @@ export function useConnectionTelemetry({
       try {
         const data = JSON.parse(event.data);
         setConnStreamStatus('live');
-        const nextPayload = isDashboardPage
-          ? pruneConnectionsPayload(data, Date.now())
-          : data;
         if (typeof window === 'undefined' || !window.requestAnimationFrame) {
-          startTransition(() => setConnections(nextPayload));
+          startTransition(() => setConnections(data));
           return;
         }
-        pendingConnRef.current = nextPayload;
+        pendingConnRef.current = data;
         if (connStreamFrameRef.current !== null) return;
         connStreamFrameRef.current = window.requestAnimationFrame(() => {
           connStreamFrameRef.current = null;
@@ -95,7 +91,7 @@ export function useConnectionTelemetry({
         connStreamRef.current = null;
       }
     };
-  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs, isDashboardPage]);
+  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs]);
 
   useEffect(() => {
     const now = Date.now();

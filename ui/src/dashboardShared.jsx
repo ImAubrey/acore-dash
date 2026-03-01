@@ -432,6 +432,20 @@ const parseTimestamp = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+const getConnectionStats = (payload) => {
+  const list = Array.isArray(payload?.connections) ? payload.connections : [];
+  const totalSessions = list.reduce((sum, conn) => {
+    const raw = Number(conn?.connectionCount);
+    const count = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : 1;
+    return sum + count;
+  }, 0);
+  return {
+    connections: list,
+    totalSessions,
+    totalConnections: list.length
+  };
+};
+
 const collectSearchTokens = (value, out, seen) => {
   if (value === null || value === undefined) return;
   const valueType = typeof value;
@@ -502,6 +516,17 @@ const getSourceLabel = (meta, fallback = '0.0.0.0') => meta?.sourceIP || fallbac
 const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metadata, 'unknown');
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
 const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
+const JA4_FINGERPRINT_PATTERN = /^[tq]\d{2}[a-z]\d{4}[a-z0-9]{2}_[a-f0-9]{12}_[a-f0-9]{12}$/i;
+const getDetailUniqueJa4Label = (detail, fallback = '-') => {
+  const raw = String(detail?.metadata?.ja4Tag || '').trim();
+  if (!raw) return fallback;
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('unique-label:')) return lower;
+  if (lower.startsWith('label:')) return `unique-label:${lower.slice('label:'.length)}`;
+  if (lower.startsWith('threat:')) return `unique-label:${lower.slice('threat:'.length)}`;
+  if (!lower.includes(':') && !JA4_FINGERPRINT_PATTERN.test(lower)) return `unique-label:${lower}`;
+  return lower;
+};
 const normalizeDomainSource = (value) => {
   const source = String(value || '').trim().toLowerCase();
   if (!source) return '';
@@ -862,6 +887,7 @@ const DETAIL_COLUMNS = [
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
+  { key: 'ja4Tag', label: 'JA4 Tag', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   {
     key: 'upload',
     label: 'Up',
@@ -1128,6 +1154,7 @@ export {
   TRAFFIC_GRID_LINES,
   TRAFFIC_CLIP_ID,
   parseTimestamp,
+  getConnectionStats,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -1138,6 +1165,7 @@ export {
   getDetailDestinationLabel,
   getDetailSourceLabel,
   getDetailXraySrcLabel,
+  getDetailUniqueJa4Label,
   normalizeDomainSource,
   getDomainSourceBadgeLabel,
   getConnectionDomainSourceBadge,

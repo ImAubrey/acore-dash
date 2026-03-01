@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import {
   appendAccessKeyParam,
-  pruneConnectionsPayload,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
   TRAFFIC_WINDOW
@@ -72,10 +71,7 @@ export function useConnectionTelemetry({
       try {
         const data = JSON.parse(event.data);
         setConnStreamStatus('live');
-        const nextPayload = isDashboardPage
-          ? pruneConnectionsPayload(data, Date.now())
-          : data;
-        pendingConnRef.current = nextPayload;
+        pendingConnRef.current = data;
         if (connStreamFrameRef.current !== null || typeof window === 'undefined') return;
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
           connStreamFrameRef.current = window.setTimeout(flushPendingConnections, 16);
@@ -98,7 +94,7 @@ export function useConnectionTelemetry({
         connStreamRef.current = null;
       }
     };
-  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs, isDashboardPage]);
+  }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs]);
 
   useEffect(() => {
     if (!isDashboardPage) return;

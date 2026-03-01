@@ -73,6 +73,14 @@ export function createDetailCellRenderer({
         return highlightConnCell(detail.metadata?.inboundTag || '-');
       case 'outbound':
         return highlightConnCell(detail.metadata?.outboundTag || '-');
+      case 'rule':
+        return highlightConnCell(
+          detail.rulePayload
+          || detail.rule
+          || conn?.rulePayload
+          || conn?.rule
+          || '-'
+        );
       case 'protocol': {
         const network = String(detail.metadata?.network || '-').trim() || '-';
         const type = String(detail.metadata?.type || '-').trim() || '-';

@@ -386,8 +386,8 @@ body {
 }
 
 .connections-title-switch .view-pill {
-  font-size: 10px;
-  padding: 4px 9px;
+  font-size: 11px;
+  padding: 6px 10px;
 }
 
 .panel p {
@@ -1507,10 +1507,11 @@ body {
   grid-template-columns:
     minmax(0, 2.2fr)
     minmax(0, 1.8fr)
+    minmax(0, 1fr)
     minmax(0, 0.7fr)
     minmax(0, 0.8fr)
     minmax(0, 0.8fr)
-    minmax(0, 0.6fr);
+    minmax(0, 0.9fr);
   gap: 12px;
   align-items: center;
   min-width: 0;
@@ -1608,12 +1609,26 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.row-actions .conn-info,
+.row-actions .conn-close,
+.row-actions .chevron {
+  flex: 0 0 auto;
 }
 
 .session-cell {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.rule-cell {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .protocol-cell {
@@ -1706,7 +1721,7 @@ button.pill.conn-close-all:disabled {
   display: grid;
   grid-template-columns: var(
     --detail-columns,
-    2.2fr 1.8fr 1.8fr 0.9fr 0.9fr 0.9fr 1.2fr 0.7fr 0.7fr 1.1fr 0.6fr
+    2.2fr 1.8fr 1.8fr 0.9fr 0.9fr 0.9fr 1fr 1.2fr 0.7fr 0.7fr 1.1fr 0.6fr
   );
   gap: 10px;
   align-items: center;
@@ -1865,6 +1880,10 @@ button.pill.conn-close-all:disabled {
   align-items: center;
   gap: 8px 10px;
   margin-bottom: 10px;
+}
+
+.connections-columns-toolbar {
+  margin: -4px 0 10px;
 }
 
 .detail-categories-label {
@@ -3008,10 +3027,11 @@ select.pill {
     grid-template-columns:
       minmax(0, 2fr)
       minmax(0, 1.6fr)
+      minmax(0, 0.9fr)
       minmax(0, 0.6fr)
       minmax(0, 0.7fr)
       minmax(0, 0.7fr)
-      minmax(0, 0.5fr);
+      minmax(0, 0.8fr);
     font-size: 12px;
   }
 }

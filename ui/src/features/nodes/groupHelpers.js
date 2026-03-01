@@ -2,6 +2,12 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
   const normalizeGroupStrategy = (value) => String(value || '').trim().toLowerCase();
   const getGroupStrategy = (group) => normalizeGroupStrategy(group?.strategy);
   const getFallbackTag = (group) => String(group?.fallbackTag || '').trim();
+  const isNodeDown = (tag) => {
+    const key = String(tag || '').trim();
+    if (!key) return false;
+    const nodeStatus = statusByTag?.[key];
+    return Boolean(nodeStatus) && nodeStatus.alive === false;
+  };
 
   const pickSelectorStrategyTarget = (tags) => {
     if (!Array.isArray(tags) || tags.length === 0) return '';
@@ -56,13 +62,16 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     }
     const strategy = getGroupStrategy(group);
     const currentTarget = String(group?.currentTarget || '').trim();
-    if (currentTarget && (strategy === 'fallback' || !!getFallbackTag(group))) {
-      return [currentTarget];
+    if (currentTarget && strategy === 'fallback') {
+      return isNodeDown(currentTarget) ? [] : [currentTarget];
+    }
+    if (currentTarget && !!getFallbackTag(group)) {
+      return isNodeDown(currentTarget) ? [] : [currentTarget];
     }
     if (strategy === 'fallback') {
       const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
       const picked = pickSelectorStrategyTarget(raw);
-      return picked ? [picked] : [];
+      return picked && !isNodeDown(picked) ? [picked] : [];
     }
     const fallbackTag = getFallbackTag(group);
     const excludeFallback = !isManualGroup(group) && !!fallbackTag;
@@ -74,6 +83,7 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
       const value = String(tag || '').trim();
       if (!value || seen.has(value)) return false;
       if (excludeFallback && value === fallbackTag) return false;
+      if (!isManualGroup(group) && isNodeDown(value)) return false;
       seen.add(value);
       return true;
     });
