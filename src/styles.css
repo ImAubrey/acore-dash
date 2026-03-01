@@ -349,6 +349,13 @@ body {
   border-radius: 16px;
 }
 
+.connections-closed-empty {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .connections-table-wrap-perf {
   contain: paint;
 }
@@ -363,6 +370,24 @@ body {
 
 .panel h2 {
   margin: 0 0 4px;
+}
+
+.connections-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.connections-title-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.connections-title-switch .view-pill {
+  font-size: 10px;
+  padding: 4px 9px;
 }
 
 .panel p {
@@ -3038,6 +3063,12 @@ select.pill {
     width: 100%;
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .connections-title {
+    white-space: normal;
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 
   .connections-search {

@@ -96,6 +96,7 @@ import {
   TRAFFIC_GRID_LINES,
   TRAFFIC_CLIP_ID,
   parseTimestamp,
+  getConnectionStats,
   collectSearchTokens,
   toSearchText,
   hasRuleReLookup,
@@ -155,6 +156,58 @@ import {
   renderLogLine
 } from './dashboardShared';
 
+const MAX_CLOSED_CONNECTIONS = 500;
+
+const buildDetailSnapshotMap = (payload) => {
+  const snapshots = new Map();
+  const groups = Array.isArray(payload?.connections) ? payload.connections : [];
+  groups.forEach((conn) => {
+    if (!conn || typeof conn !== 'object') return;
+    const details = Array.isArray(conn.details) ? conn.details : [];
+    details.forEach((detail, index) => {
+      if (!detail || typeof detail !== 'object') return;
+      const detailId = detail.id
+        ? String(detail.id)
+        : `${String(conn.id || 'group')}-${index}`;
+      snapshots.set(detailId, { conn, detail });
+    });
+  });
+  return snapshots;
+};
+
+const toClosedConnectionRecord = (snapshot, closedAt) => {
+  const conn = snapshot?.conn && typeof snapshot.conn === 'object' ? snapshot.conn : {};
+  const detail = snapshot?.detail && typeof snapshot.detail === 'object' ? snapshot.detail : {};
+  const detailWithClosedAt = {
+    ...detail,
+    lastSeen: closedAt,
+    closedAt
+  };
+  const metadata = {
+    ...(conn.metadata && typeof conn.metadata === 'object' ? conn.metadata : {}),
+    ...(detail.metadata && typeof detail.metadata === 'object' ? detail.metadata : {})
+  };
+  return {
+    id: detail.id ? `${String(detail.id)}@${closedAt}` : `${String(conn.id || 'closed')}@${closedAt}`,
+    closedAt,
+    metadata,
+    upload: detail.upload || 0,
+    download: detail.download || 0,
+    start: detail.start || conn.start || '',
+    lastSeen: closedAt,
+    connectionCount: 1,
+    rule: detail.rule || conn.rule || '',
+    rulePayload: detail.rulePayload || conn.rulePayload || '',
+    chains: Array.isArray(detail.chains) && detail.chains.length > 0
+      ? detail.chains
+      : Array.isArray(conn.chains)
+        ? conn.chains
+        : [],
+    details: [detailWithClosedAt],
+    detail: detailWithClosedAt
+  };
+};
+
 export default function App() {
   const [page, setPage] = useState(getPageFromHash());
   const [uiLanguage] = useState(getInitialUiLanguage);
@@ -179,10 +232,12 @@ export default function App() {
   const [connStreamStatus, setConnStreamStatus] = useState('connecting');
   const [connStreamPaused, setConnStreamPaused] = useState(false);
   const [closingAllConnections, setClosingAllConnections] = useState(false);
+  const [connListMode, setConnListMode] = useState('live');
   const [connViewMode, setConnViewMode] = useState('current');
   const [connSortKey, setConnSortKey] = useState('default');
   const [connSortDir, setConnSortDir] = useState('desc');
   const [connSearchQuery, setConnSearchQuery] = useState('');
+  const [closedConnections, setClosedConnections] = useState([]);
   const [ruleSearchQuery, setRuleSearchQuery] = useState('');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [connRates, setConnRates] = useState(new Map());
@@ -278,6 +333,7 @@ export default function App() {
   const trafficShiftRafRef = useRef(null);
   const connTotalsRef = useRef(new Map());
   const detailTotalsRef = useRef(new Map());
+  const connDetailSnapshotsRef = useRef(new Map());
   const rulesModalCloseTimerRef = useRef(null);
   const restartCooldownRef = useRef(null);
   const restartReloadRef = useRef(null);
@@ -383,20 +439,40 @@ export default function App() {
   const connRefreshIntervalMs = connRefreshInterval * 1000;
   const currentMetricsPanelId = getMetricsPanelId(apiBase, accessKey, connRefreshInterval);
 
-  const totalSessions = useMemo(() => {
-    return (connections.connections || []).reduce((sum, c) => sum + (c.connectionCount || 1), 0);
-  }, [connections]);
+  const connectionStats = useMemo(() => getConnectionStats(connections), [connections]);
+  const activeConnections = connectionStats.connections;
+  const totalSessions = connectionStats.totalSessions;
+  const totalConnections = connectionStats.totalConnections;
 
-  const totalConnections = connections.connections ? connections.connections.length : 0;
+  useEffect(() => {
+    const nextSnapshots = buildDetailSnapshotMap(connections);
+    const prevSnapshots = connDetailSnapshotsRef.current;
+    if (prevSnapshots.size > 0) {
+      const closedAt = new Date().toISOString();
+      const closedBatch = [];
+      prevSnapshots.forEach((snapshot, detailId) => {
+        if (nextSnapshots.has(detailId)) return;
+        closedBatch.push(toClosedConnectionRecord(snapshot, closedAt));
+      });
+      if (closedBatch.length > 0) {
+        setClosedConnections((prev) => {
+          const next = [...closedBatch, ...prev];
+          if (next.length <= MAX_CLOSED_CONNECTIONS) return next;
+          return next.slice(0, MAX_CLOSED_CONNECTIONS);
+        });
+      }
+    }
+    connDetailSnapshotsRef.current = nextSnapshots;
+  }, [connections]);
 
   const uniqueDestinations = useMemo(() => {
     const set = new Set();
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       const label = getConnectionDestination(conn);
       set.add(label);
     });
     return set.size;
-  }, [connections]);
+  }, [activeConnections]);
 
   const topSources = useMemo(() => {
     const toMeta = (value) => (value && typeof value === 'object' ? value : {});
@@ -432,7 +508,7 @@ export default function App() {
       });
     };
 
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       const connMeta = toMeta(conn?.metadata);
       const details = Array.isArray(conn?.details) ? conn.details : [];
       if (details.length === 0) {
@@ -462,7 +538,7 @@ export default function App() {
         percent: ratio * 100
       };
     });
-  }, [connections]);
+  }, [activeConnections]);
 
   const outboundMix = useMemo(() => {
     const map = new Map();
@@ -621,7 +697,7 @@ export default function App() {
 
   const protocolMix = useMemo(() => {
     const map = new Map();
-    (connections.connections || []).forEach((conn) => {
+    activeConnections.forEach((conn) => {
       (conn.details || []).forEach((detail) => {
         const network = String(detail.metadata?.network || '').trim();
         const type = String(detail.metadata?.type || '').trim();
@@ -675,7 +751,7 @@ export default function App() {
     list.sort((a, b) => b.value - a.value);
     const maxValue = Math.max(...list.map((item) => item.value), 0);
     return list.map((item) => ({ ...item, percent: maxValue ? (item.value / maxValue) * 100 : 0 }));
-  }, [connections]);
+  }, [activeConnections]);
 
   const protocolTotal = useMemo(
     () => protocolMix.reduce((sum, item) => sum + item.value, 0),
@@ -920,6 +996,14 @@ export default function App() {
     });
   };
 
+  const handleInfoClosed = (event, closedConn) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openInfoModal(`Closed connection: ${closedConn?.id || ''}`.trim(), {
+      closedConnection: closedConn
+    });
+  };
+
   const handleTopSourceClick = (sourceIp) => {
     const query = String(sourceIp || '').trim();
     if (!query) return;
@@ -963,6 +1047,7 @@ export default function App() {
     isConnectionsPage,
     renderSortHeader,
     filteredConnections,
+    filteredClosedConnections,
     filteredRuleEntries,
     filteredBalancerEntries,
     toggleDetailColumn,
@@ -971,6 +1056,7 @@ export default function App() {
   } = useConnectionsViewModel({
     page,
     connections,
+    closedConnections,
     connViewMode,
     connRates,
     connSortKey,
@@ -1333,7 +1419,7 @@ export default function App() {
 
   useEffect(() => {
     setExpandedConnections(new Set());
-  }, [connViewMode]);
+  }, [connViewMode, connListMode]);
 
   // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
 
@@ -1594,6 +1680,8 @@ export default function App() {
 
   const connectionsPanelProps = {
     page,
+    connListMode,
+    setConnListMode,
     connSearchQuery,
     setConnSearchQuery,
     connViewMode,
@@ -1607,6 +1695,7 @@ export default function App() {
     renderSortHeader,
     TRAFFIC_DIRECTION_HINTS,
     filteredConnections,
+    filteredClosedConnections,
     getGroupCloseIds,
     expandedConnections,
     normalizedConnSearchQuery,
@@ -1619,6 +1708,9 @@ export default function App() {
     getConnectionSource,
     getConnectionDomainSourceBadge,
     formatHostDisplay,
+    getDomainSourceBadgeLabel,
+    formatBytes,
+    formatTime,
     ZEBRA_ROW_BACKGROUNDS,
     toggleExpanded,
     normalizeDomainSource,
@@ -1626,6 +1718,7 @@ export default function App() {
     highlightConnCell,
     formatRateOrSplice,
     handleInfoGroup,
+    handleInfoClosed,
     handleCloseGroup,
     detailGridStyle,
     DETAIL_COLUMNS,

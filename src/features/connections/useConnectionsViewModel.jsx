@@ -10,6 +10,7 @@ import {
 export function useConnectionsViewModel({
   page,
   connections,
+  closedConnections,
   connViewMode,
   connRates,
   connSortKey,
@@ -85,22 +86,15 @@ export function useConnectionsViewModel({
     [detailGridTemplate]
   );
 
-  const displayConnections = useMemo(
-    () => buildConnectionsView(connections.connections || [], connViewMode),
-    [connections, connViewMode]
-  );
-
-  const sortedConnections = useMemo(() => {
-    if (!isConnectionsPage) return [];
-    const list = displayConnections || [];
+  const sortConnections = (list, useRateForTraffic = true) => {
     if (connSortKey === 'default' || !CONNECTION_SORT_FIELDS[connSortKey]) return list;
     const dir = connSortDir === 'asc' ? 1 : -1;
     const field = CONNECTION_SORT_FIELDS[connSortKey];
     const getValue = (conn) => {
-      if (connSortKey === 'upload') {
+      if (useRateForTraffic && connSortKey === 'upload') {
         return connRates.get(conn.id)?.upload || 0;
       }
-      if (connSortKey === 'download') {
+      if (useRateForTraffic && connSortKey === 'download') {
         return connRates.get(conn.id)?.download || 0;
       }
       return field.getValue(conn);
@@ -120,13 +114,39 @@ export function useConnectionsViewModel({
       if (Number.isNaN(diff)) return 0;
       return diff * dir;
     });
+  };
+
+  const displayConnections = useMemo(
+    () => buildConnectionsView(connections.connections || [], connViewMode),
+    [connections, connViewMode]
+  );
+
+  const displayClosedConnections = useMemo(
+    () => buildConnectionsView(closedConnections || [], connViewMode),
+    [closedConnections, connViewMode]
+  );
+
+  const sortedConnections = useMemo(() => {
+    if (!isConnectionsPage) return [];
+    return sortConnections(displayConnections || [], true);
   }, [displayConnections, connRates, connSortKey, connSortDir, isConnectionsPage]);
+
+  const sortedClosedConnections = useMemo(() => {
+    if (!isConnectionsPage) return [];
+    return sortConnections(displayClosedConnections || [], false);
+  }, [displayClosedConnections, connSortKey, connSortDir, isConnectionsPage]);
 
   const filteredConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
     if (!normalizedConnSearchQuery) return sortedConnections;
     return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
   }, [isConnectionsPage, normalizedConnSearchQuery, sortedConnections]);
+
+  const filteredClosedConnections = useMemo(() => {
+    if (!isConnectionsPage) return [];
+    if (!normalizedConnSearchQuery) return sortedClosedConnections;
+    return sortedClosedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
+  }, [isConnectionsPage, normalizedConnSearchQuery, sortedClosedConnections]);
 
   const filteredRuleEntries = useMemo(() => {
     if (page !== 'rules') return [];
@@ -163,6 +183,7 @@ export function useConnectionsViewModel({
     isConnectionsPage,
     renderSortHeader,
     filteredConnections,
+    filteredClosedConnections,
     filteredRuleEntries,
     filteredBalancerEntries,
     toggleDetailColumn,
