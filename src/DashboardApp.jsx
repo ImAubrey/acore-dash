@@ -313,6 +313,8 @@ export default function App() {
   const [infoModalText, setInfoModalText] = useState('');
   const [infoModalStatus, setInfoModalStatus] = useState('');
   const [expandedConnections, setExpandedConnections] = useState(() => new Set());
+  const [connExpandDefaultOpen, setConnExpandDefaultOpen] = useState(false);
+  const [connExpandedOverrides, setConnExpandedOverrides] = useState(() => new Map());
   const [detailColumnsVisible, setDetailColumnsVisible] = useState(
     () => new Set(DETAIL_COLUMNS.map((column) => column.key))
   );
@@ -884,15 +886,24 @@ export default function App() {
   }, [trafficSeries]);
 
   const toggleExpanded = (id) => {
-    setExpandedConnections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
+    const key = id === undefined || id === null ? '' : String(id);
+    if (!key) return;
+    const currentlyExpanded = expandedConnections.has(key);
+    const nextExpanded = !currentlyExpanded;
+    setConnExpandedOverrides((prev) => {
+      const next = new Map(prev);
+      if (nextExpanded === connExpandDefaultOpen) {
+        next.delete(key);
       } else {
-        next.add(id);
+        next.set(key, nextExpanded);
       }
       return next;
     });
+  };
+
+  const toggleConnExpandDefault = () => {
+    setConnExpandDefaultOpen((prev) => !prev);
+    setConnExpandedOverrides(new Map());
   };
 
   const toggleConnStream = () => {
@@ -1090,6 +1101,39 @@ export default function App() {
     });
     return normalizeConnectionIds(ids);
   }, [filteredConnections]);
+
+  const visibleConnectionsForExpand = useMemo(
+    () => (connListMode === 'closed' ? filteredClosedConnections : filteredConnections),
+    [connListMode, filteredClosedConnections, filteredConnections]
+  );
+
+  useEffect(() => {
+    if (!isConnectionsPage) return;
+    const visibleIds = (visibleConnectionsForExpand || [])
+      .map((conn) => (conn?.id === undefined || conn?.id === null ? '' : String(conn.id)))
+      .filter(Boolean);
+    setExpandedConnections((prev) => {
+      const next = new Set();
+      visibleIds.forEach((id) => {
+        const override = connExpandedOverrides.get(id);
+        const expanded = typeof override === 'boolean' ? override : connExpandDefaultOpen;
+        if (expanded) {
+          next.add(id);
+        }
+      });
+      if (prev.size === next.size) {
+        let same = true;
+        for (const id of prev) {
+          if (!next.has(id)) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [isConnectionsPage, visibleConnectionsForExpand, connExpandDefaultOpen, connExpandedOverrides]);
 
   const canCloseAllConnections = closeAllConnectionIds.length > 0;
   const handleCloseAllConnections = () => {
@@ -1430,6 +1474,7 @@ export default function App() {
 
   useEffect(() => {
     setExpandedConnections(new Set());
+    setConnExpandedOverrides(new Map());
   }, [connViewMode, connListMode]);
 
   // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
@@ -1697,6 +1742,8 @@ export default function App() {
     setConnSearchQuery,
     connViewMode,
     setConnViewMode,
+    connExpandDefaultOpen,
+    toggleConnExpandDefault,
     connStreamLabel,
     toggleConnStream,
     connStreamPaused,
@@ -1987,6 +2034,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 

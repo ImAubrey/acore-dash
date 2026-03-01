@@ -1,7 +1,6 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
 import { CloseIcon, InfoIcon } from './actionIcons';
-import { DetailActionButtons } from './detailCellRenderer';
 
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
 const MAX_RENDER_CONNECTION_ROWS = 400;
@@ -139,6 +138,8 @@ export function ConnectionsPanel({
   setConnSearchQuery,
   connViewMode,
   setConnViewMode,
+  connExpandDefaultOpen,
+  toggleConnExpandDefault,
   connStreamLabel,
   toggleConnStream,
   connStreamPaused,
@@ -166,6 +167,7 @@ export function ConnectionsPanel({
   formatTime,
   ZEBRA_ROW_BACKGROUNDS,
   toggleExpanded,
+  preventManualExpandToggle,
   normalizeDomainSource,
   AutoFoldText,
   highlightConnCell,
@@ -222,6 +224,10 @@ export function ConnectionsPanel({
       </div>
     </div>
   );
+  const handleToggleExpandedRow = (id) => {
+    if (preventManualExpandToggle) return;
+    toggleExpanded(id);
+  };
 
   return (
     <div
@@ -272,6 +278,17 @@ export function ConnectionsPanel({
               ariaLabel={isClosedMode ? 'Search closed connections' : 'Search all connection fields'}
             />
             <div className="view-toggle">
+              <button
+                type="button"
+                className={`view-pill expand-default-toggle ${connExpandDefaultOpen ? 'active' : ''}`}
+                onClick={toggleConnExpandDefault}
+                title={connExpandDefaultOpen
+                  ? 'Default expanded. Click to switch to default collapsed.'
+                  : 'Default collapsed. Click to switch to default expanded.'}
+                aria-pressed={connExpandDefaultOpen}
+              >
+                {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
+              </button>
               <button
                 type="button"
                 className={`view-pill ${connViewMode === 'current' ? 'active' : ''}`}
@@ -333,7 +350,8 @@ export function ConnectionsPanel({
           {renderedConnections.map((conn, connIndex) => {
             const groupCloseIds = isClosedMode ? [] : getGroupCloseIds(conn);
             const canClose = groupCloseIds.length > 0;
-            const isExpanded = expandedConnections.has(conn.id);
+            const connId = conn?.id === undefined || conn?.id === null ? '' : String(conn.id);
+            const isExpanded = connId ? expandedConnections.has(connId) : false;
             const visibleDetails = normalizedConnSearchQuery
               ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
               : (conn.details || []);
@@ -361,15 +379,19 @@ export function ConnectionsPanel({
             return (
               <React.Fragment key={connKey}>
                 <div
-                  className={joinClassNames('row', 'clickable', isExpanded ? 'expanded' : '')}
+                  className={joinClassNames(
+                    'row',
+                    preventManualExpandToggle ? '' : 'clickable',
+                    isExpanded ? 'expanded' : ''
+                  )}
                   style={connStyle}
                   role="button"
                   tabIndex={0}
-                  onClick={() => toggleExpanded(conn.id)}
+                  onClick={() => handleToggleExpandedRow(connId)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      toggleExpanded(conn.id);
+                      handleToggleExpandedRow(connId);
                     }
                   }}
                 >
@@ -486,17 +508,17 @@ export function ConnectionsPanel({
                             } else if (isClosedMode && column.key === 'download') {
                               cell = highlightConnCell(formatBytes(detail.download || 0));
                             } else if (isClosedMode && column.key === 'close') {
-                              cell = (
-                                <DetailActionButtons
-                                  onInfo={(event) => handleInfoClosed(event, conn)}
-                                  onClose={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                  }}
-                                  closeDisabled
-                                  closeTitle="Closed connection"
-                                  closeAriaLabel="Closed connection"
-                                />
+                              // Reuse the same detail action renderer as live mode:
+                              // keep Info payload at detail granularity, but disable close for closed records.
+                              const detailForClosedAction = detail?.id
+                                ? { ...detail, id: null }
+                                : detail;
+                              cell = renderDetailCell(
+                                column.key,
+                                conn,
+                                detailForClosedAction,
+                                detailRate,
+                                detailKey
                               );
                             }
                             return (

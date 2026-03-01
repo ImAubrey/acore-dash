@@ -7,6 +7,8 @@ export function ConnectionsPanel({
   setConnSearchQuery,
   connViewMode,
   setConnViewMode,
+  connExpandDefaultOpen,
+  toggleConnExpandDefault,
   connStreamLabel,
   toggleConnStream,
   connStreamPaused,
@@ -27,6 +29,7 @@ export function ConnectionsPanel({
   formatHostDisplay,
   ZEBRA_ROW_BACKGROUNDS,
   toggleExpanded,
+  preventManualExpandToggle,
   normalizeDomainSource,
   AutoFoldText,
   highlightConnCell,
@@ -45,6 +48,11 @@ export function ConnectionsPanel({
   renderDetailCell
 }) {
   if (page !== 'connections') return null;
+
+  const handleToggleExpandedRow = (id) => {
+    if (preventManualExpandToggle) return;
+    toggleExpanded(id);
+  };
 
   return (
     <div className="panel connections-panel" style={{ '--delay': '0.05s' }}>
@@ -66,6 +74,17 @@ export function ConnectionsPanel({
             />
           </div>
           <div className="view-toggle">
+            <button
+              type="button"
+              className={`view-pill expand-default-toggle ${connExpandDefaultOpen ? 'active' : ''}`}
+              onClick={toggleConnExpandDefault}
+              title={connExpandDefaultOpen
+                ? 'Default expanded. Click to switch to default collapsed.'
+                : 'Default collapsed. Click to switch to default expanded.'}
+              aria-pressed={connExpandDefaultOpen}
+            >
+              {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
+            </button>
             <button
               type="button"
               className={`view-pill ${connViewMode === 'current' ? 'active' : ''}`}
@@ -111,7 +130,8 @@ export function ConnectionsPanel({
           {filteredConnections.map((conn, connIndex) => {
             const groupCloseIds = getGroupCloseIds(conn);
             const canClose = groupCloseIds.length > 0;
-            const isExpanded = expandedConnections.has(conn.id);
+            const connId = conn?.id === undefined || conn?.id === null ? '' : String(conn.id);
+            const isExpanded = connId ? expandedConnections.has(connId) : false;
             const visibleDetails = normalizedConnSearchQuery
               ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
               : (conn.details || []);
@@ -129,15 +149,15 @@ export function ConnectionsPanel({
             return (
               <React.Fragment key={conn.id}>
                 <div
-                  className={`row clickable ${isExpanded ? 'expanded' : ''}`}
+                  className={`row ${preventManualExpandToggle ? '' : 'clickable'} ${isExpanded ? 'expanded' : ''}`}
                   style={connStyle}
                   role="button"
                   tabIndex={0}
-                  onClick={() => toggleExpanded(conn.id)}
+                  onClick={() => handleToggleExpandedRow(connId)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      toggleExpanded(conn.id);
+                      handleToggleExpandedRow(connId);
                     }
                   }}
                 >
