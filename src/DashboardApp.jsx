@@ -391,20 +391,35 @@ export default function App() {
     return saved;
   };
 
-  const applyMetricsSettings = () => {
-    const nextBase = applyApiBase(metricsHttp);
-    const nextKey = applyAccessKey(metricsAccessKey);
+  const persistReachableMetricsPanel = async (base, key, refreshInterval) => {
+    try {
+      await fetchNodes(base);
+    } catch (err) {
+      return { saved: false, error: err };
+    }
     const nextHistory = addMetricsPanelHistoryEntry(
       metricsPanelHistory,
-      nextBase,
-      nextKey,
-      connRefreshInterval
+      base,
+      key,
+      refreshInterval
     );
     persistMetricsPanelHistory(nextHistory);
-    setSettingsStatus('Metrics settings updated.');
+    return { saved: true, error: null };
   };
 
-  const applySavedMetricsPanel = (entry) => {
+  const applyMetricsSettings = async () => {
+    const nextBase = applyApiBase(metricsHttp);
+    const nextKey = applyAccessKey(metricsAccessKey);
+    const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, connRefreshInterval);
+    if (saved) {
+      setSettingsStatus('Metrics settings updated.');
+      return;
+    }
+    const reason = String(error?.message || 'connection failed');
+    setSettingsStatus(`Metrics settings updated (not saved to cookie): ${reason}`);
+  };
+
+  const applySavedMetricsPanel = async (entry) => {
     const base = String(entry?.base || '').trim();
     const key = normalizeAccessKey(entry?.key || '');
     const refresh = normalizeRefreshInterval(entry?.connRefreshInterval);
@@ -414,14 +429,13 @@ export default function App() {
     const nextBase = applyApiBase(base);
     const nextKey = applyAccessKey(key);
     const nextRefresh = applyConnRefreshInterval(refresh);
-    const nextHistory = addMetricsPanelHistoryEntry(
-      metricsPanelHistory,
-      nextBase,
-      nextKey,
-      nextRefresh
-    );
-    persistMetricsPanelHistory(nextHistory);
-    setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s)`);
+    const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, nextRefresh);
+    if (saved) {
+      setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s)`);
+      return;
+    }
+    const reason = String(error?.message || 'connection failed');
+    setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s, not saved to cookie: ${reason})`);
   };
 
   const removeSavedMetricsPanel = (id) => {
@@ -1409,10 +1423,11 @@ export default function App() {
     isManualGroup,
     getGroupModeLabel,
     getGroupSelectedTags,
-    getGroupCandidates
+    getGroupCandidates,
+    doesCandidateResolveToTarget
   } = useMemo(
-    () => createNodeGroupHelpers({ statusByTag, groupSelections, outbounds }),
-    [statusByTag, groupSelections, outbounds]
+    () => createNodeGroupHelpers({ statusByTag, groupSelections, outbounds, groups }),
+    [statusByTag, groupSelections, outbounds, groups]
   );
 
   useEffect(() => {
@@ -1801,6 +1816,7 @@ export default function App() {
     getFallbackTag,
     groupSelections,
     getGroupSelectedTags,
+    doesCandidateResolveToTarget,
     statusByTag,
     formatDelay,
     clearGroupOverride,

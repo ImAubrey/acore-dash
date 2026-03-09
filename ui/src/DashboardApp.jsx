@@ -1031,10 +1031,11 @@ export default function App() {
     isManualGroup,
     getGroupModeLabel,
     getGroupSelectedTags,
-    getGroupCandidates
+    getGroupCandidates,
+    doesCandidateResolveToTarget
   } = useMemo(
-    () => createNodeGroupHelpers({ statusByTag, groupSelections, outbounds }),
-    [statusByTag, groupSelections, outbounds]
+    () => createNodeGroupHelpers({ statusByTag, groupSelections, outbounds, groups }),
+    [statusByTag, groupSelections, outbounds, groups]
   );
 
   useEffect(() => {
@@ -1358,6 +1359,7 @@ export default function App() {
     getFallbackTag,
     groupSelections,
     getGroupSelectedTags,
+    doesCandidateResolveToTarget,
     statusByTag,
     formatDelay,
     clearGroupOverride,

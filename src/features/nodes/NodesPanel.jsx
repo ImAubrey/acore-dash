@@ -18,6 +18,7 @@ export function NodesPanel(props) {
     getFallbackTag,
     groupSelections,
     getGroupSelectedTags,
+    doesCandidateResolveToTarget,
     statusByTag,
     formatDelay,
     clearGroupOverride,
@@ -123,8 +124,17 @@ export function NodesPanel(props) {
                       const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
                       const isFallbackTag = fallbackTag && tag === fallbackTag;
                       const isCurrentTarget = currentTarget && tag === currentTarget;
-                      const isActive = selectedSet.has(tag)
-                        && (!isFallbackTag || isFallbackStrategy || isCurrentTarget || group.overrideTarget === tag || pendingSelection === tag);
+                      const matchesSelectedTarget = selectedSet.has(tag)
+                        || selectedTags.some((selectedTag) => doesCandidateResolveToTarget(tag, selectedTag));
+                      const representsCurrentTarget = currentTarget
+                        && doesCandidateResolveToTarget(tag, currentTarget);
+                      const isActive = matchesSelectedTarget
+                        && (!isFallbackTag
+                          || isFallbackStrategy
+                          || isCurrentTarget
+                          || representsCurrentTarget
+                          || group.overrideTarget === tag
+                          || pendingSelection === tag);
                       return (
                         <button
                           type="button"

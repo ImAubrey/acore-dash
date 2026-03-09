@@ -1,8 +1,20 @@
-export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds }) => {
+export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds, groups }) => {
   const normalizeGroupStrategy = (value) => String(value || '').trim().toLowerCase();
   const getGroupStrategy = (group) => normalizeGroupStrategy(group?.strategy);
   const getFallbackTag = (group) => String(group?.fallbackTag || '').trim();
-  const isRoundRobinStrategy = (strategy) => String(strategy || '').includes('round');
+  const normalizeTag = (value) => String(value || '').trim();
+  const runtimeOutboundsByTag = new Map();
+  (outbounds || []).forEach((ob) => {
+    const tag = normalizeTag(ob?.tag);
+    if (!tag) return;
+    runtimeOutboundsByTag.set(tag, ob);
+  });
+  const balancerGroupsByTag = new Map();
+  (groups || []).forEach((group) => {
+    const tag = normalizeTag(group?.tag);
+    if (!tag) return;
+    balancerGroupsByTag.set(tag, group);
+  });
   const isNodeDown = (tag) => {
     const key = String(tag || '').trim();
     if (!key) return false;
@@ -52,6 +64,34 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     return hasFallback ? `${base}+fallback` : base;
   };
 
+  const doesCandidateResolveToTarget = (candidateTag, targetTag, visited = new Set()) => {
+    const candidate = normalizeTag(candidateTag);
+    const target = normalizeTag(targetTag);
+    if (!candidate || !target) return false;
+    if (candidate === target) return true;
+
+    const nestedGroup = balancerGroupsByTag.get(candidate);
+    if (nestedGroup) {
+      if (visited.has(candidate)) return false;
+      const nextVisited = new Set(visited);
+      nextVisited.add(candidate);
+
+      const nestedCurrentTarget = normalizeTag(nestedGroup?.currentTarget);
+      if (nestedCurrentTarget && doesCandidateResolveToTarget(nestedCurrentTarget, target, nextVisited)) {
+        return true;
+      }
+
+      const nestedTargets = Array.isArray(nestedGroup?.principleTargets) ? nestedGroup.principleTargets : [];
+      return nestedTargets.some((item) => doesCandidateResolveToTarget(item, target, nextVisited));
+    }
+
+    if (!runtimeOutboundsByTag.has(candidate)) {
+      return target.startsWith(candidate);
+    }
+
+    return false;
+  };
+
   const getGroupSelectedTags = (group, selected) => {
     if (group?.overrideTarget) {
       const overrideTag = String(group.overrideTarget || '').trim();
@@ -63,36 +103,17 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     }
     const strategy = getGroupStrategy(group);
     const fallbackTag = getFallbackTag(group);
-    const isRoundRobin = isRoundRobinStrategy(strategy);
     const currentTarget = String(group?.currentTarget || '').trim();
     if (currentTarget && strategy === 'fallback') {
-      return isNodeDown(currentTarget) ? [] : [currentTarget];
+      return [currentTarget];
     }
-    if (isRoundRobin) {
-      const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
-      const seen = new Set();
-      const active = raw.filter((tag) => {
-        const value = String(tag || '').trim();
-        if (!value || seen.has(value)) return false;
-        if (fallbackTag && value === fallbackTag) return false;
-        if (isNodeDown(value)) return false;
-        seen.add(value);
-        return true;
-      });
-      if (active.length > 0) return active;
-      if (
-        currentTarget
-        && (!fallbackTag || currentTarget !== fallbackTag)
-        && !isNodeDown(currentTarget)
-      ) {
-        return [currentTarget];
-      }
-      return [];
+    if (currentTarget && !!fallbackTag) {
+      return [currentTarget];
     }
     if (strategy === 'fallback') {
       const raw = Array.isArray(group?.principleTargets) ? group.principleTargets : [];
       const picked = pickSelectorStrategyTarget(raw);
-      return picked && !isNodeDown(picked) ? [picked] : [];
+      return picked ? [picked] : [];
     }
     const excludeFallback = !isManualGroup(group) && !!fallbackTag;
     const raw = isManualGroup(group)
@@ -134,6 +155,7 @@ export const createNodeGroupHelpers = ({ statusByTag, groupSelections, outbounds
     isManualGroup,
     getGroupModeLabel,
     getGroupSelectedTags,
-    getGroupCandidates
+    getGroupCandidates,
+    doesCandidateResolveToTarget
   };
 };
