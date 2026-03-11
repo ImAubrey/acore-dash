@@ -55,7 +55,7 @@ export function RulesPanel({
           </div>
           <HeaderSearchInput
             value={ruleSearchQuery}
-            onChange={(event) => setRuleSearchQuery(event.target.value)}
+            setValue={setRuleSearchQuery}
             placeholder="Search rules and balancers..."
             ariaLabel="Search rules and balancers"
           />

@@ -479,10 +479,56 @@ body {
   flex: 1 1 280px;
 }
 
+.clearable-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.clearable-input input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.clearable-input-button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 43, 42, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(28, 43, 42, 0.08);
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) ease;
+}
+
+.clearable-input-button:hover {
+  color: var(--ink);
+  border-color: rgba(28, 43, 42, 0.28);
+  transform: translateY(-50%) scale(1.04);
+}
+
+.clearable-input-button:focus-visible {
+  outline: 2px solid rgba(47, 154, 160, 0.28);
+  outline-offset: 1px;
+}
+
 .connections-search input {
   width: 100%;
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 8px 40px 8px 12px;
   font-size: 12px;
 }
 
@@ -758,6 +804,7 @@ body {
   align-items: center;
 }
 
+.dns-query-controls .clearable-input,
 .dns-query-controls input,
 .dns-query-controls select {
   width: 100%;

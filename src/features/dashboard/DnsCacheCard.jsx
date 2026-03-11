@@ -1,3 +1,5 @@
+import { ClearableTextInput } from '../common/panelPrimitives';
+
 export function DnsCacheCard({
   dnsCacheStats,
   dnsUpdatedLabel,
@@ -120,12 +122,12 @@ export function DnsCacheCard({
           <p>Query via Xray DNS runtime and inspect cache state for the domain.</p>
         </div>
         <form className="dns-query-controls" onSubmit={onSubmitDnsQuery}>
-          <input
-            type="text"
+          <ClearableTextInput
             value={dnsQueryDomain}
-            onChange={(event) => setDnsQueryDomain(event.target.value)}
+            setValue={setDnsQueryDomain}
             placeholder="example.com"
-            aria-label="DNS query domain"
+            ariaLabel="DNS query domain"
+            clearLabel="Clear DNS query domain"
           />
           <select
             value={dnsQueryType}

@@ -39,7 +39,7 @@ export function LogsPanel(props) {
           </select>
           <HeaderSearchInput
             value={logSearchQuery}
-            onChange={(event) => setLogSearchQuery(event.target.value)}
+            setValue={setLogSearchQuery}
             placeholder="Search log lines..."
             ariaLabel="Search log lines"
           />

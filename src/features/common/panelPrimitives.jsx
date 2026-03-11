@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 export function joinClassNames(...names) {
   return names.filter(Boolean).join(' ');
 }
@@ -31,23 +33,85 @@ export function StatusText({
   return <span className={statusClassName} title={title}>{text}</span>;
 }
 
+function applyTextInputValue(nextValue, setValue, onChange) {
+  if (typeof setValue === 'function') {
+    setValue(nextValue);
+    return;
+  }
+
+  if (typeof onChange === 'function') {
+    onChange({ target: { value: nextValue } });
+  }
+}
+
+export function ClearableTextInput({
+  value,
+  setValue,
+  onChange,
+  placeholder,
+  ariaLabel,
+  className = '',
+  clearLabel = 'Clear input',
+  type = 'text',
+  ...inputProps
+}) {
+  const inputRef = useRef(null);
+  const inputValue = typeof value === 'string' ? value : String(value ?? '');
+  const hasValue = inputValue.length > 0;
+
+  const handleChange = (event) => {
+    applyTextInputValue(event.target.value, setValue, onChange);
+  };
+
+  const handleClear = () => {
+    applyTextInputValue('', setValue, onChange);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className={joinClassNames('clearable-input', className)}>
+      <input
+        {...inputProps}
+        ref={inputRef}
+        type={type}
+        value={inputValue}
+        onChange={handleChange}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+      />
+      {hasValue ? (
+        <button
+          type="button"
+          className="clearable-input-button"
+          onClick={handleClear}
+          aria-label={clearLabel}
+          title={clearLabel}
+        >
+          X
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export function HeaderSearchInput({
   value,
+  setValue,
   onChange,
   placeholder,
   ariaLabel,
   className = 'connections-search'
 }) {
   return (
-    <div className={className}>
-      <input
-        type="text"
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-      />
-    </div>
+    <ClearableTextInput
+      value={value}
+      setValue={setValue}
+      onChange={onChange}
+      placeholder={placeholder}
+      ariaLabel={ariaLabel}
+      className={className}
+      clearLabel={ariaLabel ? `Clear ${ariaLabel.toLowerCase()}` : 'Clear search input'}
+    />
   );
 }
 

@@ -271,7 +271,7 @@ export function ConnectionsPanel({
             </span>
             <HeaderSearchInput
               value={connSearchQuery}
-              onChange={(event) => setConnSearchQuery(event.target.value)}
+              setValue={setConnSearchQuery}
               placeholder={isClosedMode
                 ? 'Search closed connections...'
                 : 'Search all fields, including folded details...'}
