@@ -250,6 +250,11 @@ const PAGES = {
     title: 'Routing rule browser',
     description: 'Inspect router rules and load balancer policies over HTTP.'
   },
+  firewall: {
+    label: 'Firewall',
+    title: 'Firewall rule browser',
+    description: 'Inspect and edit top-level firewall rules with routing-style match fields.'
+  },
   subscriptions: {
     label: 'Subscriptions',
     title: 'Subscription updates',
@@ -281,6 +286,7 @@ const getPageFromHash = () => {
     || raw === 'subscriptions'
     || raw === 'inbounds'
     || raw === 'rules'
+    || raw === 'firewall'
     || raw === 'logs'
     || raw === 'connections'
     || raw === 'settings'
@@ -427,6 +433,14 @@ const INBOUND_TEMPLATE = {
   listen: '127.0.0.1',
   port: 1080,
   settings: {}
+};
+
+const FIREWALL_RULE_TEMPLATE = {
+  domain: ['example.com'],
+  inboundTag: ['socks-in'],
+  protocol: ['http'],
+  ruleTag: 'fw-rule',
+  action: 'block'
 };
 
 const MAIN_EDITOR_ALLOWED_KEYS = ['Observatory', 'log', 'metrics', 'stats'];
@@ -822,6 +836,41 @@ const hasRuleReLookup = (rule) => {
 const toRuleSearchText = (rule) => {
   const base = toSearchText(rule);
   return hasRuleReLookup(rule) ? `${base} reLookup` : base;
+};
+
+const normalizeFirewallRule = (rule) => {
+  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
+    return {};
+  }
+  const match = rule.match && typeof rule.match === 'object' && !Array.isArray(rule.match)
+    ? rule.match
+    : null;
+  const normalized = match ? { ...match, ...rule } : { ...rule };
+  delete normalized.match;
+  return normalized;
+};
+
+const getFirewallRuleList = (firewall) => {
+  const source = firewall && typeof firewall === 'object' && !Array.isArray(firewall)
+    ? firewall
+    : {};
+  const rules = Array.isArray(source.rules)
+    ? source.rules
+    : Array.isArray(source.rule)
+      ? source.rule
+      : [];
+  return rules.map((rule) => normalizeFirewallRule(rule));
+};
+
+const normalizeFirewallConfig = (firewall) => {
+  const normalized = firewall && typeof firewall === 'object' && !Array.isArray(firewall)
+    ? { ...firewall }
+    : {};
+  normalized.rules = getFirewallRuleList(normalized);
+  delete normalized.rule;
+  delete normalized.domain_strategy;
+  delete normalized.domainStrategy;
+  return normalized;
 };
 
 const highlightSearchText = (value, queryLower) => {
@@ -1442,6 +1491,7 @@ const DETAIL_COLUMNS = [
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
+  { key: 'firewallFlow', label: 'Firewall Flow', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   { key: 'ja4', label: 'JA4 DB', width: 'minmax(0, 1fr)', cellClassName: 'mono', hint: 'JA4 database label' },
   {
     key: 'upload',
@@ -1500,6 +1550,87 @@ const LOG_TOKEN_REGEX = /(\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[a-fA-F0-9]{0,4}:){2,
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const normalizeRuleDestination = (value) => {
+  if (value === null || value === undefined) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: false,
+      isValid: true,
+      error: ''
+    };
+  }
+  if (typeof value === 'string') {
+    const tag = value.trim();
+    return {
+      tag,
+      vlessRoute: '',
+      label: tag,
+      hasTarget: !!tag,
+      isObject: false,
+      isValid: true,
+      error: ''
+    };
+  }
+  if (!isPlainObject(value)) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: false,
+      isValid: false,
+      error: 'destination must be a string or object.'
+    };
+  }
+
+  const tagRaw = value.tag;
+  const vlessRouteRaw = value.vlessRoute;
+  if (tagRaw !== undefined && tagRaw !== null && typeof tagRaw !== 'string') {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: true,
+      isValid: false,
+      error: 'destination.tag must be a string.'
+    };
+  }
+  if (
+    vlessRouteRaw !== undefined
+    && vlessRouteRaw !== null
+    && typeof vlessRouteRaw !== 'string'
+    && typeof vlessRouteRaw !== 'number'
+  ) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: true,
+      isValid: false,
+      error: 'destination.vlessRoute must be a string or number.'
+    };
+  }
+
+  const tag = String(tagRaw || '').trim();
+  const vlessRoute = vlessRouteRaw === undefined || vlessRouteRaw === null
+    ? ''
+    : String(vlessRouteRaw).trim();
+
+  return {
+    tag,
+    vlessRoute,
+    label: tag ? (vlessRoute ? `${tag} · vlessRoute=${vlessRoute}` : tag) : (vlessRoute ? `vlessRoute=${vlessRoute}` : ''),
+    hasTarget: !!tag,
+    isObject: true,
+    isValid: true,
+    error: ''
+  };
+};
 
 const toMainEditorSections = (mainRoot) => {
   const root = isPlainObject(mainRoot) ? mainRoot : {};
@@ -1744,6 +1875,7 @@ export {
   BALANCER_TEMPLATE,
   OUTBOUND_TEMPLATE,
   INBOUND_TEMPLATE,
+  FIREWALL_RULE_TEMPLATE,
   MAIN_EDITOR_ALLOWED_KEYS,
   SUBSCRIPTION_OUTBOUND_TEMPLATE,
   SUBSCRIPTION_DATABASE_TEMPLATE,
@@ -1773,8 +1905,12 @@ export {
   parseConnectionsPayload,
   collectSearchTokens,
   toSearchText,
+  normalizeRuleDestination,
   hasRuleReLookup,
   toRuleSearchText,
+  normalizeFirewallRule,
+  getFirewallRuleList,
+  normalizeFirewallConfig,
   highlightSearchText,
   getDestinationLabel,
   getSourceLabel,

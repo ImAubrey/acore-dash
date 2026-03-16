@@ -989,6 +989,87 @@ const LOG_LEVEL_TOKEN_REGEX = /^(?:error|fatal|panic|warn|warning|info|debug|tra
 const LOG_TOKEN_REGEX = /(\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[a-fA-F0-9]{0,4}:){2,7}[a-fA-F0-9]{0,4}\b|\b(?:error|fatal|panic|warn|warning|info|debug|trace)\b)/gi;
 
 const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
+const normalizeRuleDestination = (value) => {
+  if (value === null || value === undefined) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: false,
+      isValid: true,
+      error: ''
+    };
+  }
+  if (typeof value === 'string') {
+    const tag = value.trim();
+    return {
+      tag,
+      vlessRoute: '',
+      label: tag,
+      hasTarget: !!tag,
+      isObject: false,
+      isValid: true,
+      error: ''
+    };
+  }
+  if (!isPlainObject(value)) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: false,
+      isValid: false,
+      error: 'destination must be a string or object.'
+    };
+  }
+
+  const tagRaw = value.tag;
+  const vlessRouteRaw = value.vlessRoute;
+  if (tagRaw !== undefined && tagRaw !== null && typeof tagRaw !== 'string') {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: true,
+      isValid: false,
+      error: 'destination.tag must be a string.'
+    };
+  }
+  if (
+    vlessRouteRaw !== undefined
+    && vlessRouteRaw !== null
+    && typeof vlessRouteRaw !== 'string'
+    && typeof vlessRouteRaw !== 'number'
+  ) {
+    return {
+      tag: '',
+      vlessRoute: '',
+      label: '',
+      hasTarget: false,
+      isObject: true,
+      isValid: false,
+      error: 'destination.vlessRoute must be a string or number.'
+    };
+  }
+
+  const tag = String(tagRaw || '').trim();
+  const vlessRoute = vlessRouteRaw === undefined || vlessRouteRaw === null
+    ? ''
+    : String(vlessRouteRaw).trim();
+
+  return {
+    tag,
+    vlessRoute,
+    label: tag ? (vlessRoute ? `${tag} · vlessRoute=${vlessRoute}` : tag) : (vlessRoute ? `vlessRoute=${vlessRoute}` : ''),
+    hasTarget: !!tag,
+    isObject: true,
+    isValid: true,
+    error: ''
+  };
+};
 
 const normalizeSelectionMap = (value) => {
   if (!isPlainObject(value)) return {};
@@ -1204,6 +1285,7 @@ export {
   parseConnectionsPayload,
   collectSearchTokens,
   toSearchText,
+  normalizeRuleDestination,
   hasRuleReLookup,
   toRuleSearchText,
   highlightSearchText,

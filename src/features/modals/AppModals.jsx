@@ -5,6 +5,7 @@ import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { linter, lintGutter } from '@codemirror/lint';
 import { EditorView } from '@codemirror/view';
 import { githubLight } from '@uiw/codemirror-theme-github';
+import { getFirewallRuleList } from '../../dashboardShared';
 
 const INFO_MODAL_EDITOR_EXTENSIONS = [
   json(),
@@ -41,12 +42,14 @@ export function AppModals({
   saveRulesModal,
   configRules,
   configBalancers,
+  configFirewall,
   configInbounds,
   configSubscriptionOutbounds,
   configSubscriptionDatabases,
   configOutbounds,
   getRuleLabel,
   getBalancerLabel,
+  getFirewallRuleLabel,
   getInboundLabel,
   getSubscriptionLabel,
   getSubscriptionDatabaseLabel,
@@ -90,6 +93,8 @@ export function AppModals({
       ? configRules
       : modalTarget === 'balancer'
         ? configBalancers
+        : modalTarget === 'firewallRule'
+          ? getFirewallRuleList(configFirewall)
         : modalTarget === 'inbound'
           ? configInbounds
           : modalTarget === 'subscription'
@@ -101,6 +106,8 @@ export function AppModals({
       ? getRuleLabel
       : modalTarget === 'balancer'
         ? getBalancerLabel
+        : modalTarget === 'firewallRule'
+          ? getFirewallRuleLabel
         : modalTarget === 'inbound'
           ? getInboundLabel
           : modalTarget === 'subscription'
@@ -112,6 +119,8 @@ export function AppModals({
       ? 'rule'
       : modalTarget === 'balancer'
         ? 'balancer'
+        : modalTarget === 'firewallRule'
+          ? 'firewall rule'
         : modalTarget === 'inbound'
           ? 'inbound'
           : modalTarget === 'subscription'
@@ -218,6 +227,8 @@ export function AppModals({
       ? 'routing rule'
       : deleteConfirmTarget === 'balancer'
         ? 'balancer'
+        : deleteConfirmTarget === 'firewallRule'
+          ? 'firewall rule'
         : deleteConfirmTarget === 'inbound'
           ? 'inbound'
           : deleteConfirmTarget === 'subscription'

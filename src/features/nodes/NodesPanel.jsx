@@ -40,8 +40,109 @@ export function NodesPanel(props) {
     pickSelectorStrategyTarget,
     getGroupModeLabel
   } = props;
+  const [expandedOutboundGroups, setExpandedOutboundGroups] = React.useState({});
 
   if (page !== 'nodes') return null;
+
+  const toggleOutboundGroup = (tag) => {
+    if (!tag) return;
+    setExpandedOutboundGroups((current) => ({
+      ...current,
+      [tag]: !current[tag]
+    }));
+  };
+
+  const renderOutboundCard = (item, nested = false) => {
+    const ob = item.configOutbound || item.derivedOutbound;
+    const tag = String(ob?.tag || item.tag || '').trim();
+    const runtime = tag ? runtimeOutboundsByTag.get(tag) : null;
+    const protocol = ob?.protocol || runtime?.type || 'unknown';
+    const nodeStatus = tag ? statusByTag[tag] : null;
+    const alive = nodeStatus ? nodeStatus.alive : null;
+    const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
+    const managed = String(ob?.managed || '').trim();
+    const isRuntimeOnly = item.configIndex < 0 && !item.configOutbound;
+    const isGroupChild = !!item.groupChild;
+    const children = Array.isArray(item.children) ? item.children : [];
+    const hasChildren = children.length > 0;
+    const isExpanded = hasChildren && !!expandedOutboundGroups[tag];
+    const canEdit = item.configIndex >= 0 && !isGroupChild;
+    const cardClassName = [
+      'outbound-card',
+      nested ? 'outbound-card-child' : '',
+      hasChildren ? 'outbound-card-parent' : ''
+    ].filter(Boolean).join(' ');
+    const indexLabel = isGroupChild ? '>' : (isRuntimeOnly ? 'R' : item.configIndex + 1);
+
+    return (
+      <div className={cardClassName} key={item.key}>
+        <div className="outbound-info">
+          <div className="outbound-title">
+            <span className="rule-index">{indexLabel}</span>
+            <h3>{tag || '(no tag)'}</h3>
+          </div>
+          <p>{protocol}</p>
+          {hasChildren ? (
+            <p className="group-meta">
+              {children.length} expanded outbounds hidden under this parent.
+            </p>
+          ) : null}
+        </div>
+        <div className="outbound-side">
+          <div className="outbound-meta">
+            {isGroupChild ? <span className="meta-pill">child</span> : null}
+            {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
+            {hasChildren ? <span className="meta-pill">{children.length} children</span> : null}
+            {managed ? <span className="meta-pill managed-pill" title={`managed: ${managed}`}>managed</span> : null}
+            {nodeStatus ? (
+              <span className={`status-pill ${alive ? 'up' : 'down'}`}>
+                {alive ? delay : 'down'}
+              </span>
+            ) : (
+              <span className="meta-pill">no status</span>
+            )}
+          </div>
+          <div className="outbound-actions">
+            {hasChildren ? (
+              <button
+                className="ghost small"
+                onClick={() => toggleOutboundGroup(tag)}
+              >
+                {isExpanded ? 'Hide children' : `Show ${children.length} children`}
+              </button>
+            ) : null}
+            <button
+              className="ghost small"
+              onClick={() => openInfoModal(`Outbound: ${tag || '(no tag)'}`, { tag, runtime, status: nodeStatus, config: ob || null })}
+            >
+              Info
+            </button>
+            {canEdit ? (
+              <>
+                <button
+                  className="ghost small danger-text"
+                  onClick={() => openDeleteConfirm('outbound', item.configIndex)}
+                >
+                  Delete
+                </button>
+                <button
+                  className="ghost small"
+                  onClick={() => openRulesModal('outbound', 'edit', item.configIndex, item.configIndex, ob)}
+                >
+                  Edit
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {hasChildren && isExpanded ? (
+          <div className="outbound-children">
+            {children.map((child) => renderOutboundCard(child, true))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="panel" style={{ '--delay': '0.12s' }}>
@@ -196,65 +297,7 @@ export function NodesPanel(props) {
         <EmptyState small message="No outbounds configured." />
       ) : (
         <div className="outbound-grid">
-          {displayOutbounds.map((item) => {
-            const ob = item.configOutbound;
-            const tag = String(ob?.tag || item.tag || '').trim();
-            const runtime = tag ? runtimeOutboundsByTag.get(tag) : null;
-            const protocol = ob?.protocol || runtime?.type || 'unknown';
-            const nodeStatus = tag ? statusByTag[tag] : null;
-            const alive = nodeStatus ? nodeStatus.alive : null;
-            const delay = nodeStatus ? formatDelay(nodeStatus.delay) : '';
-            const managed = String(ob?.managed || '').trim();
-            const isRuntimeOnly = item.configIndex < 0;
-            return (
-              <div className="outbound-card" key={item.key}>
-                <div className="outbound-info">
-                  <div className="outbound-title">
-                    <span className="rule-index">{isRuntimeOnly ? 'R' : item.configIndex + 1}</span>
-                    <h3>{tag || '(no tag)'}</h3>
-                  </div>
-                  <p>{protocol}</p>
-                </div>
-                <div className="outbound-side">
-                  <div className="outbound-meta">
-                    {isRuntimeOnly ? <span className="meta-pill">runtime</span> : null}
-                    {managed ? <span className="meta-pill managed-pill" title={`managed: ${managed}`}>managed</span> : null}
-                    {nodeStatus ? (
-                      <span className={`status-pill ${alive ? 'up' : 'down'}`}>
-                        {alive ? delay : 'down'}
-                      </span>
-                    ) : (
-                      <span className="meta-pill">no status</span>
-                    )}
-                  </div>
-                  <div className="outbound-actions">
-                    <button
-                      className="ghost small"
-                      onClick={() => openInfoModal(`Outbound: ${tag || '(no tag)'}`, { tag, runtime, status: nodeStatus, config: ob || null })}
-                    >
-                      Info
-                    </button>
-                    {isRuntimeOnly ? null : (
-                      <>
-                        <button
-                          className="ghost small danger-text"
-                          onClick={() => openDeleteConfirm('outbound', item.configIndex)}
-                        >
-                          Delete
-                        </button>
-                        <button
-                          className="ghost small"
-                          onClick={() => openRulesModal('outbound', 'edit', item.configIndex, item.configIndex, ob)}
-                        >
-                          Edit
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {displayOutbounds.map((item) => renderOutboundCard(item))}
         </div>
       )}
     </div>

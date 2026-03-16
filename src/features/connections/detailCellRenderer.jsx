@@ -188,6 +188,8 @@ export function createDetailCellRenderer({
           </span>
         );
       }
+      case 'firewallFlow':
+        return highlightConnCell(detail.metadata?.firewallFlow || '-');
       case 'ja4': {
         const ja4Info = getDetailJa4Info(detail);
         const label = getDetailJa4DbLabel(detail, '-');

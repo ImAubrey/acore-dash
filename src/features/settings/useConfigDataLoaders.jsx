@@ -3,6 +3,7 @@ import {
   getRoutingDraft,
   saveRoutingDraft,
   fetchJson,
+  normalizeFirewallConfig,
   normalizeConnectionsPayload,
   normalizeDnsCacheStats,
   DNS_CACHE_NETWORK_ERROR_REGEX
@@ -21,6 +22,9 @@ export function useConfigDataLoaders({
   setConfigBalancers,
   setConfigRulesStatus,
   setConfigRulesPath,
+  setConfigFirewall,
+  setConfigFirewallStatus,
+  setConfigFirewallPath,
   setConfigOutbounds,
   setConfigOutboundsStatus,
   setConfigOutboundsPath,
@@ -182,6 +186,25 @@ export function useConfigDataLoaders({
     }
   };
 
+  const loadFirewallConfig = async (base = apiBase) => {
+    setConfigFirewallStatus('Loading config...');
+    try {
+      const resp = await fetchJson(`${base}/config/firewall`);
+      const firewall = normalizeFirewallConfig(resp?.firewall);
+      setConfigFirewall(firewall);
+      setConfigFirewallPath(resp.path || '');
+      if (resp.foundFirewall === false) {
+        setConfigFirewallStatus('Firewall section not found; saving will create it.');
+      } else {
+        setConfigFirewallStatus('');
+      }
+      return resp;
+    } catch (err) {
+      setConfigFirewallStatus(`Config load failed: ${err.message}`);
+      throw err;
+    }
+  };
+
   const loadOutboundsConfig = async (base = apiBase) => {
     setConfigOutboundsStatus('Loading config...');
     try {
@@ -300,6 +323,7 @@ export function useConfigDataLoaders({
     fetchRules,
     stageRoutingDraft,
     loadRulesConfig,
+    loadFirewallConfig,
     loadOutboundsConfig,
     loadInboundsConfig,
     refresh,

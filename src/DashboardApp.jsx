@@ -102,6 +102,8 @@ import {
   toSearchText,
   hasRuleReLookup,
   toRuleSearchText,
+  getFirewallRuleList,
+  normalizeFirewallConfig,
   highlightSearchText,
   getDestinationLabel,
   getSourceLabel,
@@ -240,6 +242,7 @@ export default function App() {
   const [connSearchQuery, setConnSearchQuery] = useState('');
   const [closedConnections, setClosedConnections] = useState([]);
   const [ruleSearchQuery, setRuleSearchQuery] = useState('');
+  const [firewallSearchQuery, setFirewallSearchQuery] = useState('');
   const [logSearchQuery, setLogSearchQuery] = useState('');
   const [connRates, setConnRates] = useState(new Map());
   const [detailRates, setDetailRates] = useState(new Map());
@@ -254,6 +257,9 @@ export default function App() {
   const [configBalancers, setConfigBalancers] = useState([]);
   const [configRulesStatus, setConfigRulesStatus] = useState('');
   const [configRulesPath, setConfigRulesPath] = useState('');
+  const [configFirewall, setConfigFirewall] = useState({ rules: [] });
+  const [configFirewallStatus, setConfigFirewallStatus] = useState('');
+  const [configFirewallPath, setConfigFirewallPath] = useState('');
   const [configOutbounds, setConfigOutbounds] = useState([]);
   const [configOutboundsStatus, setConfigOutboundsStatus] = useState('');
   const [configOutboundsPath, setConfigOutboundsPath] = useState('');
@@ -576,6 +582,45 @@ export default function App() {
   );
 
   const normalizeTag = (value) => String(value || '').trim();
+  const normalizeOutboundProtocol = (value) => String(value || '').trim().toLowerCase();
+
+  const createGroupedOutboundChildren = (outbound, configIndex) => {
+    const parentTag = normalizeTag(outbound?.tag);
+    const protocol = normalizeOutboundProtocol(outbound?.protocol);
+    const rawItems = Array.isArray(outbound?.sendThrough) ? outbound.sendThrough : [];
+    if (!parentTag || rawItems.length === 0) return [];
+    if (protocol !== 'freedom' && protocol !== 'direct') return [];
+
+    const seen = new Set();
+    const children = [];
+    rawItems.forEach((item, itemIndex) => {
+      const childTag = normalizeTag(item?.tag);
+      if (!childTag || childTag === parentTag || seen.has(childTag)) return;
+      seen.add(childTag);
+      children.push({
+        key: `grouped:${parentTag}:${childTag}:${itemIndex}`,
+        tag: childTag,
+        configIndex: -1,
+        configOutbound: null,
+        derivedOutbound: {
+          protocol: outbound?.protocol,
+          tag: childTag,
+          sendThrough: typeof item?.v4 === 'string' ? item.v4 : '',
+          sendThrough6: typeof item?.v6 === 'string' ? item.v6 : '',
+          streamSettings: outbound?.streamSettings || null,
+          settings: outbound?.settings || null,
+          proxySettings: outbound?.proxySettings || null,
+          mux: outbound?.mux || null,
+          targetStrategy: outbound?.targetStrategy || '',
+          parentTag
+        },
+        groupChild: true,
+        groupParentTag: parentTag,
+        children: []
+      });
+    });
+    return children;
+  };
 
   const runtimeOutboundsByTag = useMemo(() => {
     const map = new Map();
@@ -615,28 +660,41 @@ export default function App() {
 
   const displayOutbounds = useMemo(() => {
     const seenConfigTags = new Set();
+    const groupedRuntimeTags = new Set();
     const list = [];
     (configOutbounds || []).forEach((ob, index) => {
       const tag = normalizeTag(ob?.tag);
+      const children = createGroupedOutboundChildren(ob, index);
       if (tag) {
         seenConfigTags.add(tag);
       }
+      children.forEach((child) => {
+        if (child.tag) groupedRuntimeTags.add(child.tag);
+      });
       list.push({
         key: tag ? `config:${tag}:${index}` : `config-index:${index}`,
         tag,
         configIndex: index,
-        configOutbound: ob
+        configOutbound: ob,
+        derivedOutbound: null,
+        groupChild: false,
+        groupParentTag: '',
+        children
       });
     });
 
     const runtimeOnly = [];
     (runtimeOutboundTags || []).forEach((tag) => {
-      if (!tag || seenConfigTags.has(tag)) return;
+      if (!tag || seenConfigTags.has(tag) || groupedRuntimeTags.has(tag)) return;
       runtimeOnly.push({
         key: `runtime:${tag}`,
         tag,
         configIndex: -1,
-        configOutbound: null
+        configOutbound: null,
+        derivedOutbound: null,
+        groupChild: false,
+        groupParentTag: '',
+        children: []
       });
     });
     runtimeOnly.sort((a, b) => a.tag.localeCompare(b.tag));
@@ -1055,6 +1113,7 @@ export default function App() {
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
   const normalizedRuleSearchQuery = ruleSearchQuery.trim().toLowerCase();
+  const normalizedFirewallSearchQuery = firewallSearchQuery.trim().toLowerCase();
   const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
   const highlightConnCell = useCallback(
     (value) => highlightSearchText(value, normalizedConnSearchQuery),
@@ -1064,11 +1123,22 @@ export default function App() {
     (value) => highlightSearchText(value, normalizedRuleSearchQuery),
     [normalizedRuleSearchQuery]
   );
+  const highlightFirewallCell = useCallback(
+    (value) => highlightSearchText(value, normalizedFirewallSearchQuery),
+    [normalizedFirewallSearchQuery]
+  );
   const filteredLogLines = useMemo(() => {
     if (page !== 'logs') return [];
     if (!normalizedLogSearchQuery) return logLines;
     return logLines.filter((line) => String(line || '').toLowerCase().includes(normalizedLogSearchQuery));
   }, [page, logLines, normalizedLogSearchQuery]);
+  const firewallRules = useMemo(() => getFirewallRuleList(configFirewall), [configFirewall]);
+  const filteredFirewallEntries = useMemo(() => {
+    if (page !== 'firewall') return [];
+    const entries = firewallRules.map((rule, index) => ({ rule, index }));
+    if (!normalizedFirewallSearchQuery) return entries;
+    return entries.filter(({ rule }) => toSearchText(rule).toLowerCase().includes(normalizedFirewallSearchQuery));
+  }, [page, firewallRules, normalizedFirewallSearchQuery]);
   const renderDetailCell = useMemo(
     () => createDetailCellRenderer({
       highlightConnCell,
@@ -1173,6 +1243,7 @@ export default function App() {
     fetchRules,
     stageRoutingDraft,
     loadRulesConfig,
+    loadFirewallConfig,
     loadOutboundsConfig,
     loadInboundsConfig,
     refresh,
@@ -1192,6 +1263,9 @@ export default function App() {
     setConfigBalancers,
     setConfigRulesStatus,
     setConfigRulesPath,
+    setConfigFirewall,
+    setConfigFirewallStatus,
+    setConfigFirewallPath,
     setConfigOutbounds,
     setConfigOutboundsStatus,
     setConfigOutboundsPath,
@@ -1504,6 +1578,11 @@ export default function App() {
   }, [page, apiBase]);
 
   useEffect(() => {
+    if (page !== 'firewall') return;
+    loadFirewallConfig(apiBase).catch(() => {});
+  }, [page, apiBase]);
+
+  useEffect(() => {
     if (page !== 'nodes') return;
     loadOutboundsConfig(apiBase).catch(() => {});
     loadSubscriptionConfig(apiBase).catch(() => {});
@@ -1525,9 +1604,37 @@ export default function App() {
     loadMainConfig(apiBase).catch(() => {});
   }, [page, apiBase]);
 
+  const [firewallConfigSaving, setFirewallConfigSaving] = useState(false);
+
+  const saveFirewallConfig = useCallback(async (nextFirewall = configFirewall) => {
+    if (firewallConfigSaving) return false;
+    setFirewallConfigSaving(true);
+    setConfigFirewallStatus('Saving...');
+    try {
+      const normalized = normalizeFirewallConfig(nextFirewall);
+      await fetchJson(`${apiBase}/config/firewall`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          firewall: normalized,
+          path: configFirewallPath || undefined
+        })
+      });
+      setConfigFirewall(normalized);
+      setConfigFirewallStatus('Saved to config. Hot reload core to apply.');
+      return true;
+    } catch (err) {
+      setConfigFirewallStatus(`Save failed: ${err.message}`);
+      return false;
+    } finally {
+      setFirewallConfigSaving(false);
+    }
+  }, [apiBase, configFirewall, configFirewallPath, firewallConfigSaving]);
+
   const {
     getRuleLabel,
     getBalancerLabel,
+    getFirewallRuleLabel,
     getOutboundLabel,
     getInboundLabel,
     getSubscriptionLabel,
@@ -1545,6 +1652,8 @@ export default function App() {
     setConfigRules,
     configBalancers,
     setConfigBalancers,
+    configFirewall,
+    setConfigFirewall,
     configInbounds,
     setConfigInbounds,
     configOutbounds,
@@ -1558,9 +1667,11 @@ export default function App() {
     configSubscriptionFull,
     setConfigSubscriptionFull,
     configRulesPath,
+    configFirewallPath,
     configOutboundsPath,
     configInboundsPath,
     setConfigRulesStatus,
+    setConfigFirewallStatus,
     setConfigOutboundsStatus,
     setConfigInboundsStatus,
     setConfigSubscriptionStatus,
@@ -1621,6 +1732,7 @@ export default function App() {
     triggerHotReload,
     triggerHotReloadFromNodes,
     triggerHotReloadFromRules,
+    triggerHotReloadFromFirewall,
     triggerHotReloadFromSubscriptions,
     triggerHotReloadFromInbounds,
     triggerDelayTest,
@@ -1635,6 +1747,7 @@ export default function App() {
     setSettingsStatus,
     setConfigOutboundsStatus,
     setRulesStatus,
+    setConfigFirewallStatus,
     setConfigSubscriptionStatus,
     setConfigInboundsStatus,
     uploadRoutingDraft,
@@ -1917,6 +2030,28 @@ export default function App() {
     rulesData
   };
 
+  const firewallPanelProps = {
+    page,
+    configFirewallStatus,
+    isFailedStatusText,
+    firewallSearchQuery,
+    setFirewallSearchQuery,
+    triggerHotReloadFromFirewall,
+    hotReloadBusy,
+    openRulesModal,
+    configFirewall,
+    filteredFirewallEntries,
+    normalizedFirewallSearchQuery,
+    configFirewallPath,
+    loadFirewallConfig,
+    apiBase,
+    openDeleteConfirm,
+    setConfigFirewall,
+    saveFirewallConfig,
+    firewallConfigSaving,
+    highlightFirewallCell
+  };
+
   const logsPanelProps = {
     page,
     logsDisabled,
@@ -2002,12 +2137,14 @@ export default function App() {
     saveRulesModal,
     configRules,
     configBalancers,
+    configFirewall,
     configInbounds,
     configSubscriptionOutbounds,
     configSubscriptionDatabases,
     configOutbounds,
     getRuleLabel,
     getBalancerLabel,
+    getFirewallRuleLabel,
     getInboundLabel,
     getSubscriptionLabel,
     getSubscriptionDatabaseLabel,
@@ -2043,6 +2180,7 @@ export default function App() {
         subscriptionsPanelProps={subscriptionsPanelProps}
         inboundsPanelProps={inboundsPanelProps}
         rulesPanelProps={rulesPanelProps}
+        firewallPanelProps={firewallPanelProps}
         logsPanelProps={logsPanelProps}
         settingsPanelProps={settingsPanelProps}
         appModalsProps={appModalsProps}

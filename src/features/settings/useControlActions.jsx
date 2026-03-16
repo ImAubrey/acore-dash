@@ -14,6 +14,7 @@ export function useControlActions({
   setSettingsStatus,
   setConfigOutboundsStatus,
   setRulesStatus,
+  setConfigFirewallStatus,
   setConfigSubscriptionStatus,
   setConfigInboundsStatus,
   uploadRoutingDraft,
@@ -189,6 +190,10 @@ export function useControlActions({
   const triggerHotReload = () => performHotReload(setSettingsStatus, HOT_RELOAD_TARGETS.all);
   const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus, HOT_RELOAD_TARGETS.outbounds);
   const triggerHotReloadFromRules = () => performHotReload(setRulesStatus, HOT_RELOAD_TARGETS.routing);
+  const triggerHotReloadFromFirewall = () => {
+    if (typeof setConfigFirewallStatus !== 'function') return;
+    performHotReload(setConfigFirewallStatus, HOT_RELOAD_TARGETS.all);
+  };
   const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus, HOT_RELOAD_TARGETS.subscription);
   const triggerHotReloadFromInbounds = () => {
     if (!includeInboundsTarget || typeof setConfigInboundsStatus !== 'function') return;
@@ -286,6 +291,7 @@ export function useControlActions({
     triggerHotReload,
     triggerHotReloadFromNodes,
     triggerHotReloadFromRules,
+    triggerHotReloadFromFirewall,
     triggerHotReloadFromSubscriptions,
     triggerHotReloadFromInbounds,
     triggerDelayTest,

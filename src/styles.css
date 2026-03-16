@@ -2222,12 +2222,27 @@ select {
   min-width: 0;
 }
 
+.firewall .panel-header .header-actions {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+}
+
 .rules .panel-header .header-actions .primary.small {
   white-space: nowrap;
   flex: 0 0 auto;
 }
 
+.firewall .panel-header .header-actions .primary.small {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 .rules .panel-header .header-status .status {
+  white-space: nowrap;
+}
+
+.firewall .panel-header .header-status .status {
   white-space: nowrap;
 }
 
@@ -2308,6 +2323,66 @@ select {
   color: var(--muted);
   margin-top: 2px;
   line-height: 1.25;
+}
+
+.firewall-rule {
+  border-style: solid;
+}
+
+.firewall-rule-title {
+  flex-wrap: wrap;
+}
+
+.firewall-action-pill {
+  color: var(--ink);
+}
+
+.firewall-action-pill.allow {
+  border-color: rgba(124, 197, 122, 0.42);
+  background: rgba(124, 197, 122, 0.16);
+  color: #2a6e32;
+}
+
+.firewall-action-pill.block {
+  border-color: rgba(199, 72, 59, 0.42);
+  background: rgba(199, 72, 59, 0.16);
+  color: #9f352c;
+}
+
+.firewall-action-pill.limit {
+  border-color: rgba(242, 179, 84, 0.46);
+  background: rgba(242, 179, 84, 0.18);
+  color: #9c641d;
+}
+
+.firewall-action-pill.mark {
+  border-color: rgba(59, 115, 212, 0.4);
+  background: rgba(59, 115, 212, 0.15);
+  color: #2e5dab;
+}
+
+.firewall-rule-allow {
+  border-color: rgba(124, 197, 122, 0.34);
+  background: linear-gradient(135deg, rgba(244, 252, 241, 0.88), rgba(228, 245, 224, 0.8));
+}
+
+.firewall-rule-block {
+  border-color: rgba(199, 72, 59, 0.34);
+  background: linear-gradient(135deg, rgba(255, 245, 243, 0.92), rgba(252, 230, 225, 0.82));
+}
+
+.firewall-rule-limit {
+  border-color: rgba(242, 179, 84, 0.36);
+  background: linear-gradient(135deg, rgba(255, 249, 236, 0.92), rgba(252, 238, 212, 0.82));
+}
+
+.firewall-rule-mark {
+  border-color: rgba(59, 115, 212, 0.3);
+  background: linear-gradient(135deg, rgba(244, 247, 255, 0.9), rgba(228, 236, 255, 0.82));
+}
+
+.firewall-settings-card .settings-inline {
+  margin-bottom: 0;
 }
 
 .candidate-tags {
@@ -2638,6 +2713,25 @@ select {
   border: 1px solid rgba(28, 43, 42, 0.08);
   background: rgba(255, 255, 255, 0.8);
   overflow: hidden;
+}
+
+.outbound-card-parent {
+  gap: 14px;
+}
+
+.outbound-children {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(28, 43, 42, 0.08);
+}
+
+.outbound-card-child {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border-color: rgba(28, 43, 42, 0.06);
+  background: rgba(247, 249, 250, 0.92);
 }
 
 .outbound-card.active {

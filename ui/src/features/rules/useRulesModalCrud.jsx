@@ -8,7 +8,8 @@ import {
   clearTimeoutRef,
   scheduleModalClose,
   getSubscriptionUrlDisplay,
-  fetchJson
+  fetchJson,
+  normalizeRuleDestination
 } from '../../dashboardShared';
 
 export function useRulesModalCrud({
@@ -78,7 +79,11 @@ export function useRulesModalCrud({
   };
 
   const getRuleLabel = (rule, index) => {
-    const tag = rule?.ruleTag || rule?.destination || rule?.outboundTag || rule?.balancerTag || '';
+    const destination = normalizeRuleDestination(rule?.destination).label;
+    const tag = String(rule?.ruleTag || '').trim()
+      || destination
+      || String(rule?.outboundTag || '').trim()
+      || String(rule?.balancerTag || '').trim();
     if (tag) {
       return `${index + 1}. ${tag}`;
     }
@@ -338,10 +343,14 @@ export function useRulesModalCrud({
           return;
         }
         const targetTag = targetTagRaw.trim();
-        const destination = typeof parsed.destination === 'string' ? parsed.destination.trim() : '';
+        const destinationInfo = normalizeRuleDestination(parsed.destination);
+        if (!destinationInfo.isValid) {
+          setRulesModalStatus(destinationInfo.error);
+          return;
+        }
         const outboundTag = typeof parsed.outboundTag === 'string' ? parsed.outboundTag.trim() : '';
         const balancerTag = typeof parsed.balancerTag === 'string' ? parsed.balancerTag.trim() : '';
-        if (!destination && !outboundTag && !balancerTag && targetTag) {
+        if (!destinationInfo.hasTarget && !outboundTag && !balancerTag && targetTag) {
           parsed.destination = targetTag;
         }
         delete parsed.targetTag;
@@ -356,8 +365,13 @@ export function useRulesModalCrud({
         setRulesModalStatus('ruleTag must be a string.');
         return;
       }
-      if (destinationRaw !== undefined && destinationRaw !== null && typeof destinationRaw !== 'string') {
-        setRulesModalStatus('destination must be a string.');
+      const destinationInfo = normalizeRuleDestination(destinationRaw);
+      if (!destinationInfo.isValid) {
+        setRulesModalStatus(destinationInfo.error);
+        return;
+      }
+      if (destinationInfo.isObject && !destinationInfo.hasTarget) {
+        setRulesModalStatus('destination.tag is required when destination is an object.');
         return;
       }
       if (outboundTagRaw !== undefined && outboundTagRaw !== null && typeof outboundTagRaw !== 'string') {
@@ -370,7 +384,6 @@ export function useRulesModalCrud({
       }
 
       const ruleTag = String(ruleTagRaw || '').trim();
-      const destination = String(destinationRaw || '').trim();
       const outboundTag = String(outboundTagRaw || '').trim();
       const balancerTag = String(balancerTagRaw || '').trim();
 
@@ -379,7 +392,7 @@ export function useRulesModalCrud({
         return;
       }
 
-      const targetCount = (destination ? 1 : 0) + (outboundTag ? 1 : 0) + (balancerTag ? 1 : 0);
+      const targetCount = (destinationInfo.hasTarget ? 1 : 0) + (outboundTag ? 1 : 0) + (balancerTag ? 1 : 0);
       if (targetCount > 1) {
         setRulesModalStatus('Use only one of destination/outboundTag/balancerTag (destination recommended).');
         return;

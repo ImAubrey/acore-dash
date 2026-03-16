@@ -1,3 +1,5 @@
+import { normalizeRuleDestination } from '../../dashboardShared';
+
 export function RulesPanel({
   page,
   rulesStatus,
@@ -105,7 +107,7 @@ export function RulesPanel({
               {filteredRuleEntries.map(({ rule, index }) => {
                 const ruleTag = String(rule.ruleTag || '').trim();
                 const key = `rule:${index}:${ruleTag}`;
-                const destination = String(rule.destination || '').trim();
+                const destination = normalizeRuleDestination(rule.destination);
                 const outboundTag = String(rule.outboundTag || '').trim();
                 const balancerTag = String(rule.balancerTag || '').trim();
                 const targetTag = String(rule.targetTag || '').trim();
@@ -114,8 +116,8 @@ export function RulesPanel({
                 let effectiveDestination = '';
                 let effectiveField = '';
                 const ignoredFields = [];
-                if (destination) {
-                  effectiveDestination = destination;
+                if (destination.label) {
+                  effectiveDestination = destination.label;
                   effectiveField = 'destination';
                   if (outboundTag) ignoredFields.push('outboundTag');
                   if (balancerTag) ignoredFields.push('balancerTag');

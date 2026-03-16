@@ -3,6 +3,7 @@ import {
   BALANCER_TEMPLATE,
   OUTBOUND_TEMPLATE,
   INBOUND_TEMPLATE,
+  FIREWALL_RULE_TEMPLATE,
   SUBSCRIPTION_OUTBOUND_TEMPLATE,
   SUBSCRIPTION_DATABASE_TEMPLATE,
   formatJson,
@@ -11,8 +12,19 @@ import {
   clearTimeoutRef,
   scheduleModalClose,
   getSubscriptionUrlDisplay,
-  fetchJson
+  fetchJson,
+  getFirewallRuleList,
+  normalizeFirewallConfig,
+  normalizeFirewallRule,
+  normalizeRuleDestination
 } from '../../dashboardShared';
+
+const FIREWALL_ACTION_LABELS = {
+  0: 'mark',
+  1: 'allow',
+  2: 'block',
+  3: 'limit'
+};
 
 export function useRulesModalCrud({
   apiBase,
@@ -20,6 +32,8 @@ export function useRulesModalCrud({
   setConfigRules,
   configBalancers,
   setConfigBalancers,
+  configFirewall,
+  setConfigFirewall,
   configInbounds,
   setConfigInbounds,
   configOutbounds,
@@ -33,9 +47,11 @@ export function useRulesModalCrud({
   configSubscriptionFull,
   setConfigSubscriptionFull,
   configRulesPath,
+  configFirewallPath,
   configOutboundsPath,
   configInboundsPath,
   setConfigRulesStatus,
+  setConfigFirewallStatus,
   setConfigOutboundsStatus,
   setConfigInboundsStatus,
   setConfigSubscriptionStatus,
@@ -80,7 +96,9 @@ export function useRulesModalCrud({
   deleteConfirmCloseTimerRef
 }) {
   const setConfigStatus = (target, message) => {
-    if (target === 'outbound') {
+    if (target === 'firewallRule') {
+      setConfigFirewallStatus(message);
+    } else if (target === 'outbound') {
       setConfigOutboundsStatus(message);
     } else if (target === 'inbound') {
       setConfigInboundsStatus(message);
@@ -92,7 +110,11 @@ export function useRulesModalCrud({
   };
 
   const getRuleLabel = (rule, index) => {
-    const tag = rule?.ruleTag || rule?.destination || rule?.outboundTag || rule?.balancerTag || '';
+    const destination = normalizeRuleDestination(rule?.destination).label;
+    const tag = String(rule?.ruleTag || '').trim()
+      || destination
+      || String(rule?.outboundTag || '').trim()
+      || String(rule?.balancerTag || '').trim();
     if (tag) {
       return `${index + 1}. ${tag}`;
     }
@@ -153,12 +175,27 @@ export function useRulesModalCrud({
     return `${index + 1}. database`;
   };
 
+  const getFirewallRuleLabel = (rule, index) => {
+    const current = normalizeFirewallRule(rule);
+    const ruleTag = String(current.ruleTag || '').trim();
+    const domain = Array.isArray(current.domain) ? String(current.domain[0] || '').trim() : '';
+    if (ruleTag) {
+      return `${index + 1}. ${ruleTag}`;
+    }
+    if (domain) {
+      return `${index + 1}. ${domain}`;
+    }
+    return `${index + 1}. firewall rule`;
+  };
+
   const openRulesModal = (target, mode, index = -1, afterIndex = -1, item = null) => {
     const normalizedAfter = Number.isFinite(Number(afterIndex)) ? Number(afterIndex) : -1;
     const template = target === 'rule'
       ? RULE_TEMPLATE
       : target === 'balancer'
         ? BALANCER_TEMPLATE
+        : target === 'firewallRule'
+          ? FIREWALL_RULE_TEMPLATE
         : target === 'inbound'
           ? INBOUND_TEMPLATE
           : target === 'subscription'
@@ -184,6 +221,8 @@ export function useRulesModalCrud({
       ? (Array.isArray(configRules) ? configRules : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? configBalancers : [])
+        : target === 'firewallRule'
+          ? getFirewallRuleList(configFirewall)
         : target === 'inbound'
           ? (Array.isArray(configInbounds) ? configInbounds : [])
           : target === 'subscription'
@@ -199,6 +238,8 @@ export function useRulesModalCrud({
       ? getRuleLabel(items[index], index)
       : target === 'balancer'
         ? getBalancerLabel(items[index], index)
+        : target === 'firewallRule'
+          ? getFirewallRuleLabel(items[index], index)
         : target === 'inbound'
           ? getInboundLabel(items[index], index)
           : target === 'subscription'
@@ -231,6 +272,8 @@ export function useRulesModalCrud({
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'firewallRule'
+          ? [...getFirewallRuleList(configFirewall)]
         : target === 'inbound'
           ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
           : target === 'subscription'
@@ -255,6 +298,23 @@ export function useRulesModalCrud({
     }
     setConfigStatus(target, 'Deleting...');
     try {
+      if (target === 'firewallRule') {
+        const nextFirewall = normalizeFirewallConfig({
+          ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+          rules: nextItems
+        });
+        await fetchJson(`${apiBase}/config/firewall`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firewall: nextFirewall,
+            path: configFirewallPath || undefined
+          })
+        });
+        setConfigFirewall(nextFirewall);
+        setConfigFirewallStatus('firewall rule deleted. Hot reload core to apply.');
+        return;
+      }
       if (target === 'subscription' || target === 'subscriptionDatabase') {
         const nextOutbounds = target === 'subscription'
           ? nextItems
@@ -380,6 +440,8 @@ export function useRulesModalCrud({
       ? 'Rule'
       : target === 'balancer'
         ? 'Balancer'
+        : target === 'firewallRule'
+          ? 'Firewall rule'
         : target === 'inbound'
           ? 'Inbound'
           : target === 'subscription'
@@ -400,10 +462,14 @@ export function useRulesModalCrud({
           return;
         }
         const targetTag = targetTagRaw.trim();
-        const destination = typeof parsed.destination === 'string' ? parsed.destination.trim() : '';
+        const destinationInfo = normalizeRuleDestination(parsed.destination);
+        if (!destinationInfo.isValid) {
+          setRulesModalStatus(destinationInfo.error);
+          return;
+        }
         const outboundTag = typeof parsed.outboundTag === 'string' ? parsed.outboundTag.trim() : '';
         const balancerTag = typeof parsed.balancerTag === 'string' ? parsed.balancerTag.trim() : '';
-        if (!destination && !outboundTag && !balancerTag && targetTag) {
+        if (!destinationInfo.hasTarget && !outboundTag && !balancerTag && targetTag) {
           parsed.destination = targetTag;
         }
         delete parsed.targetTag;
@@ -418,8 +484,13 @@ export function useRulesModalCrud({
         setRulesModalStatus('ruleTag must be a string.');
         return;
       }
-      if (destinationRaw !== undefined && destinationRaw !== null && typeof destinationRaw !== 'string') {
-        setRulesModalStatus('destination must be a string.');
+      const destinationInfo = normalizeRuleDestination(destinationRaw);
+      if (!destinationInfo.isValid) {
+        setRulesModalStatus(destinationInfo.error);
+        return;
+      }
+      if (destinationInfo.isObject && !destinationInfo.hasTarget) {
+        setRulesModalStatus('destination.tag is required when destination is an object.');
         return;
       }
       if (outboundTagRaw !== undefined && outboundTagRaw !== null && typeof outboundTagRaw !== 'string') {
@@ -432,7 +503,6 @@ export function useRulesModalCrud({
       }
 
       const ruleTag = String(ruleTagRaw || '').trim();
-      const destination = String(destinationRaw || '').trim();
       const outboundTag = String(outboundTagRaw || '').trim();
       const balancerTag = String(balancerTagRaw || '').trim();
 
@@ -441,7 +511,7 @@ export function useRulesModalCrud({
         return;
       }
 
-      const targetCount = (destination ? 1 : 0) + (outboundTag ? 1 : 0) + (balancerTag ? 1 : 0);
+      const targetCount = (destinationInfo.hasTarget ? 1 : 0) + (outboundTag ? 1 : 0) + (balancerTag ? 1 : 0);
       if (targetCount > 1) {
         setRulesModalStatus('Use only one of destination/outboundTag/balancerTag (destination recommended).');
         return;
@@ -652,10 +722,65 @@ export function useRulesModalCrud({
       }
     }
 
+    if (target === 'firewallRule') {
+      parsed = normalizeFirewallRule(parsed);
+      if (parsed.ruleTag !== undefined && parsed.ruleTag !== null && typeof parsed.ruleTag !== 'string') {
+        setRulesModalStatus('ruleTag must be a string.');
+        return;
+      }
+      if (
+        parsed.destination !== undefined
+        || parsed.outboundTag !== undefined
+        || parsed.balancerTag !== undefined
+      ) {
+        setRulesModalStatus('Firewall rules do not support destination/outboundTag/balancerTag.');
+        return;
+      }
+      if (parsed.reLookup !== undefined) {
+        setRulesModalStatus('Firewall rules do not support reLookup.');
+        return;
+      }
+      const actionRaw = parsed.action;
+      if (
+        actionRaw !== undefined
+        && actionRaw !== null
+        && typeof actionRaw !== 'string'
+        && typeof actionRaw !== 'number'
+      ) {
+        setRulesModalStatus('action must be a string or number.');
+        return;
+      }
+      if (typeof actionRaw === 'number') {
+        if (!(actionRaw in FIREWALL_ACTION_LABELS)) {
+          setRulesModalStatus('action must be mark, allow, block, or limit.');
+          return;
+        }
+        parsed.action = FIREWALL_ACTION_LABELS[actionRaw];
+      }
+      if (typeof parsed.action === 'string') {
+        parsed.action = parsed.action.trim();
+      }
+      const limitRaw = parsed.limit;
+      if (
+        limitRaw !== undefined
+        && limitRaw !== null
+        && (typeof limitRaw !== 'object' || Array.isArray(limitRaw))
+      ) {
+        setRulesModalStatus('limit must be a JSON object.');
+        return;
+      }
+      if (!String(parsed.ruleTag || '').trim() && !String(parsed.action || '').trim()) {
+        setRulesModalStatus('Firewall rule without ruleTag must set action.');
+        return;
+      }
+    }
+
     const nextItems = target === 'rule'
       ? (Array.isArray(configRules) ? [...configRules] : [])
       : target === 'balancer'
         ? (Array.isArray(configBalancers) ? [...configBalancers] : [])
+        : target === 'firewallRule'
+          ? [...getFirewallRuleList(configFirewall)]
         : target === 'inbound'
           ? (Array.isArray(configInbounds) ? [...configInbounds] : [])
           : target === 'subscription'
@@ -726,25 +851,38 @@ export function useRulesModalCrud({
           ? 'outbounds'
           : target === 'inbound'
             ? 'inbounds'
+            : target === 'firewallRule'
+              ? 'firewall'
             : 'routing';
         const body =
           target === 'rule'
             ? { rules: nextItems }
-            : target === 'balancer'
+          : target === 'balancer'
               ? { balancers: nextItems }
-              : target === 'inbound'
+            : target === 'firewallRule'
+              ? {
+                firewall: normalizeFirewallConfig({
+                  ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+                  rules: nextItems
+                })
+              }
+            : target === 'inbound'
                 ? { inbounds: nextItems }
                 : { outbounds: nextItems };
         const path = target === 'outbound'
           ? configOutboundsPath
           : target === 'inbound'
             ? configInboundsPath
+            : target === 'firewallRule'
+              ? configFirewallPath
             : configRulesPath;
         await fetchJson(`${apiBase}/config/${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...(target === 'outbound' || target === 'inbound' ? body : { routing: body }),
+            ...(target === 'outbound' || target === 'inbound' || target === 'firewallRule'
+              ? body
+              : { routing: body }),
             path: path || undefined
           })
         });
@@ -752,6 +890,11 @@ export function useRulesModalCrud({
           setConfigRules(nextItems);
         } else if (target === 'balancer') {
           setConfigBalancers(nextItems);
+        } else if (target === 'firewallRule') {
+          setConfigFirewall(normalizeFirewallConfig({
+            ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+            rules: nextItems
+          }));
         } else if (target === 'inbound') {
           setConfigInbounds(nextItems);
         } else {
@@ -778,6 +921,7 @@ export function useRulesModalCrud({
     getInboundLabel,
     getSubscriptionLabel,
     getSubscriptionDatabaseLabel,
+    getFirewallRuleLabel,
     openRulesModal,
     openDeleteConfirm,
     closeDeleteConfirm,

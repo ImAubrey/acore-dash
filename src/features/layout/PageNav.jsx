@@ -5,6 +5,7 @@ const NAV_ACCENTS = {
   connections: '#2f9aa0',
   nodes: '#7c8be0',
   rules: '#cf8450',
+  firewall: '#b85c3a',
   subscriptions: '#3b73d4',
   inbounds: '#3ba475',
   logs: '#5e85d4',
@@ -66,6 +67,15 @@ const NavIcon = ({ pageKey }) => {
         <path d="M4 18h7" />
         <circle cx="17.5" cy="12" r="2.2" />
         <circle cx="14.5" cy="18" r="2.2" />
+      </svg>
+    );
+  }
+  if (pageKey === 'firewall') {
+    return (
+      <svg {...common}>
+        <path d="M12 3l7 3v5c0 4.4-2.8 8.2-7 10-4.2-1.8-7-5.6-7-10V6l7-3Z" />
+        <path d="M9 12h6" />
+        <path d="M12 9v6" />
       </svg>
     );
   }
