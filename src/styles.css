@@ -2720,6 +2720,10 @@ select {
 }
 
 .outbound-card-child {
+  grid-template-columns: 1fr;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 156px;
   padding: 12px 14px;
   border-radius: 14px;
   border-color: rgba(28, 43, 42, 0.06);
@@ -2757,10 +2761,16 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .outbound-info {
   min-width: 0;
+}
+
+.outbound-title h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .outbound-side {
@@ -2790,6 +2800,20 @@ select {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+}
+
+.outbound-card-child .outbound-title {
+  align-items: flex-start;
+}
+
+.outbound-card-child .outbound-side {
+  justify-items: start;
+  width: 100%;
+}
+
+.outbound-card-child .outbound-meta,
+.outbound-card-child .outbound-actions {
+  justify-content: flex-start;
 }
 
 @media (max-width: 1280px) {
