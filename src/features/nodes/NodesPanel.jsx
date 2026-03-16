@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   EmptyState,
   HotReloadButton,
@@ -40,17 +41,16 @@ export function NodesPanel(props) {
     pickSelectorStrategyTarget,
     getGroupModeLabel
   } = props;
-  const [expandedOutboundGroups, setExpandedOutboundGroups] = React.useState({});
+  const [outboundGroupModalItem, setOutboundGroupModalItem] = React.useState(null);
 
   if (page !== 'nodes') return null;
 
-  const toggleOutboundGroup = (tag) => {
-    if (!tag) return;
-    setExpandedOutboundGroups((current) => ({
-      ...current,
-      [tag]: !current[tag]
-    }));
+  const openOutboundGroupModal = (item) => {
+    if (!item || !Array.isArray(item.children) || item.children.length === 0) return;
+    setOutboundGroupModalItem(item);
   };
+
+  const closeOutboundGroupModal = () => setOutboundGroupModalItem(null);
 
   const renderOutboundCard = (item, nested = false) => {
     const ob = item.configOutbound || item.derivedOutbound;
@@ -65,7 +65,6 @@ export function NodesPanel(props) {
     const isGroupChild = !!item.groupChild;
     const children = Array.isArray(item.children) ? item.children : [];
     const hasChildren = children.length > 0;
-    const isExpanded = hasChildren && !!expandedOutboundGroups[tag];
     const canEdit = item.configIndex >= 0 && !isGroupChild;
     const cardClassName = [
       'outbound-card',
@@ -82,11 +81,6 @@ export function NodesPanel(props) {
             <h3>{tag || '(no tag)'}</h3>
           </div>
           <p>{protocol}</p>
-          {hasChildren ? (
-            <p className="group-meta">
-              {children.length} expanded outbounds hidden under this parent.
-            </p>
-          ) : null}
         </div>
         <div className="outbound-side">
           <div className="outbound-meta">
@@ -106,9 +100,9 @@ export function NodesPanel(props) {
             {hasChildren ? (
               <button
                 className="ghost small"
-                onClick={() => toggleOutboundGroup(tag)}
+                onClick={() => openOutboundGroupModal(item)}
               >
-                {isExpanded ? 'Hide children' : `Show ${children.length} children`}
+                {`Show ${children.length} children`}
               </button>
             ) : null}
             <button
@@ -135,12 +129,37 @@ export function NodesPanel(props) {
             ) : null}
           </div>
         </div>
-        {hasChildren && isExpanded ? (
-          <div className="outbound-children">
+      </div>
+    );
+  };
+
+  const renderOutboundGroupModal = () => {
+    if (!outboundGroupModalItem || typeof document === 'undefined') return null;
+    const parentTag = String(
+      outboundGroupModalItem?.configOutbound?.tag
+      || outboundGroupModalItem?.derivedOutbound?.tag
+      || outboundGroupModalItem?.tag
+      || ''
+    ).trim();
+    const children = Array.isArray(outboundGroupModalItem?.children)
+      ? outboundGroupModalItem.children
+      : [];
+    return createPortal(
+      <div className="modal-backdrop rules-modal-backdrop" role="dialog" aria-modal="true" data-state="open">
+        <div className="modal rules-modal outbound-group-modal" data-state="open">
+          <div className="modal-header">
+            <div>
+              <h3>{`${parentTag || 'Outbound'} children`}</h3>
+              <p className="group-meta">{`${children.length} expanded outbounds`}</p>
+            </div>
+            <button className="ghost small" onClick={closeOutboundGroupModal}>Close</button>
+          </div>
+          <div className="outbound-group-grid">
             {children.map((child) => renderOutboundCard(child, true))}
           </div>
-        ) : null}
-      </div>
+        </div>
+      </div>,
+      document.body
     );
   };
 
@@ -300,6 +319,7 @@ export function NodesPanel(props) {
           {displayOutbounds.map((item) => renderOutboundCard(item))}
         </div>
       )}
+      {renderOutboundGroupModal()}
     </div>
   );
 }
