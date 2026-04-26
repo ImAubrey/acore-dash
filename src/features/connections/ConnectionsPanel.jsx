@@ -234,6 +234,7 @@ export function ConnectionsPanel({
       className={joinClassNames(
         'panel',
         'connections-panel',
+        isClosedMode ? 'connections-panel-closed' : '',
         connectionsPerfMode ? 'connections-panel-perf' : ''
       )}
       style={{ '--delay': '0.05s' }}
