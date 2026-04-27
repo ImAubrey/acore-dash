@@ -90,7 +90,7 @@ export function useDnsQueryTool({ apiBase }) {
     const queryType = pickPreferredType(dnsQueryTypes, dnsQueryType);
     const selectedType = findTypeInfo(dnsQueryTypes, queryType);
     if (selectedType && !selectedType.supported) {
-      setDnsQueryStatus(`Type ${queryType} is not supported by current Xray DNS interface.`);
+      setDnsQueryStatus(`Type ${queryType} is not supported by current Acore DNS interface.`);
       return null;
     }
 

@@ -180,7 +180,7 @@ export function AppModals({
             <div>
               <h3>Restart core?</h3>
               <p className="group-meta">
-                This will restart the Xray core. Pending routing edits will be uploaded first.
+                This will restart the Acore core. Pending routing edits will be uploaded first.
               </p>
             </div>
             <button className="ghost small" onClick={closeRestartConfirm}>Close</button>

@@ -64,7 +64,7 @@ export function SubscriptionsPanel(props) {
             placeholder="(optional) e.g. sub-in"
           />
           <span className="hint">
-            When set, subscription fetch/update traffic is routed through Xray (matchable by inboundTag).
+            When set, subscription fetch/update traffic is routed through Acore (matchable by inboundTag).
           </span>
         </div>
         <div className="control-block">

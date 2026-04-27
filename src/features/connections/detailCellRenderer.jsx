@@ -7,7 +7,7 @@ import {
   formatTime,
   getDetailDestinationLabel,
   getDetailSourceLabel,
-  getDetailXraySrcLabel,
+  getDetailAcoreSrcLabel,
   getDetailJa4Info,
   getDetailJa4DbLabel,
   normalizeDomainSource,
@@ -104,9 +104,9 @@ export function createDetailCellRenderer({
           />
         );
       }
-      case 'xraySrc': {
-        const host = getDetailXraySrcLabel(detail);
-        const port = detail.metadata?.xraySrcPort;
+      case 'acoreSrc': {
+        const host = getDetailAcoreSrcLabel(detail);
+        const port = detail.metadata?.acoreSrcPort;
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
         return (

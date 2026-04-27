@@ -1,12 +1,12 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || '';
-const API_BASE_STORAGE_KEY = 'xray_ui_api_base';
-const ACCESS_KEY_STORAGE_KEY = 'xray_ui_access_key';
-const CONNECTION_REFRESH_STORAGE_KEY = 'xray_ui_connection_refresh';
+const API_BASE_STORAGE_KEY = 'acore_ui_api_base';
+const ACCESS_KEY_STORAGE_KEY = 'acore_ui_access_key';
+const CONNECTION_REFRESH_STORAGE_KEY = 'acore_ui_connection_refresh';
 const ACCESS_KEY_HEADER = 'X-Access-Key';
 const ACCESS_KEY_QUERY = 'access_key';
-const ROUTING_DRAFT_STORAGE_KEY = 'xray_ui_routing_draft';
+const ROUTING_DRAFT_STORAGE_KEY = 'acore_ui_routing_draft';
 const ROUTING_DRAFT_NOTICE =
   'Unsaved rule edits are stored in your browser. Click Hot reload core to upload.';
 const UI_STATE_SAVE_DELAY_MS = 600;
@@ -14,8 +14,8 @@ const MODAL_ANIMATION_MS = 200;
 const CONNECTION_REFRESH_OPTIONS = [1, 2, 5, 10];
 const DEFAULT_CONNECTION_REFRESH = 1;
 const TRAFFIC_DIRECTION_HINTS = {
-  upload: 'User -> Xray',
-  download: 'Xray -> User'
+  upload: 'User -> Acore',
+  download: 'Acore -> User'
 };
 const ZEBRA_ROW_BACKGROUNDS = [
   'rgba(255, 255, 255, 0.78)',
@@ -201,11 +201,11 @@ const PAGES = {
   logs: {
     label: 'Logs',
     title: 'Streaming logs',
-    description: 'Tail Xray logs from the configured log file.'
+    description: 'Tail Acore logs from the configured log file.'
   },
   settings: {
     label: 'Settings',
-    title: 'Xray control plane',
+    title: 'Acore control plane',
     description: 'Configure metrics entry point and control actions.'
   }
 };
@@ -331,7 +331,7 @@ const RULE_TEMPLATE = {
   network: 'tcp',
   sourceIP: ['10.0.0.1'],
   localIP: ['192.168.0.25'],
-  user: ['love@xray.com'],
+  user: ['love@acore.com'],
   vlessRoute: '53,443,1000-2000',
   inboundTag: ['tag-vmess'],
   protocol: ['http', 'tls', 'quic', 'bittorrent'],
@@ -566,7 +566,7 @@ const getDestinationLabel = (meta, fallback = 'unknown') => meta?.host || meta?.
 const getSourceLabel = (meta, fallback = '0.0.0.0') => meta?.sourceIP || fallback;
 const getDetailDestinationLabel = (detail) => getDestinationLabel(detail?.metadata, 'unknown');
 const getDetailSourceLabel = (detail) => getSourceLabel(detail?.metadata, '0.0.0.0');
-const getDetailXraySrcLabel = (detail) => detail?.metadata?.xraySrcIP || '-';
+const getDetailAcoreSrcLabel = (detail) => detail?.metadata?.acoreSrcIP || '-';
 const getDetailUniqueJa4Label = (detail, fallback = '-') => {
   const raw = String(detail?.metadata?.ja4Tag || '').trim();
   if (!raw) return fallback;
@@ -927,7 +927,7 @@ const CONNECTION_SORT_FIELDS = {
 const DETAIL_COLUMNS = [
   { key: 'destination', label: 'Destination', width: 'minmax(0, 2.2fr)', cellClassName: 'mono' },
   { key: 'source', label: 'Source', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
-  { key: 'xraySrc', label: 'Xray Src', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
+  { key: 'acoreSrc', label: 'Acore Src', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
   { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
@@ -1293,7 +1293,7 @@ export {
   getSourceLabel,
   getDetailDestinationLabel,
   getDetailSourceLabel,
-  getDetailXraySrcLabel,
+  getDetailAcoreSrcLabel,
   getDetailUniqueJa4Label,
   normalizeDomainSource,
   getDomainSourceBadgeLabel,

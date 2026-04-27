@@ -9,7 +9,7 @@ export function HeroHeader({
   return (
     <header className="hero">
       <div className="hero-main">
-        <p className="eyebrow">Xray Control</p>
+        <p className="eyebrow">Acore Control</p>
         <h1 className={page === 'connections' ? 'nowrap' : ''}>{pageMeta.title}</h1>
         <p className={`subhead ${page === 'connections' ? 'nowrap' : ''}`}>{pageMeta.description}</p>
         <nav className="nav">

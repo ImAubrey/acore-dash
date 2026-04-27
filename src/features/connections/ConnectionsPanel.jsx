@@ -268,7 +268,7 @@ export function ConnectionsPanel({
             <span className="header-note">
               {isClosedMode
                 ? 'Recently closed connections. Keeps the latest 500 entries.'
-                : 'Grouped by source IP and destination host/IP. Upload: User -&gt; Xray. Download: Xray -&gt; User.'}
+                : 'Grouped by source IP and destination host/IP. Upload: User -&gt; Acore. Download: Acore -&gt; User.'}
             </span>
             <HeaderSearchInput
               value={connSearchQuery}

@@ -109,7 +109,7 @@ import {
   getSourceLabel,
   getDetailDestinationLabel,
   getDetailSourceLabel,
-  getDetailXraySrcLabel,
+  getDetailAcoreSrcLabel,
   normalizeDomainSource,
   getDomainSourceBadgeLabel,
   getConnectionDomainSourceBadge,

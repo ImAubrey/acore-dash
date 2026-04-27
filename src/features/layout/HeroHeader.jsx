@@ -32,7 +32,7 @@ export function HeroHeader({
   return (
     <header className="hero">
       <div className={`hero-main${page === 'connections' ? ' hero-main-connections' : ''}`}>
-        <p className="eyebrow">Xray Control</p>
+        <p className="eyebrow">Acore Control</p>
         <div className={`hero-title-row${page === 'connections' ? ' is-connections' : ''}`}>
           <h1 className={`hero-page-title${page === 'connections' ? ' hero-page-title-nowrap' : ''}`}>
             {pageMeta.title}

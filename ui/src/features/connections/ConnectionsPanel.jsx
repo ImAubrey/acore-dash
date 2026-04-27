@@ -62,7 +62,7 @@ export function ConnectionsPanel({
         </div>
         <div className="header-actions">
           <span className="header-note">
-            Grouped by source IP and destination host/IP. Upload: User -&gt; Xray. Download: Xray -&gt; User.
+            Grouped by source IP and destination host/IP. Upload: User -&gt; Acore. Download: Acore -&gt; User.
           </span>
           <div className="connections-search">
             <input

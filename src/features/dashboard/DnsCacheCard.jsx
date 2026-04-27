@@ -119,7 +119,7 @@ export function DnsCacheCard({
       <div className="dns-query-card">
         <div className="dns-query-header">
           <h3>DNS lookup</h3>
-          <p>Query via Xray DNS runtime and inspect cache state for the domain.</p>
+          <p>Query via Acore DNS runtime and inspect cache state for the domain.</p>
         </div>
         <form className="dns-query-controls" onSubmit={onSubmitDnsQuery}>
           <ClearableTextInput
