@@ -1213,7 +1213,6 @@ export default function App() {
     triggerRestart
   } = useControlActions({
     apiBase,
-    includeInboundsTarget: false,
     hotReloadBusy,
     setHotReloadBusy,
     setSettingsStatus,

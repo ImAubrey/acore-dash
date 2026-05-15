@@ -1741,7 +1741,6 @@ export default function App() {
     triggerRestart
   } = useControlActions({
     apiBase,
-    includeInboundsTarget: true,
     hotReloadBusy,
     setHotReloadBusy,
     setSettingsStatus,

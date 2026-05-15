@@ -8,7 +8,6 @@ import {
 
 export function useControlActions({
   apiBase,
-  includeInboundsTarget = false,
   hotReloadBusy,
   setHotReloadBusy,
   setSettingsStatus,
@@ -50,20 +49,7 @@ export function useControlActions({
     }
   };
 
-  const HOT_RELOAD_TARGETS = includeInboundsTarget
-    ? {
-      all: ['outbounds', 'inbounds', 'routing', 'subscription'],
-      routing: ['routing'],
-      outbounds: ['outbounds'],
-      inbounds: ['inbounds'],
-      subscription: ['subscription']
-    }
-    : {
-      all: ['outbounds', 'routing', 'subscription'],
-      routing: ['routing'],
-      outbounds: ['outbounds'],
-      subscription: ['subscription']
-    };
+  const FULL_HOT_RELOAD_TARGETS = ['all'];
   const HOT_RELOAD_POLL_INTERVAL_MS = 1000;
   const HOT_RELOAD_POLL_TIMEOUT_MS = 120000;
 
@@ -143,7 +129,7 @@ export function useControlActions({
     return null;
   };
 
-  const performHotReload = async (announceFn, targets = HOT_RELOAD_TARGETS.all) => {
+  const performHotReload = async (announceFn) => {
     if (hotReloadBusy) return;
     setHotReloadBusy(true);
     announceHotReloadStatus('Triggering hot reload...', announceFn);
@@ -156,7 +142,7 @@ export function useControlActions({
       const resp = await fetchJson(`${apiBase}/core/hotreload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets })
+        body: JSON.stringify({ targets: FULL_HOT_RELOAD_TARGETS })
       });
       const taskId = String(resp?.id || '').trim();
       const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
@@ -187,18 +173,17 @@ export function useControlActions({
     }
   };
 
-  const triggerHotReload = () => performHotReload(setSettingsStatus, HOT_RELOAD_TARGETS.all);
-  const triggerHotReloadFromNodes = () => performHotReload(setConfigOutboundsStatus, HOT_RELOAD_TARGETS.outbounds);
-  const triggerHotReloadFromRules = () => performHotReload(setRulesStatus, HOT_RELOAD_TARGETS.routing);
-  const triggerHotReloadFromFirewall = () => {
-    if (typeof setConfigFirewallStatus !== 'function') return;
-    performHotReload(setConfigFirewallStatus, HOT_RELOAD_TARGETS.all);
+  const makeHotReloadTrigger = (announceFn) => () => {
+    if (typeof announceFn !== 'function') return;
+    performHotReload(announceFn);
   };
-  const triggerHotReloadFromSubscriptions = () => performHotReload(setConfigSubscriptionStatus, HOT_RELOAD_TARGETS.subscription);
-  const triggerHotReloadFromInbounds = () => {
-    if (!includeInboundsTarget || typeof setConfigInboundsStatus !== 'function') return;
-    performHotReload(setConfigInboundsStatus, HOT_RELOAD_TARGETS.inbounds);
-  };
+
+  const triggerHotReload = makeHotReloadTrigger(setSettingsStatus);
+  const triggerHotReloadFromNodes = makeHotReloadTrigger(setConfigOutboundsStatus);
+  const triggerHotReloadFromRules = makeHotReloadTrigger(setRulesStatus);
+  const triggerHotReloadFromFirewall = makeHotReloadTrigger(setConfigFirewallStatus);
+  const triggerHotReloadFromSubscriptions = makeHotReloadTrigger(setConfigSubscriptionStatus);
+  const triggerHotReloadFromInbounds = makeHotReloadTrigger(setConfigInboundsStatus);
 
   const triggerDelayTest = () => {
     if (delayTestCooldown > 0 || delayTestBusy) return;
