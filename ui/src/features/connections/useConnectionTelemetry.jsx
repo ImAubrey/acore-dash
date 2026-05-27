@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   appendAccessKeyParam,
   getDetailKey,
@@ -12,6 +12,11 @@ const HIDDEN_CONN_FLUSH_DELAY_MS = 250;
 const FRAME_FLUSH_DELAY_MS = 16;
 const STREAM_STALE_MULTIPLIER = 4;
 const STREAM_STALE_MIN_MS = 4000;
+
+const getRuntimeRate = (value, fallback = 0) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
+};
 
 export function useConnectionTelemetry({
   apiBase,
@@ -36,6 +41,8 @@ export function useConnectionTelemetry({
   setConnRates,
   setDetailRates
 }) {
+  const trafficTotalsRef = useRef(new Map());
+
   useEffect(() => {
     let disposed = false;
     let lastSnapshotAt = 0;
@@ -165,15 +172,43 @@ export function useConnectionTelemetry({
   }, [apiBase, connStreamPaused, shouldStreamConnections, accessKey, connRefreshIntervalMs]);
 
   useEffect(() => {
+    trafficTotalsRef.current = new Map();
+  }, [apiBase]);
+
+  useEffect(() => {
     const now = Date.now();
     setTrafficSeries((prev) => {
       const uploadTotal = connections.uploadTotal || 0;
       const downloadTotal = connections.downloadTotal || 0;
-      const last = prev[prev.length - 1];
-      const prevUpload = last ? last.totalUp : uploadTotal;
-      const prevDownload = last ? last.totalDown : downloadTotal;
-      const up = Math.max(0, uploadTotal - prevUpload);
-      const down = Math.max(0, downloadTotal - prevDownload);
+      const nextTrafficTotals = new Map();
+      let up = 0;
+      let down = 0;
+
+      (connections.connections || []).forEach((conn) => {
+        const details = Array.isArray(conn.details) && conn.details.length > 0
+          ? conn.details
+          : [conn];
+        details.forEach((detail, idx) => {
+          const key = detail === conn
+            ? `conn:${conn.id}`
+            : `detail:${getDetailKey(conn.id, detail, idx)}`;
+          const currentUpload = Number(detail.upload || 0);
+          const currentDownload = Number(detail.download || 0);
+          const safeUpload = Number.isFinite(currentUpload) && currentUpload >= 0 ? currentUpload : 0;
+          const safeDownload = Number.isFinite(currentDownload) && currentDownload >= 0 ? currentDownload : 0;
+          const previous = trafficTotalsRef.current.get(key);
+          if (previous) {
+            up += Math.max(0, safeUpload - previous.upload);
+            down += Math.max(0, safeDownload - previous.download);
+          }
+          nextTrafficTotals.set(key, {
+            upload: safeUpload,
+            download: safeDownload
+          });
+        });
+      });
+      trafficTotalsRef.current = nextTrafficTotals;
+
       const next = [
         ...prev,
         {
@@ -215,6 +250,8 @@ export function useConnectionTelemetry({
           downloadRate = Math.max(0, currentDownload - prev.download) / elapsed;
         }
       }
+      uploadRate = getRuntimeRate(conn.uploadRate, uploadRate);
+      downloadRate = getRuntimeRate(conn.downloadRate, downloadRate);
       nextConnRates.set(conn.id, { upload: uploadRate, download: downloadRate });
       nextConnTotals.set(conn.id, { upload: currentUpload, download: currentDownload, time: now });
 
@@ -232,6 +269,8 @@ export function useConnectionTelemetry({
             detailDownloadRate = Math.max(0, detailDownload - prevDetail.download) / elapsed;
           }
         }
+        detailUploadRate = getRuntimeRate(detail.uploadRate, detailUploadRate);
+        detailDownloadRate = getRuntimeRate(detail.downloadRate, detailDownloadRate);
         nextDetailRates.set(detailKey, { upload: detailUploadRate, download: detailDownloadRate });
         nextDetailTotals.set(detailKey, { upload: detailUpload, download: detailDownload, time: now });
       });

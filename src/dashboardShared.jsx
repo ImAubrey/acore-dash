@@ -310,10 +310,11 @@ const formatBytes = (num) => {
 
 const formatRate = (num) => `${formatBytes(num)}/s`;
 const SPLICE_LABEL = 'splice';
+const SPLICE_DISPLAY_LABEL = 'SPLICE';
 const isSpliceType = (value) => typeof value === 'string' && value.toLowerCase().includes('splice');
 const formatRateOrSplice = (value, isSplice) => {
   const rate = Number(value || 0);
-  if (isSplice && (!rate || rate <= 0)) return SPLICE_LABEL;
+  if (isSplice && (!rate || rate <= 0)) return SPLICE_DISPLAY_LABEL;
   return formatRate(rate);
 };
 
