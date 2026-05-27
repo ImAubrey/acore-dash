@@ -1,9 +1,12 @@
 import {
+  DETAIL_COLUMNS,
   UI_STATE_SAVE_DELAY_MS,
   clearTimeoutRef,
   fetchJson,
   normalizeUiState
 } from '../../dashboardShared';
+
+const DEFAULT_DETAIL_COLUMNS = DETAIL_COLUMNS.map((column) => column.key);
 
 export function useUiStatePersistence({
   apiBase,
@@ -23,6 +26,24 @@ export function useUiStatePersistence({
   setConnSortDir,
   setDetailColumnsVisible
 }) {
+  const applyUiState = (normalized) => {
+    const state = normalized || {};
+    const nodesLocked = state.nodesLocked && Object.keys(state.nodesLocked).length > 0
+      ? state.nodesLocked
+      : {};
+    setGroupSelections(nodesLocked);
+    lockedSelectionsRef.current = Object.keys(nodesLocked).length > 0 ? nodesLocked : null;
+    setLogsDisabled(typeof state.logsDisabled === 'boolean' ? state.logsDisabled : true);
+    setLogsPaused(typeof state.logsPaused === 'boolean' ? state.logsPaused : false);
+    setAutoScroll(typeof state.autoScroll === 'boolean' ? state.autoScroll : true);
+    setLogLevel(state.logLevel || 'default');
+    setConnViewMode(state.connViewMode || 'current');
+    setConnStreamPaused(typeof state.connStreamPaused === 'boolean' ? state.connStreamPaused : false);
+    setConnSortKey(state.connSortKey || 'default');
+    setConnSortDir(state.connSortDir || 'desc');
+    setDetailColumnsVisible(new Set(state.detailColumns || DEFAULT_DETAIL_COLUMNS));
+  };
+
   const saveUiState = async (payload, base = apiBase) => {
     try {
       await fetchJson(`${base}/ui/state`, {
@@ -54,41 +75,9 @@ export function useUiStatePersistence({
       if (resp?.path) {
         setUiStatePath(resp.path);
       }
-      setGroupSelections(
-        normalized.nodesLocked && Object.keys(normalized.nodesLocked).length > 0
-          ? normalized.nodesLocked
-          : {}
-      );
-      lockedSelectionsRef.current = normalized.nodesLocked || null;
-      if (typeof normalized.logsDisabled === 'boolean') {
-        setLogsDisabled(normalized.logsDisabled);
-      }
-      if (typeof normalized.logsPaused === 'boolean') {
-        setLogsPaused(normalized.logsPaused);
-      }
-      if (typeof normalized.autoScroll === 'boolean') {
-        setAutoScroll(normalized.autoScroll);
-      }
-      if (normalized.logLevel) {
-        setLogLevel(normalized.logLevel);
-      }
-      if (normalized.connViewMode) {
-        setConnViewMode(normalized.connViewMode);
-      }
-      if (typeof normalized.connStreamPaused === 'boolean') {
-        setConnStreamPaused(normalized.connStreamPaused);
-      }
-      if (normalized.connSortKey) {
-        setConnSortKey(normalized.connSortKey);
-      }
-      if (normalized.connSortDir) {
-        setConnSortDir(normalized.connSortDir);
-      }
-      if (normalized.detailColumns) {
-        setDetailColumnsVisible(new Set(normalized.detailColumns));
-      }
+      applyUiState(normalized);
     } catch (_err) {
-      // ignore ui state load failures
+      applyUiState(null);
     } finally {
       uiStateHydratingRef.current = false;
       setUiStateLoaded(true);

@@ -1,4 +1,22 @@
-import { useRef } from 'react';
+import { createContext, useContext, useRef } from 'react';
+
+const LocalEditActionsContext = createContext({
+  hasLocalRoutingDraft: false,
+  discardRoutingDraftBusy: false,
+  discardRoutingDraft: null
+});
+
+export function LocalEditActionsProvider({ value, children }) {
+  return (
+    <LocalEditActionsContext.Provider value={value || {}}>
+      {children}
+    </LocalEditActionsContext.Provider>
+  );
+}
+
+export function useLocalEditActions() {
+  return useContext(LocalEditActionsContext);
+}
 
 export function joinClassNames(...names) {
   return names.filter(Boolean).join(' ');
@@ -137,16 +155,64 @@ export function HotReloadButton({
   className = 'primary small',
   idleLabel = 'Hot reload core',
   busyLabel = 'Hot reloading...',
-  title = ''
+  title = '',
+  draftVisible,
+  draftBusy,
+  onUndoDraft,
+  undoDraftLabel = 'Undo',
+  undoDraftBusyLabel = 'Undoing...',
+  undoDraftTitle = 'Discard unsaved browser draft edits'
 }) {
+  const {
+    hasLocalRoutingDraft = false,
+    discardRoutingDraftBusy = false,
+    discardRoutingDraft = null
+  } = useLocalEditActions();
+  const showUndo = typeof draftVisible === 'boolean' ? draftVisible : hasLocalRoutingDraft;
+  const undoBusy = typeof draftBusy === 'boolean' ? draftBusy : discardRoutingDraftBusy;
+  const undoHandler = typeof onUndoDraft === 'function' ? onUndoDraft : discardRoutingDraft;
+
+  return (
+    <>
+      <UndoLocalChangesButton
+        visible={showUndo}
+        busy={undoBusy}
+        onClick={undoHandler}
+        label={undoDraftLabel}
+        busyLabel={undoDraftBusyLabel}
+        title={undoDraftTitle}
+      />
+      <button
+        className={className}
+        onClick={onClick}
+        disabled={disabled || busy}
+        title={title}
+      >
+        {busy ? busyLabel : idleLabel}
+      </button>
+    </>
+  );
+}
+
+export function UndoLocalChangesButton({
+  visible = false,
+  busy = false,
+  onClick,
+  label = 'Undo',
+  busyLabel = 'Undoing...',
+  title = 'Discard unsaved browser draft edits'
+}) {
+  if (!visible) return null;
+
   return (
     <button
-      className={className}
+      type="button"
+      className="ghost small undo-draft-button"
       onClick={onClick}
-      disabled={disabled || busy}
+      disabled={busy}
       title={title}
     >
-      {busy ? busyLabel : idleLabel}
+      {busy ? busyLabel : label}
     </button>
   );
 }

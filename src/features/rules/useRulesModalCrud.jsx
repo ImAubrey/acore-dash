@@ -18,6 +18,7 @@ import {
   normalizeFirewallRule,
   normalizeRuleDestination
 } from '../../dashboardShared';
+import { moveListItemByDrop } from '../common/useSortableRuleList';
 
 const FIREWALL_ACTION_LABELS = {
   0: 'mark',
@@ -58,6 +59,7 @@ export function useRulesModalCrud({
   buildSubscriptionPatch,
   writeSubscriptionConfig,
   stageRoutingDraft,
+  stageFirewallDraft,
   fetchRules,
   rulesModalOpen,
   setRulesModalOpen,
@@ -286,35 +288,25 @@ export function useRulesModalCrud({
       return;
     }
     nextItems.splice(index, 1);
-    if (target === 'rule' || target === 'balancer') {
+    if (target === 'rule' || target === 'balancer' || target === 'firewallRule') {
       if (target === 'rule') {
         setConfigRules(nextItems);
         stageRoutingDraft(nextItems, configBalancers);
-      } else {
+      } else if (target === 'balancer') {
         setConfigBalancers(nextItems);
         stageRoutingDraft(configRules, nextItems);
+      } else {
+        const nextFirewall = normalizeFirewallConfig({
+          ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+          rules: nextItems
+        });
+        setConfigFirewall(nextFirewall);
+        stageFirewallDraft(nextFirewall);
       }
       return;
     }
     setConfigStatus(target, 'Deleting...');
     try {
-      if (target === 'firewallRule') {
-        const nextFirewall = normalizeFirewallConfig({
-          ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
-          rules: nextItems
-        });
-        await fetchJson(`${apiBase}/config/firewall`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            firewall: nextFirewall,
-            path: configFirewallPath || undefined
-          })
-        });
-        setConfigFirewall(nextFirewall);
-        setConfigFirewallStatus('firewall rule deleted. Hot reload core to apply.');
-        return;
-      }
       if (target === 'subscription' || target === 'subscriptionDatabase') {
         const nextOutbounds = target === 'subscription'
           ? nextItems
@@ -398,6 +390,37 @@ export function useRulesModalCrud({
     } finally {
       setDeleteConfirmBusy(false);
     }
+  };
+
+  const reorderRoutingRules = (fromIndex, targetIndex, position = 'before') => {
+    const result = moveListItemByDrop(configRules, fromIndex, targetIndex, position);
+    if (result.error) {
+      setConfigRulesStatus('Reorder failed: rule index out of range.');
+      return;
+    }
+    if (!result.changed) {
+      return;
+    }
+    setConfigRules(result.items);
+    stageRoutingDraft(result.items, configBalancers);
+  };
+
+  const reorderFirewallRules = (fromIndex, targetIndex, position = 'before') => {
+    const firewallRules = getFirewallRuleList(configFirewall);
+    const result = moveListItemByDrop(firewallRules, fromIndex, targetIndex, position);
+    if (result.error) {
+      setConfigFirewallStatus('Reorder failed: firewall rule index out of range.');
+      return;
+    }
+    if (!result.changed) {
+      return;
+    }
+    const nextFirewall = normalizeFirewallConfig({
+      ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+      rules: result.items
+    });
+    setConfigFirewall(nextFirewall);
+    stageFirewallDraft(nextFirewall);
   };
 
   const closeRulesModal = (options = {}) => {
@@ -811,13 +834,20 @@ export function useRulesModalCrud({
     }
 
     setRulesModalSaving(true);
-    if (target === 'rule' || target === 'balancer') {
+    if (target === 'rule' || target === 'balancer' || target === 'firewallRule') {
       if (target === 'rule') {
         setConfigRules(nextItems);
         stageRoutingDraft(nextItems, configBalancers);
-      } else {
+      } else if (target === 'balancer') {
         setConfigBalancers(nextItems);
         stageRoutingDraft(configRules, nextItems);
+      } else {
+        const nextFirewall = normalizeFirewallConfig({
+          ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+          rules: nextItems
+        });
+        setConfigFirewall(nextFirewall);
+        stageFirewallDraft(nextFirewall);
       }
       setRulesModalStatus('Saved locally.');
       closeRulesModal({ force: true });
@@ -924,6 +954,8 @@ export function useRulesModalCrud({
     getFirewallRuleLabel,
     openRulesModal,
     openDeleteConfirm,
+    reorderRoutingRules,
+    reorderFirewallRules,
     closeDeleteConfirm,
     confirmDelete,
     closeRulesModal,

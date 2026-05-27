@@ -15,14 +15,9 @@ import { useConnectionTelemetry } from './features/connections/useConnectionTele
 import { useRulesModalCrud } from './features/rules/useRulesModalCrud';
 import { useLogsStream } from './features/logs/useLogsStream';
 import { createDetailCellRenderer } from './features/connections/detailCellRenderer';
+import { LocalEditActionsProvider } from './features/common/panelPrimitives';
 import {
-  DEFAULT_API_BASE,
   API_BASE_STORAGE_KEY,
-  ACCESS_KEY_STORAGE_KEY,
-  CONNECTION_REFRESH_STORAGE_KEY,
-  ACCESS_KEY_HEADER,
-  ACCESS_KEY_QUERY,
-  ROUTING_DRAFT_STORAGE_KEY,
   ROUTING_DRAFT_NOTICE,
   MODAL_ANIMATION_MS,
   CONNECTION_REFRESH_OPTIONS,
@@ -30,8 +25,14 @@ import {
   TRAFFIC_DIRECTION_HINTS,
   ZEBRA_ROW_BACKGROUNDS,
   ZEBRA_DETAIL_BACKGROUNDS,
-  parseRoutingDraft,
+  getFirewallDraft,
+  getRoutingDraft,
+  saveFirewallDraft,
   normalizeApiBase,
+  getStoredServerAccessKey,
+  setStoredServerAccessKey,
+  getStoredServerRefreshInterval,
+  setStoredServerRefreshInterval,
   getInitialMetricsHttp,
   normalizeAccessKey,
   getInitialMetricsKey,
@@ -44,10 +45,6 @@ import {
   saveMetricsPanelHistory,
   addMetricsPanelHistoryEntry,
   removeMetricsPanelHistoryEntry,
-  getStoredAccessKey,
-  withAccessKey,
-  ABSOLUTE_URL_SCHEME_REGEX,
-  RELATIVE_PATH_PREFIX_REGEX,
   getSubscriptionUrlDisplay,
   normalizeUiLanguage,
   getInitialUiLanguage,
@@ -253,11 +250,17 @@ export default function App() {
   const [logLines, setLogLines] = useState([]);
   const [rulesData, setRulesData] = useState({ rules: [], balancers: [], updatedAt: '' });
   const [rulesStatus, setRulesStatus] = useState('');
+  const [hasRoutingDraft, setHasRoutingDraft] = useState(() => Boolean(getRoutingDraft(apiBase)));
+  const [discardRoutingDraftBusy, setDiscardRoutingDraftBusy] = useState(false);
+  const [hasFirewallDraft, setHasFirewallDraft] = useState(() => Boolean(getFirewallDraft(apiBase)));
+  const [discardFirewallDraftBusy, setDiscardFirewallDraftBusy] = useState(false);
   const [configRules, setConfigRules] = useState([]);
+  const [configRulesBaseline, setConfigRulesBaseline] = useState([]);
   const [configBalancers, setConfigBalancers] = useState([]);
   const [configRulesStatus, setConfigRulesStatus] = useState('');
   const [configRulesPath, setConfigRulesPath] = useState('');
   const [configFirewall, setConfigFirewall] = useState({ rules: [] });
+  const [configFirewallBaseline, setConfigFirewallBaseline] = useState({ rules: [] });
   const [configFirewallStatus, setConfigFirewallStatus] = useState('');
   const [configFirewallPath, setConfigFirewallPath] = useState('');
   const [configOutbounds, setConfigOutbounds] = useState([]);
@@ -366,6 +369,11 @@ export default function App() {
 
   const applyApiBase = (value) => {
     const raw = String(value || '').trim();
+    const nextBase = normalizeApiBase(raw);
+    const nextAccessKey = getStoredServerAccessKey(nextBase);
+    const nextRefresh = getStoredServerRefreshInterval(nextBase);
+    const scopedAccessKey = setStoredServerAccessKey(nextBase, nextAccessKey);
+    const scopedRefresh = setStoredServerRefreshInterval(nextBase, nextRefresh);
     if (typeof window !== 'undefined') {
       if (raw) {
         window.localStorage.setItem(API_BASE_STORAGE_KEY, raw);
@@ -373,21 +381,19 @@ export default function App() {
         window.localStorage.removeItem(API_BASE_STORAGE_KEY);
       }
     }
-    const nextBase = normalizeApiBase(raw);
     setApiBase(nextBase);
+    setAccessKey(scopedAccessKey);
+    setMetricsAccessKey(scopedAccessKey);
+    setConnRefreshInterval(scopedRefresh);
+    setHasRoutingDraft(Boolean(getRoutingDraft(nextBase)));
+    setHasFirewallDraft(Boolean(getFirewallDraft(nextBase)));
     return nextBase;
   };
 
-  const applyAccessKey = (value) => {
-    const raw = normalizeAccessKey(value);
-    if (typeof window !== 'undefined') {
-      if (raw) {
-        window.localStorage.setItem(ACCESS_KEY_STORAGE_KEY, raw);
-      } else {
-        window.localStorage.removeItem(ACCESS_KEY_STORAGE_KEY);
-      }
-    }
+  const applyAccessKey = (value, base = apiBase) => {
+    const raw = setStoredServerAccessKey(base, value);
     setAccessKey(raw);
+    setMetricsAccessKey(raw);
     return raw;
   };
 
@@ -415,8 +421,10 @@ export default function App() {
 
   const applyMetricsSettings = async () => {
     const nextBase = applyApiBase(metricsHttp);
-    const nextKey = applyAccessKey(metricsAccessKey);
-    const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, connRefreshInterval);
+    const nextKey = applyAccessKey(metricsAccessKey, nextBase);
+    const nextRefresh = setStoredServerRefreshInterval(nextBase, connRefreshInterval);
+    setConnRefreshInterval(nextRefresh);
+    const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, nextRefresh);
     if (saved) {
       setSettingsStatus('Metrics settings updated.');
       return;
@@ -433,8 +441,8 @@ export default function App() {
     setMetricsHttp(base);
     setMetricsAccessKey(key);
     const nextBase = applyApiBase(base);
-    const nextKey = applyAccessKey(key);
-    const nextRefresh = applyConnRefreshInterval(refresh);
+    const nextKey = applyAccessKey(key, nextBase);
+    const nextRefresh = applyConnRefreshInterval(refresh, nextBase);
     const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, nextRefresh);
     if (saved) {
       setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s)`);
@@ -450,17 +458,14 @@ export default function App() {
     setSettingsStatus('Saved metrics panel removed.');
   };
 
-  const applyConnRefreshInterval = (value) => {
-    const normalized = normalizeRefreshInterval(value);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(CONNECTION_REFRESH_STORAGE_KEY, String(normalized));
-    }
+  const applyConnRefreshInterval = (value, base = apiBase) => {
+    const normalized = setStoredServerRefreshInterval(base, value);
     setConnRefreshInterval(normalized);
     return normalized;
   };
 
   const connRefreshIntervalMs = connRefreshInterval * 1000;
-  const currentMetricsPanelId = getMetricsPanelId(apiBase, accessKey, connRefreshInterval);
+  const currentMetricsPanelId = getMetricsPanelId(apiBase);
 
   const connectionStats = useMemo(() => getConnectionStats(connections), [connections]);
   const activeConnections = connectionStats.connections;
@@ -844,6 +849,31 @@ export default function App() {
   const latestSample = trafficSeries.length ? trafficSeries[trafficSeries.length - 1] : null;
   const visibleSamples = Math.max(trafficSeries.length - 1, 0);
   const latestSpeed = latestSample ? latestSample.up + latestSample.down : 0;
+  const connectionRateSummary = useMemo(() => {
+    const safeRate = (value) => {
+      const rate = Number(value);
+      return Number.isFinite(rate) && rate >= 0 ? rate : 0;
+    };
+    if (connRates.size > 0) {
+      let upload = 0;
+      let download = 0;
+      connRates.forEach((rate) => {
+        upload += safeRate(rate?.upload);
+        download += safeRate(rate?.download);
+      });
+      return { upload, download };
+    }
+    if (page === 'dashboard' && latestSample) {
+      return {
+        upload: safeRate(latestSample.up),
+        download: safeRate(latestSample.down)
+      };
+    }
+    return {
+      upload: safeRate(connections.uploadRate),
+      download: safeRate(connections.downloadRate)
+    };
+  }, [connRates, connections.uploadRate, connections.downloadRate, latestSample, page]);
   const averageSpeed = useMemo(() => {
     if (!throughputSeries.length) return 0;
     const total = throughputSeries.reduce((sum, value) => sum + value, 0);
@@ -1242,6 +1272,7 @@ export default function App() {
     triggerDnsCacheFlushFromSettings,
     fetchRules,
     stageRoutingDraft,
+    stageFirewallDraft,
     loadRulesConfig,
     loadFirewallConfig,
     loadOutboundsConfig,
@@ -1249,10 +1280,14 @@ export default function App() {
     refresh,
     loadSettings,
     loadRestartInfo,
-    uploadRoutingDraft
+    uploadRoutingDraft,
+    uploadFirewallDraft,
+    discardRoutingDraft,
+    discardFirewallDraft
   } = useConfigDataLoaders({
     apiBase,
     configRulesPath,
+    configFirewallPath,
     setOutbounds,
     setGroups,
     setStatusByTag,
@@ -1260,10 +1295,16 @@ export default function App() {
     setStatus,
     setRulesData,
     setConfigRules,
+    configRulesBaseline,
+    setConfigRulesBaseline,
+    setHasRoutingDraft,
     setConfigBalancers,
     setConfigRulesStatus,
     setConfigRulesPath,
     setConfigFirewall,
+    configFirewallBaseline,
+    setConfigFirewallBaseline,
+    setHasFirewallDraft,
     setConfigFirewallStatus,
     setConfigFirewallPath,
     setConfigOutbounds,
@@ -1427,6 +1468,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setHasRoutingDraft(Boolean(getRoutingDraft(apiBase)));
+    setHasFirewallDraft(Boolean(getFirewallDraft(apiBase)));
     refresh();
     loadSettings();
     loadRestartInfo();
@@ -1621,6 +1664,9 @@ export default function App() {
         })
       });
       setConfigFirewall(normalized);
+      setConfigFirewallBaseline(normalized);
+      saveFirewallDraft(null, apiBase);
+      setHasFirewallDraft(false);
       setConfigFirewallStatus('Saved to config. Hot reload core to apply.');
       return true;
     } catch (err) {
@@ -1641,6 +1687,8 @@ export default function App() {
     getSubscriptionDatabaseLabel,
     openRulesModal,
     openDeleteConfirm,
+    reorderRoutingRules,
+    reorderFirewallRules,
     closeDeleteConfirm,
     confirmDelete,
     closeRulesModal,
@@ -1678,6 +1726,7 @@ export default function App() {
     buildSubscriptionPatch,
     writeSubscriptionConfig,
     stageRoutingDraft,
+    stageFirewallDraft,
     fetchRules,
     rulesModalOpen,
     setRulesModalOpen,
@@ -1750,6 +1799,7 @@ export default function App() {
     setConfigSubscriptionStatus,
     setConfigInboundsStatus,
     uploadRoutingDraft,
+    uploadFirewallDraft,
     refresh,
     loadRestartInfo,
     fetchNodes,
@@ -1790,6 +1840,29 @@ export default function App() {
   ]
     .filter(Boolean)
     .join(' ');
+  const discardLocalRoutingDraft = useCallback(async () => {
+    if (discardRoutingDraftBusy) return;
+    setDiscardRoutingDraftBusy(true);
+    try {
+      await discardRoutingDraft(apiBase);
+    } finally {
+      setDiscardRoutingDraftBusy(false);
+    }
+  }, [apiBase, discardRoutingDraft, discardRoutingDraftBusy]);
+  const discardLocalFirewallDraft = useCallback(async () => {
+    if (discardFirewallDraftBusy) return;
+    setDiscardFirewallDraftBusy(true);
+    try {
+      await discardFirewallDraft(apiBase);
+    } finally {
+      setDiscardFirewallDraftBusy(false);
+    }
+  }, [apiBase, discardFirewallDraft, discardFirewallDraftBusy]);
+  const localEditActions = useMemo(() => ({
+    hasLocalRoutingDraft: hasRoutingDraft,
+    discardRoutingDraftBusy,
+    discardRoutingDraft: discardLocalRoutingDraft
+  }), [discardLocalRoutingDraft, discardRoutingDraftBusy, hasRoutingDraft]);
 
   const heroHeaderProps = {
     page,
@@ -1798,9 +1871,10 @@ export default function App() {
     metricsPanelHistory,
     currentMetricsPanelId,
     applySavedMetricsPanel,
-    formatBytes,
-    connections,
-    totalSessions
+    formatRate,
+    totalSessions,
+    liveUploadRate: connectionRateSummary.upload,
+    liveDownloadRate: connectionRateSummary.download
   };
 
   const dashboardPanelProps = {
@@ -2013,7 +2087,9 @@ export default function App() {
     triggerHotReloadFromRules,
     hotReloadBusy,
     openRulesModal,
+    reorderRoutingRules,
     configRules,
+    configRulesBaseline,
     normalizedRuleSearchQuery,
     filteredRuleEntries,
     configRulesPath,
@@ -2039,6 +2115,8 @@ export default function App() {
     hotReloadBusy,
     openRulesModal,
     configFirewall,
+    configFirewallBaseline,
+    hasFirewallDraft,
     filteredFirewallEntries,
     normalizedFirewallSearchQuery,
     configFirewallPath,
@@ -2048,6 +2126,9 @@ export default function App() {
     setConfigFirewall,
     saveFirewallConfig,
     firewallConfigSaving,
+    discardFirewallDraftBusy,
+    discardFirewallDraft: discardLocalFirewallDraft,
+    reorderFirewallRules,
     highlightFirewallCell
   };
 
@@ -2171,19 +2252,21 @@ export default function App() {
 
   return (
     <div className={stageClassName}>
-      <HeroHeader {...heroHeaderProps} />
-      <MainPanels
-        dashboardPanelProps={dashboardPanelProps}
-        connectionsPanelProps={connectionsPanelProps}
-        nodesPanelProps={nodesPanelProps}
-        subscriptionsPanelProps={subscriptionsPanelProps}
-        inboundsPanelProps={inboundsPanelProps}
-        rulesPanelProps={rulesPanelProps}
-        firewallPanelProps={firewallPanelProps}
-        logsPanelProps={logsPanelProps}
-        settingsPanelProps={settingsPanelProps}
-        appModalsProps={appModalsProps}
-      />
+      <LocalEditActionsProvider value={localEditActions}>
+        <HeroHeader {...heroHeaderProps} />
+        <MainPanels
+          dashboardPanelProps={dashboardPanelProps}
+          connectionsPanelProps={connectionsPanelProps}
+          nodesPanelProps={nodesPanelProps}
+          subscriptionsPanelProps={subscriptionsPanelProps}
+          inboundsPanelProps={inboundsPanelProps}
+          rulesPanelProps={rulesPanelProps}
+          firewallPanelProps={firewallPanelProps}
+          logsPanelProps={logsPanelProps}
+          settingsPanelProps={settingsPanelProps}
+          appModalsProps={appModalsProps}
+        />
+      </LocalEditActionsProvider>
     </div>
   );
 }

@@ -10,8 +10,8 @@ export function HeroHeader({
     <header className="hero">
       <div className="hero-main">
         <p className="eyebrow">Acore Control</p>
-        <h1 className={page === 'connections' ? 'nowrap' : ''}>{pageMeta.title}</h1>
-        <p className={`subhead ${page === 'connections' ? 'nowrap' : ''}`}>{pageMeta.description}</p>
+        <h1>{pageMeta.title}</h1>
+        <p className="subhead">{pageMeta.description}</p>
         <nav className="nav">
           {Object.entries(PAGES).map(([key, value]) => (
             <a

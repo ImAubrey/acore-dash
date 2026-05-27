@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTopbarLayout } from './topbarLayout';
 
 const NAV_ACCENTS = {
   dashboard: '#ff8a5b',
@@ -127,19 +128,64 @@ const NavIcon = ({ pageKey }) => {
 };
 
 export function PageNav({ page, pages }) {
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const { wrapRef, navRef, collapsed, centered } = useTopbarLayout(page);
+  const currentLabel = pages?.[page]?.label || 'Menu';
+  const wrapClassName = [
+    'topbar-menu-wrap',
+    collapsed ? 'is-collapsed' : 'is-expanded',
+    centered ? 'is-centered' : ''
+  ].filter(Boolean).join(' ');
+  const navClassName = [
+    'nav topbar-menu',
+    collapsed ? 'is-collapsed' : 'is-expanded',
+    menuOpen ? 'is-open' : ''
+  ].filter(Boolean).join(' ');
+
+  React.useEffect(() => {
+    setMenuOpen(false);
+  }, [page]);
+
+  React.useEffect(() => {
+    if (!collapsed) setMenuOpen(false);
+  }, [collapsed]);
+
   return (
-    <nav className="nav">
-      {Object.entries(pages).map(([key, value]) => (
-        <a
-          key={key}
-          href={`#/${key}`}
-          className={`nav-link${page === key ? ' active' : ''}`}
-          style={{ '--nav-accent': NAV_ACCENTS[key] || '#5e85d4' }}
-        >
-          <span className="nav-link-icon"><NavIcon pageKey={key} /></span>
-          <span className="nav-link-text">{value.label}</span>
-        </a>
-      ))}
-    </nav>
+    <div className={wrapClassName} ref={wrapRef}>
+      <button
+        type="button"
+        className="topbar-menu-toggle"
+        aria-expanded={menuOpen}
+        aria-controls="topbar-menu"
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <span className="topbar-menu-icon" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </span>
+        <span>{currentLabel}</span>
+      </button>
+      <nav
+        ref={navRef}
+        id="topbar-menu"
+        className={navClassName}
+        aria-label="Topbar"
+        aria-hidden={collapsed && !menuOpen ? true : undefined}
+      >
+        {Object.entries(pages).map(([key, value]) => (
+          <a
+            key={key}
+            href={`#/${key}`}
+            className={`nav-link${page === key ? ' active' : ''}`}
+            style={{ '--nav-accent': NAV_ACCENTS[key] || '#5e85d4' }}
+            onClick={() => setMenuOpen(false)}
+          >
+            <span className="nav-link-icon"><NavIcon pageKey={key} /></span>
+            <span className="nav-link-text">{value.label}</span>
+          </a>
+        ))}
+      </nav>
+    </div>
   );
 }

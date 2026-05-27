@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   EmptyState,
   HeaderSearchInput,
@@ -5,6 +6,7 @@ import {
   PanelHeader,
   StatusText
 } from '../common/panelPrimitives';
+import { getRuleOrderChanges, useSortableRuleList } from '../common/useSortableRuleList';
 import { normalizeRuleDestination } from '../../dashboardShared';
 
 export function RulesPanel({
@@ -19,6 +21,7 @@ export function RulesPanel({
   hotReloadBusy,
   openRulesModal,
   configRules,
+  configRulesBaseline,
   normalizedRuleSearchQuery,
   filteredRuleEntries,
   configRulesPath,
@@ -31,8 +34,23 @@ export function RulesPanel({
   filteredBalancerEntries,
   getBalancerStrategyTone,
   resolveOutboundSelectors,
-  rulesData
+  rulesData,
+  reorderRoutingRules
 }) {
+  const {
+    draggedIndex: draggedRuleIndex,
+    clearDragState: clearRuleDragState,
+    handleDragStart: handleRuleDragStart,
+    handleDragOver: handleRuleDragOver,
+    handleDragLeave: handleRuleDragLeave,
+    handleDrop: handleRuleDrop,
+    getDropPositionForIndex
+  } = useSortableRuleList({ onReorder: reorderRoutingRules });
+  const ruleOrderChanges = useMemo(
+    () => getRuleOrderChanges(configRules, configRulesBaseline, isRoutingDraftNotice),
+    [configRules, configRulesBaseline, isRoutingDraftNotice]
+  );
+
   if (page !== 'rules') {
     return null;
   }
@@ -64,10 +82,10 @@ export function RulesPanel({
             busy={hotReloadBusy}
             onClick={triggerHotReloadFromRules}
           />
-          <button className="primary small" onClick={() => openRulesModal('rule', 'insert')}>
+          <button className="ghost small" onClick={() => openRulesModal('rule', 'insert')}>
             Add rule
           </button>
-          <button className="primary small" onClick={() => openRulesModal('balancer', 'insert')}>
+          <button className="ghost small" onClick={() => openRulesModal('balancer', 'insert')}>
             Add balancer
           </button>
           </>
@@ -98,7 +116,7 @@ export function RulesPanel({
           ) : filteredRuleEntries.length === 0 ? (
             <EmptyState small message="No matching routing rules." />
           ) : (
-            <div className="rules-list">
+            <div className="rules-list rules-list-sortable">
               {filteredRuleEntries.map(({ rule, index }) => {
                 const ruleTag = String(rule.ruleTag || '').trim();
                 const key = `rule:${index}:${ruleTag}`;
@@ -134,12 +152,41 @@ export function RulesPanel({
                 const destinationLabel = effectiveDestination
                   ? `Destination: ${effectiveDestination}`
                   : 'Destination: -';
+                const dropPosition = getDropPositionForIndex(index);
+                const orderChange = ruleOrderChanges.get(index);
+                const dragClassName = [
+                  'rule-item',
+                  'rule-item-sortable',
+                  draggedRuleIndex === index ? 'rule-item-dragging' : '',
+                  dropPosition === 'before' ? 'rule-item-drop-before' : '',
+                  dropPosition === 'after' ? 'rule-item-drop-after' : ''
+                ].filter(Boolean).join(' ');
                 return (
-                  <div className="rule-item" key={key}>
+                  <div
+                    className={dragClassName}
+                    key={key}
+                    onDragOver={(event) => handleRuleDragOver(event, index)}
+                    onDragLeave={() => handleRuleDragLeave(index)}
+                    onDrop={(event) => handleRuleDrop(event, index)}
+                  >
                     <div className="rule-summary">
                       <div className="rule-main">
                         <div className="rule-title rule-title-routing">
-                          <span className="rule-index">{index + 1}</span>
+                          <span
+                            className={`rule-index rule-drag-handle${orderChange ? ' rule-index-warning' : ''}`}
+                            draggable
+                            title="Drag to reorder"
+                            aria-label={`Drag routing rule ${index + 1}`}
+                            onDragStart={(event) => handleRuleDragStart(event, index)}
+                            onDragEnd={clearRuleDragState}
+                          >
+                            {index + 1}
+                          </span>
+                          {orderChange ? (
+                            <span className="rule-index-change" title="Unsaved order change">
+                              {orderChange}
+                            </span>
+                          ) : null}
                           <h4 className="mono">{highlightRuleCell(ruleTag || '(no ruleTag)')}</h4>
                           <span className="rule-destination-inline mono" title={destinationLabel}>
                             {highlightRuleCell(destinationLabel)}

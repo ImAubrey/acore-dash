@@ -27,7 +27,6 @@
   --motion-medium: 420ms;
   --mono: "IBM Plex Mono", monospace;
   --sans: "Space Grotesk", sans-serif;
-  --ui-scale: 0.85;
 }
 
 * {
@@ -41,33 +40,9 @@ body {
   background: linear-gradient(140deg, var(--bg-1), var(--bg-2) 45%, var(--bg-3));
 }
 
-@supports (zoom: 1) {
-  body {
-    zoom: var(--ui-scale);
-  }
-}
-
-@supports not (zoom: 1) {
-  .stage {
-    transform: scale(var(--ui-scale));
-    transform-origin: top center;
-    width: calc(100% / var(--ui-scale));
-    margin-left: calc((100% - (100% / var(--ui-scale))) / 2);
-  }
-}
-
-@supports not (zoom: 1) {
-  .stage.stage-connections {
-    transform: none;
-    transform-origin: initial;
-    width: auto;
-    margin-left: 0;
-  }
-}
-
 .stage {
   min-height: 100vh;
-  padding: 48px clamp(24px, 5vw, 64px) 80px;
+  padding: 36px clamp(16px, 3.6vw, 44px) 58px;
   position: relative;
   overflow: hidden;
 }
@@ -111,10 +86,10 @@ body {
   z-index: 1;
   display: flex;
   flex-wrap: wrap;
-  gap: 32px;
+  gap: 22px;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 32px;
+  margin-bottom: 22px;
   animation: fadeUp 520ms var(--ease-soft) forwards;
 }
 
@@ -131,24 +106,23 @@ body {
 }
 
 .hero h1 {
-  font-size: clamp(28px, 4vw, 46px);
+  font-size: 26px;
+  line-height: 1.15;
   margin: 0 0 8px;
 }
 
 .subhead {
   max-width: 520px;
   color: var(--muted);
-  margin: 0 0 14px;
-}
-
-.nowrap {
-  white-space: nowrap;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 10px;
 }
 
 .nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
 }
 
 .nav a {
@@ -156,12 +130,12 @@ body {
   align-items: center;
   gap: 0.45em;
   text-decoration: none;
-  font-size: 13px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: 5px 9px;
+  border-radius: 6px;
   border: 1px solid var(--stroke);
   color: var(--muted);
   transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
@@ -175,21 +149,21 @@ body {
 
 .hero-stats {
   display: flex;
-  gap: 16px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .stat-card {
   background: var(--card);
   border: 1px solid var(--stroke);
-  padding: 14px 18px;
-  border-radius: 16px;
-  min-width: 140px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  min-width: 118px;
   box-shadow: 0 12px 24px rgba(28, 43, 42, 0.08);
 }
 
 .stat-card span {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.14em;
@@ -197,13 +171,13 @@ body {
 
 .stat-card strong {
   display: block;
-  font-size: 20px;
-  margin-top: 6px;
+  font-size: 17px;
+  margin-top: 4px;
 }
 
 .content {
   display: grid;
-  gap: 24px;
+  gap: 16px;
   position: relative;
   z-index: 1;
 }
@@ -211,8 +185,8 @@ body {
 .panel {
   background: var(--card);
   border: 1px solid var(--stroke);
-  border-radius: 20px;
-  padding: 24px;
+  border-radius: 14px;
+  padding: 18px;
   box-shadow: 0 20px 30px rgba(28, 43, 42, 0.08);
   backdrop-filter: blur(8px);
   opacity: 0;
@@ -234,37 +208,39 @@ body {
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(28, 43, 42, 0.08);
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 .connections-table-wrap {
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 10px;
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .panel h2 {
+  font-size: 19px;
+  line-height: 1.2;
   margin: 0 0 4px;
 }
 
 .panel p {
   margin: 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
 }
 
 @media (min-width: 1024px) and (min-resolution: 1.5dppx), (min-width: 1600px) {

@@ -4,13 +4,17 @@ const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || '';
 const API_BASE_STORAGE_KEY = 'acore_ui_api_base';
 const ACCESS_KEY_STORAGE_KEY = 'acore_ui_access_key';
 const CONNECTION_REFRESH_STORAGE_KEY = 'acore_ui_connection_refresh';
+const SERVER_STATES_STORAGE_KEY = 'acore_ui_server_states';
 const METRICS_PANEL_HISTORY_COOKIE_KEY = 'acore_ui_metrics_panels';
 const METRICS_PANEL_HISTORY_LIMIT = 12;
 const ACCESS_KEY_HEADER = 'X-Access-Key';
 const ACCESS_KEY_QUERY = 'access_key';
 const ROUTING_DRAFT_STORAGE_KEY = 'acore_ui_routing_draft';
+const FIREWALL_DRAFT_STORAGE_KEY = 'acore_ui_firewall_draft';
 const ROUTING_DRAFT_NOTICE =
   'Unsaved rule edits are stored in your browser. Click Hot reload core to upload.';
+const FIREWALL_DRAFT_NOTICE =
+  'Unsaved firewall edits are stored in your browser. Click Hot reload core to upload.';
 const UI_STATE_SAVE_DELAY_MS = 600;
 const MODAL_ANIMATION_MS = 200;
 const CONNECTION_REFRESH_OPTIONS = [1, 2, 5, 10];
@@ -39,25 +43,12 @@ const parseRoutingDraft = (raw) => {
     return {
       rules: rules || [],
       balancers: balancers || [],
+      baseRules: Array.isArray(parsed.baseRules) ? parsed.baseRules : [],
       path: typeof parsed.path === 'string' ? parsed.path : ''
     };
   } catch (_err) {
     return null;
   }
-};
-
-const getRoutingDraft = () => {
-  if (typeof window === 'undefined') return null;
-  return parseRoutingDraft(window.localStorage.getItem(ROUTING_DRAFT_STORAGE_KEY));
-};
-
-const saveRoutingDraft = (draft) => {
-  if (typeof window === 'undefined') return;
-  if (!draft) {
-    window.localStorage.removeItem(ROUTING_DRAFT_STORAGE_KEY);
-    return;
-  }
-  window.localStorage.setItem(ROUTING_DRAFT_STORAGE_KEY, JSON.stringify(draft));
 };
 
 const ABSOLUTE_URL_SCHEME_REGEX = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//;
@@ -81,32 +72,226 @@ const normalizeApiBase = (raw) => {
   return trimmed;
 };
 
-const getInitialMetricsHttp = () => {
+const parseFirewallDraft = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const firewall = parsed.firewall && typeof parsed.firewall === 'object' && !Array.isArray(parsed.firewall)
+      ? parsed.firewall
+      : Array.isArray(parsed.rules)
+        ? { rules: parsed.rules }
+        : null;
+    if (!firewall) return null;
+    const baseFirewall = parsed.baseFirewall && typeof parsed.baseFirewall === 'object' && !Array.isArray(parsed.baseFirewall)
+      ? parsed.baseFirewall
+      : {};
+    return {
+      firewall,
+      baseFirewall,
+      path: typeof parsed.path === 'string' ? parsed.path : ''
+    };
+  } catch (_err) {
+    return null;
+  }
+};
+
+const getStoredApiBaseRaw = () => {
   if (typeof window === 'undefined') return DEFAULT_API_BASE;
   const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
-  if (stored !== null) return normalizeApiBase(stored);
-  return normalizeApiBase(DEFAULT_API_BASE);
+  return stored !== null ? stored : DEFAULT_API_BASE;
+};
+
+const normalizeStorageUrl = (value) => {
+  const raw = String(value || '').trim();
+  const fallbackOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'same-origin';
+  if (!raw) return fallbackOrigin;
+  try {
+    return new URL(raw, fallbackOrigin).href.replace(/\/+$/, '');
+  } catch (_err) {
+    return raw.replace(/\/+$/, '') || fallbackOrigin;
+  }
+};
+
+const getServerStorageId = (base) => {
+  const source = base === undefined ? getStoredApiBaseRaw() : base;
+  return normalizeStorageUrl(normalizeApiBase(source));
+};
+
+const getServerScopedStorageKey = (key, base) => {
+  const prefix = String(key || '').trim();
+  if (!prefix) return '';
+  return `${prefix}::${encodeURIComponent(getServerStorageId(base))}`;
+};
+
+const parseServerStateMap = (raw) => {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+};
+
+const readServerStateMap = () => {
+  if (typeof window === 'undefined') return {};
+  return parseServerStateMap(window.localStorage.getItem(SERVER_STATES_STORAGE_KEY));
+};
+
+const writeServerStateMap = (map) => {
+  if (typeof window === 'undefined') return;
+  const entries = Object.entries(map || {}).filter(([, value]) => {
+    return value && typeof value === 'object' && Object.keys(value).length > 0;
+  });
+  if (entries.length === 0) {
+    window.localStorage.removeItem(SERVER_STATES_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(SERVER_STATES_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+};
+
+const getServerState = (base) => {
+  const map = readServerStateMap();
+  const id = getServerStorageId(base);
+  const state = map[id];
+  return state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+};
+
+const targetMatchesLegacyServer = (target) => {
+  if (target === undefined) return true;
+  const targetId = getRequestStorageId(target);
+  const legacyId = getServerStorageId(getStoredApiBaseRaw());
+  return targetId === legacyId || targetId.startsWith(`${legacyId}/`) || targetId.startsWith(`${legacyId}?`);
+};
+
+const getLegacyAccessKey = (target) => {
+  if (typeof window === 'undefined' || !targetMatchesLegacyServer(target)) return '';
+  return normalizeAccessKey(window.localStorage.getItem(ACCESS_KEY_STORAGE_KEY));
+};
+
+const getLegacyRefreshInterval = (target) => {
+  if (typeof window === 'undefined' || !targetMatchesLegacyServer(target)) return DEFAULT_CONNECTION_REFRESH;
+  const stored = window.localStorage.getItem(CONNECTION_REFRESH_STORAGE_KEY);
+  if (stored !== null) return normalizeRefreshInterval(stored);
+  return DEFAULT_CONNECTION_REFRESH;
+};
+
+const updateServerState = (base, patch) => {
+  if (typeof window === 'undefined') return {};
+  const map = readServerStateMap();
+  const id = getServerStorageId(base);
+  const current = map[id] && typeof map[id] === 'object' && !Array.isArray(map[id]) ? map[id] : {};
+  const next = { ...current, ...(patch || {}) };
+  Object.keys(next).forEach((key) => {
+    if (next[key] === undefined || next[key] === null || next[key] === '') {
+      delete next[key];
+    }
+  });
+  if (Object.keys(next).length > 0) {
+    map[id] = next;
+  } else {
+    delete map[id];
+  }
+  writeServerStateMap(map);
+  return next;
+};
+
+const getStoredServerAccessKey = (base) => {
+  const state = getServerState(base);
+  if (typeof state.accessKey === 'string') return normalizeAccessKey(state.accessKey);
+  return getLegacyAccessKey(base);
+};
+
+const setStoredServerAccessKey = (base, value) => {
+  const key = normalizeAccessKey(value);
+  updateServerState(base, { accessKey: key || undefined });
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(ACCESS_KEY_STORAGE_KEY);
+  }
+  return key;
+};
+
+const getStoredServerRefreshInterval = (base) => {
+  const state = getServerState(base);
+  if (state.connRefreshInterval !== undefined) {
+    return normalizeRefreshInterval(state.connRefreshInterval);
+  }
+  return getLegacyRefreshInterval(base);
+};
+
+const setStoredServerRefreshInterval = (base, value) => {
+  const normalized = normalizeRefreshInterval(value);
+  updateServerState(base, { connRefreshInterval: normalized });
+  if (typeof window !== 'undefined') {
+    window.localStorage.removeItem(CONNECTION_REFRESH_STORAGE_KEY);
+  }
+  return normalized;
+};
+
+const getRoutingDraft = (base) => {
+  if (typeof window === 'undefined') return null;
+  const scopedKey = getServerScopedStorageKey(ROUTING_DRAFT_STORAGE_KEY, base);
+  const scoped = scopedKey ? window.localStorage.getItem(scopedKey) : null;
+  if (scoped !== null) return parseRoutingDraft(scoped);
+  if (base !== undefined) return null;
+  return parseRoutingDraft(window.localStorage.getItem(ROUTING_DRAFT_STORAGE_KEY));
+};
+
+const saveRoutingDraft = (draft, base) => {
+  if (typeof window === 'undefined') return;
+  const scopedKey = getServerScopedStorageKey(ROUTING_DRAFT_STORAGE_KEY, base);
+  if (!scopedKey) return;
+  if (!draft) {
+    window.localStorage.removeItem(scopedKey);
+    window.localStorage.removeItem(ROUTING_DRAFT_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(scopedKey, JSON.stringify(draft));
+  window.localStorage.removeItem(ROUTING_DRAFT_STORAGE_KEY);
+};
+
+const getFirewallDraft = (base) => {
+  if (typeof window === 'undefined') return null;
+  const scopedKey = getServerScopedStorageKey(FIREWALL_DRAFT_STORAGE_KEY, base);
+  const scoped = scopedKey ? window.localStorage.getItem(scopedKey) : null;
+  if (scoped !== null) return parseFirewallDraft(scoped);
+  if (base !== undefined) return null;
+  return parseFirewallDraft(window.localStorage.getItem(FIREWALL_DRAFT_STORAGE_KEY));
+};
+
+const saveFirewallDraft = (draft, base) => {
+  if (typeof window === 'undefined') return;
+  const scopedKey = getServerScopedStorageKey(FIREWALL_DRAFT_STORAGE_KEY, base);
+  if (!scopedKey) return;
+  if (!draft) {
+    window.localStorage.removeItem(scopedKey);
+    window.localStorage.removeItem(FIREWALL_DRAFT_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.setItem(scopedKey, JSON.stringify(draft));
+  window.localStorage.removeItem(FIREWALL_DRAFT_STORAGE_KEY);
+};
+
+const getInitialMetricsHttp = () => {
+  return normalizeApiBase(getStoredApiBaseRaw());
 };
 
 const normalizeAccessKey = (raw) => String(raw || '').trim();
 
 const getInitialMetricsKey = () => {
-  if (typeof window === 'undefined') return '';
-  const stored = window.localStorage.getItem(ACCESS_KEY_STORAGE_KEY);
-  if (stored !== null) return stored;
-  return '';
+  return getStoredServerAccessKey();
 };
 
 const getInitialAccessKey = () => {
-  if (typeof window === 'undefined') return '';
-  const stored = window.localStorage.getItem(ACCESS_KEY_STORAGE_KEY);
-  return normalizeAccessKey(stored);
+  return getStoredServerAccessKey();
 };
 
 const getInitialApiBase = () => {
-  if (typeof window === 'undefined') return DEFAULT_API_BASE;
-  const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
-  return normalizeApiBase(stored);
+  return normalizeApiBase(getStoredApiBaseRaw());
 };
 
 const normalizeRefreshInterval = (value) => {
@@ -117,12 +302,10 @@ const normalizeRefreshInterval = (value) => {
   return DEFAULT_CONNECTION_REFRESH;
 };
 
-const getMetricsPanelId = (base, key, connRefreshInterval) => {
+const getMetricsPanelId = (base) => {
   const normalizedBase = normalizeApiBase(base);
   if (!normalizedBase) return '';
-  const normalizedKey = normalizeAccessKey(key);
-  const normalizedRefresh = normalizeRefreshInterval(connRefreshInterval);
-  return `${normalizedBase}||${normalizedKey}||${normalizedRefresh}`;
+  return normalizedBase;
 };
 
 const formatMetricsPanelOptionLabel = (entry) => {
@@ -139,22 +322,46 @@ const formatMetricsPanelOptionLabel = (entry) => {
 };
 
 const getInitialRefreshInterval = () => {
-  if (typeof window === 'undefined') return DEFAULT_CONNECTION_REFRESH;
-  const stored = window.localStorage.getItem(CONNECTION_REFRESH_STORAGE_KEY);
-  if (stored !== null) return normalizeRefreshInterval(stored);
-  return DEFAULT_CONNECTION_REFRESH;
+  return getStoredServerRefreshInterval();
 };
 
-const getStoredAccessKey = () => {
-  if (typeof window === 'undefined') return '';
-  return normalizeAccessKey(window.localStorage.getItem(ACCESS_KEY_STORAGE_KEY));
+const getRequestStorageId = (url) => {
+  const requestUrl = String(url || '').trim();
+  if (!requestUrl) return '';
+  return normalizeStorageUrl(requestUrl);
 };
 
-const withAccessKey = (options = {}) => {
-  const key = getStoredAccessKey();
-  if (!key) return options;
-  const headers = { ...(options.headers || {}), [ACCESS_KEY_HEADER]: key };
-  return { ...options, headers };
+const findServerStateForRequest = (url) => {
+  const requestId = getRequestStorageId(url);
+  if (!requestId) return {};
+  const entries = Object.entries(readServerStateMap())
+    .filter(([, state]) => state && typeof state === 'object' && !Array.isArray(state))
+    .sort(([a], [b]) => b.length - a.length);
+  const match = entries.find(([id]) => {
+    return requestId === id || requestId.startsWith(`${id}/`) || requestId.startsWith(`${id}?`);
+  });
+  return match ? match[1] : {};
+};
+
+const getStoredAccessKey = (baseOrUrl) => {
+  if (baseOrUrl !== undefined) {
+    const state = findServerStateForRequest(baseOrUrl);
+    if (typeof state.accessKey === 'string') {
+      return normalizeAccessKey(state.accessKey);
+    }
+    return getStoredServerAccessKey(baseOrUrl);
+  }
+  return getStoredServerAccessKey();
+};
+
+const withAccessKey = (options = {}, url = '') => {
+  const { accessKey: explicitAccessKey, ...fetchOptions } = options || {};
+  const key = explicitAccessKey !== undefined
+    ? normalizeAccessKey(explicitAccessKey)
+    : getStoredAccessKey(url);
+  if (!key) return fetchOptions;
+  const headers = { ...(fetchOptions.headers || {}), [ACCESS_KEY_HEADER]: key };
+  return { ...fetchOptions, headers };
 };
 
 const appendAccessKeyParam = (url, key) => {
@@ -316,6 +523,14 @@ const formatRateOrSplice = (value, isSplice) => {
   const rate = Number(value || 0);
   if (isSplice && (!rate || rate <= 0)) return SPLICE_DISPLAY_LABEL;
   return formatRate(rate);
+};
+const getRuntimeRate = (value, fallback = 0) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
+};
+const getOptionalRuntimeRate = (value) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
 };
 
 const formatDelay = (value) => {
@@ -646,7 +861,7 @@ const normalizeMetricsPanelEntry = (entry) => {
   );
   const base = normalizeApiBase(rawBase);
   if (!base) return null;
-  const id = getMetricsPanelId(base, rawKey, connRefreshInterval);
+  const id = getMetricsPanelId(base);
   return { id, base, key: rawKey, connRefreshInterval };
 };
 
@@ -705,12 +920,27 @@ const addMetricsPanelHistoryEntry = (
   const entry = normalizeMetricsPanelEntry({ base, key, connRefreshInterval });
   if (!entry) return Array.isArray(items) ? items : [];
   const list = Array.isArray(items) ? items : [];
-  const next = [entry];
+  const next = [];
+  const seen = new Set();
+  let replaced = false;
   list.forEach((item) => {
     const normalized = normalizeMetricsPanelEntry(item);
-    if (!normalized || normalized.id === entry.id) return;
+    if (!normalized) return;
+    if (normalized.id === entry.id) {
+      if (!replaced) {
+        next.push(entry);
+        seen.add(entry.id);
+        replaced = true;
+      }
+      return;
+    }
+    if (seen.has(normalized.id)) return;
+    seen.add(normalized.id);
     next.push(normalized);
   });
+  if (!replaced) {
+    next.unshift(entry);
+  }
   const max = Math.max(1, Math.trunc(Number(limit) || METRICS_PANEL_HISTORY_LIMIT));
   return next.slice(0, max);
 };
@@ -753,9 +983,15 @@ const normalizeConnectionsPayload = (payload) => {
   const source = payload && typeof payload === 'object' ? payload : {};
   const uploadRaw = Number(source.uploadTotal);
   const downloadRaw = Number(source.downloadTotal);
+  const uploadRate = getOptionalRuntimeRate(source.uploadRate);
+  const downloadRate = getOptionalRuntimeRate(source.downloadRate);
   return {
     uploadTotal: Number.isFinite(uploadRaw) ? uploadRaw : 0,
     downloadTotal: Number.isFinite(downloadRaw) ? downloadRaw : 0,
+    uploadRate: uploadRate === null ? 0 : uploadRate,
+    downloadRate: downloadRate === null ? 0 : downloadRate,
+    rateSampledAt: source.rateSampledAt || '',
+    hasRuntimeRates: Boolean(source.rateSampledAt || uploadRate !== null || downloadRate !== null || source.hasRuntimeRates),
     connections: Array.isArray(source.connections) ? source.connections : []
   };
 };
@@ -1285,6 +1521,8 @@ const buildConnectionsView = (list, mode) => {
           metadata: {},
           upload: 0,
           download: 0,
+          uploadRate: 0,
+          downloadRate: 0,
           connectionCount: 0,
           details: [],
           start: detail.start || conn.start || '',
@@ -1309,6 +1547,8 @@ const buildConnectionsView = (list, mode) => {
 
       group.upload += detail.upload || 0;
       group.download += detail.download || 0;
+      group.uploadRate += getRuntimeRate(detail.uploadRate, 0);
+      group.downloadRate += getRuntimeRate(detail.downloadRate, 0);
       group.connectionCount += 1;
       group.details.push(detail);
 
@@ -1348,6 +1588,11 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
   const nextConnections = [];
   let uploadTotal = 0;
   let downloadTotal = 0;
+  let uploadRate = 0;
+  let downloadRate = 0;
+  let hasConnectionRates = false;
+  const payloadUploadRate = getOptionalRuntimeRate(payload.uploadRate);
+  const payloadDownloadRate = getOptionalRuntimeRate(payload.downloadRate);
 
   payload.connections.forEach((conn) => {
     if (!conn || typeof conn !== 'object') return;
@@ -1355,9 +1600,16 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     if (details.length === 0) {
       const upload = conn.upload || 0;
       const download = conn.download || 0;
+      const connUploadRate = getOptionalRuntimeRate(conn.uploadRate);
+      const connDownloadRate = getOptionalRuntimeRate(conn.downloadRate);
       nextConnections.push({ ...conn, details });
       uploadTotal += upload;
       downloadTotal += download;
+      if (connUploadRate !== null || connDownloadRate !== null) {
+        hasConnectionRates = true;
+        uploadRate += connUploadRate || 0;
+        downloadRate += connDownloadRate || 0;
+      }
       return;
     }
     const prunedDetails = details.filter((detail) => {
@@ -1368,8 +1620,26 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     const nextConn = { ...conn, details: prunedDetails };
     const recalculatedUpload = prunedDetails.reduce((sum, detail) => sum + (detail.upload || 0), 0);
     const recalculatedDownload = prunedDetails.reduce((sum, detail) => sum + (detail.download || 0), 0);
+    let recalculatedUploadRate = 0;
+    let recalculatedDownloadRate = 0;
+    let hasDetailRates = false;
+    prunedDetails.forEach((detail) => {
+      const detailUploadRate = getOptionalRuntimeRate(detail.uploadRate);
+      const detailDownloadRate = getOptionalRuntimeRate(detail.downloadRate);
+      if (detailUploadRate === null && detailDownloadRate === null) return;
+      hasDetailRates = true;
+      recalculatedUploadRate += detailUploadRate || 0;
+      recalculatedDownloadRate += detailDownloadRate || 0;
+    });
     nextConn.upload = recalculatedUpload;
     nextConn.download = recalculatedDownload;
+    if (hasDetailRates) {
+      nextConn.uploadRate = recalculatedUploadRate;
+      nextConn.downloadRate = recalculatedDownloadRate;
+      hasConnectionRates = true;
+      uploadRate += recalculatedUploadRate;
+      downloadRate += recalculatedDownloadRate;
+    }
     nextConn.connectionCount = prunedDetails.length;
     uploadTotal += recalculatedUpload;
     downloadTotal += recalculatedDownload;
@@ -1380,7 +1650,11 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     ...payload,
     connections: nextConnections,
     uploadTotal,
-    downloadTotal
+    downloadTotal,
+    uploadRate: payloadUploadRate !== null ? payloadUploadRate : uploadRate,
+    downloadRate: payloadDownloadRate !== null ? payloadDownloadRate : downloadRate,
+    rateSampledAt: payload.rateSampledAt,
+    hasRuntimeRates: Boolean(payload.rateSampledAt || payloadUploadRate !== null || payloadDownloadRate !== null || hasConnectionRates)
   };
 };
 
@@ -1514,7 +1788,7 @@ const DETAIL_COLUMNS = [
 const DETAIL_COLUMN_KEYS = new Set(DETAIL_COLUMNS.map((column) => column.key));
 
 const fetchJson = async (url, options = {}) => {
-  const res = await fetch(url, withAccessKey(options));
+  const res = await fetch(url, withAccessKey(options, url));
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);
@@ -1813,12 +2087,15 @@ export {
   API_BASE_STORAGE_KEY,
   ACCESS_KEY_STORAGE_KEY,
   CONNECTION_REFRESH_STORAGE_KEY,
+  SERVER_STATES_STORAGE_KEY,
   METRICS_PANEL_HISTORY_COOKIE_KEY,
   METRICS_PANEL_HISTORY_LIMIT,
   ACCESS_KEY_HEADER,
   ACCESS_KEY_QUERY,
   ROUTING_DRAFT_STORAGE_KEY,
+  FIREWALL_DRAFT_STORAGE_KEY,
   ROUTING_DRAFT_NOTICE,
+  FIREWALL_DRAFT_NOTICE,
   UI_STATE_SAVE_DELAY_MS,
   MODAL_ANIMATION_MS,
   CONNECTION_REFRESH_OPTIONS,
@@ -1829,7 +2106,15 @@ export {
   parseRoutingDraft,
   getRoutingDraft,
   saveRoutingDraft,
+  parseFirewallDraft,
+  getFirewallDraft,
+  saveFirewallDraft,
   normalizeApiBase,
+  getServerStorageId,
+  getStoredServerAccessKey,
+  setStoredServerAccessKey,
+  getStoredServerRefreshInterval,
+  setStoredServerRefreshInterval,
   getInitialMetricsHttp,
   normalizeAccessKey,
   getInitialMetricsKey,

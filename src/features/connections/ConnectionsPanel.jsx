@@ -228,6 +228,9 @@ export function ConnectionsPanel({
     if (preventManualExpandToggle) return;
     toggleExpanded(id);
   };
+  const connectionHeaderNote = isClosedMode
+    ? 'Recently closed connections. Keeps the latest 500 entries.'
+    : 'Grouped by source IP and destination host/IP. Upload: User -> Acore. Download: Acore -> User.';
 
   return (
     <div
@@ -265,11 +268,6 @@ export function ConnectionsPanel({
         )}
         actions={(
           <>
-            <span className="header-note">
-              {isClosedMode
-                ? 'Recently closed connections. Keeps the latest 500 entries.'
-                : 'Grouped by source IP and destination host/IP. Upload: User -&gt; Acore. Download: Acore -&gt; User.'}
-            </span>
             <HeaderSearchInput
               value={connSearchQuery}
               setValue={setConnSearchQuery}
@@ -278,18 +276,18 @@ export function ConnectionsPanel({
                 : 'Search all fields, including folded details...'}
               ariaLabel={isClosedMode ? 'Search closed connections' : 'Search all connection fields'}
             />
+            <button
+              type="button"
+              className={`view-pill expand-default-toggle connections-expand-action ${connExpandDefaultOpen ? 'active' : ''}`}
+              onClick={toggleConnExpandDefault}
+              title={connExpandDefaultOpen
+                ? 'Default expanded. Click to switch to default collapsed.'
+                : 'Default collapsed. Click to switch to default expanded.'}
+              aria-pressed={connExpandDefaultOpen}
+            >
+              {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
+            </button>
             <div className="view-toggle">
-              <button
-                type="button"
-                className={`view-pill expand-default-toggle ${connExpandDefaultOpen ? 'active' : ''}`}
-                onClick={toggleConnExpandDefault}
-                title={connExpandDefaultOpen
-                  ? 'Default expanded. Click to switch to default collapsed.'
-                  : 'Default collapsed. Click to switch to default expanded.'}
-                aria-pressed={connExpandDefaultOpen}
-              >
-                {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
-              </button>
               <button
                 type="button"
                 className={`view-pill ${connViewMode === 'current' ? 'active' : ''}`}
@@ -312,28 +310,31 @@ export function ConnectionsPanel({
                 Destination
               </button>
             </div>
-            {!isClosedMode ? (
+            <div className="connections-live-actions">
+              {!isClosedMode ? (
+                <button
+                  type="button"
+                  className="pill conn-close-all"
+                  onClick={handleCloseAllConnections}
+                  disabled={closingAllConnections || !canCloseAllConnections}
+                  title="Close all visible connections"
+                >
+                  {closingAllConnections ? 'Closing...' : 'Close all'}
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="pill conn-close-all"
-                onClick={handleCloseAllConnections}
-                disabled={closingAllConnections || !canCloseAllConnections}
-                title="Close all visible connections"
+                className={`pill ${connStreamLabel}`}
+                onClick={toggleConnStream}
+                title={connStreamPaused ? 'Resume live updates' : 'Pause live updates'}
               >
-                {closingAllConnections ? 'Closing...' : 'Close all'}
+                {connStreamLabel}
               </button>
-            ) : null}
-            <button
-              type="button"
-              className={`pill ${connStreamLabel}`}
-              onClick={toggleConnStream}
-              title={connStreamPaused ? 'Resume live updates' : 'Pause live updates'}
-            >
-              {connStreamLabel}
-            </button>
+            </div>
           </>
         )}
       />
+      <div className="connections-header-note">{connectionHeaderNote}</div>
       {renderDetailColumnControls('connections-columns-toolbar')}
       <div className={`connections-table-wrap${connectionsPerfMode ? ' connections-table-wrap-perf' : ''}`}>
         <div className="table connections-table">

@@ -1,5 +1,20 @@
 import { PageNav } from './PageNav';
+import { getHeroTitleClassName, useHeroLayout } from './heroLayout';
 import { formatMetricsPanelOptionLabel } from '../../dashboardShared';
+
+function HeroTitleBlock({ pageMeta }) {
+  return (
+    <div className="hero-main">
+      <p className="eyebrow">Acore Control</p>
+      <div className="hero-title-row">
+        <h1 className={getHeroTitleClassName(pageMeta.title)}>
+          {pageMeta.title}
+        </h1>
+      </div>
+      <p className="subhead">{pageMeta.description}</p>
+    </div>
+  );
+}
 
 export function HeroHeader({
   page,
@@ -8,10 +23,12 @@ export function HeroHeader({
   metricsPanelHistory,
   currentMetricsPanelId,
   applySavedMetricsPanel,
-  formatBytes,
-  connections,
-  totalSessions
+  formatRate,
+  totalSessions,
+  liveUploadRate,
+  liveDownloadRate
 }) {
+  const { heroRef, heroClassName } = useHeroLayout(pageMeta?.title);
   const savedMetrics = Array.isArray(metricsPanelHistory) ? metricsPanelHistory : [];
   const hasSavedMetrics = savedMetrics.length > 0;
   const selectedMetricsId = hasSavedMetrics
@@ -30,17 +47,8 @@ export function HeroHeader({
   };
 
   return (
-    <header className="hero">
-      <div className={`hero-main${page === 'connections' ? ' hero-main-connections' : ''}`}>
-        <p className="eyebrow">Acore Control</p>
-        <div className={`hero-title-row${page === 'connections' ? ' is-connections' : ''}`}>
-          <h1 className={`hero-page-title${page === 'connections' ? ' hero-page-title-nowrap' : ''}`}>
-            {pageMeta.title}
-          </h1>
-        </div>
-        <p className={`subhead ${page === 'connections' ? 'nowrap' : ''}`}>{pageMeta.description}</p>
-        <PageNav page={page} pages={PAGES} />
-      </div>
+    <header className={heroClassName} ref={heroRef}>
+      <HeroTitleBlock pageMeta={pageMeta} />
       <div className="hero-side">
         <div className="hero-stats">
           <div className="hero-metrics-switch">
@@ -59,20 +67,23 @@ export function HeroHeader({
               ))}
             </select>
           </div>
-          <div className="stat-card">
-            <span>Upload</span>
-            <strong>{formatBytes(connections.uploadTotal)}</strong>
-          </div>
-          <div className="stat-card">
-            <span>Download</span>
-            <strong>{formatBytes(connections.downloadTotal)}</strong>
-          </div>
-          <div className="stat-card">
-            <span>Sessions</span>
-            <strong>{totalSessions}</strong>
+          <div className="hero-traffic-tip" title="Live connection summary">
+            <div className="hero-traffic-tip-item">
+              <span>Upload</span>
+              <strong>{formatRate(liveUploadRate || 0)}</strong>
+            </div>
+            <div className="hero-traffic-tip-item">
+              <span>Download</span>
+              <strong>{formatRate(liveDownloadRate || 0)}</strong>
+            </div>
+            <div className="hero-traffic-tip-item">
+              <span>Sessions</span>
+              <strong>{totalSessions}</strong>
+            </div>
           </div>
         </div>
       </div>
+      <PageNav page={page} pages={PAGES} />
     </header>
   );
 }

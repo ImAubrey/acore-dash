@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   EmptyState,
   HeaderSearchInput,
@@ -5,6 +6,7 @@ import {
   PanelHeader,
   StatusText
 } from '../common/panelPrimitives';
+import { getRuleOrderChanges, useSortableRuleList } from '../common/useSortableRuleList';
 import { getFirewallRuleList, normalizeFirewallRule } from '../../dashboardShared';
 
 const FIREWALL_ACTION_LABELS = {
@@ -122,6 +124,8 @@ export function FirewallPanel({
   hotReloadBusy,
   openRulesModal,
   configFirewall,
+  configFirewallBaseline,
+  hasFirewallDraft,
   filteredFirewallEntries,
   normalizedFirewallSearchQuery,
   configFirewallPath,
@@ -131,14 +135,32 @@ export function FirewallPanel({
   setConfigFirewall,
   saveFirewallConfig,
   firewallConfigSaving,
+  discardFirewallDraftBusy,
+  discardFirewallDraft,
+  reorderFirewallRules,
   highlightFirewallCell
 }) {
-  if (page !== 'firewall') {
-    return null;
-  }
+  const {
+    draggedIndex: draggedFirewallRuleIndex,
+    clearDragState: clearFirewallDragState,
+    handleDragStart: handleFirewallDragStart,
+    handleDragOver: handleFirewallDragOver,
+    handleDragLeave: handleFirewallDragLeave,
+    handleDrop: handleFirewallDrop,
+    getDropPositionForIndex
+  } = useSortableRuleList({ onReorder: reorderFirewallRules });
 
   const firewall = configFirewall && typeof configFirewall === 'object' ? configFirewall : {};
   const firewallRules = getFirewallRuleList(firewall);
+  const baselineFirewallRules = getFirewallRuleList(configFirewallBaseline);
+  const firewallOrderChanges = useMemo(
+    () => getRuleOrderChanges(firewallRules, baselineFirewallRules, hasFirewallDraft),
+    [firewallRules, baselineFirewallRules, hasFirewallDraft]
+  );
+
+  if (page !== 'firewall') {
+    return null;
+  }
 
   return (
     <section className="panel firewall" style={{ '--delay': '0.19s' }}>
@@ -162,6 +184,10 @@ export function FirewallPanel({
           <HotReloadButton
             busy={hotReloadBusy}
             onClick={triggerHotReloadFromFirewall}
+            draftVisible={hasFirewallDraft}
+            draftBusy={discardFirewallDraftBusy}
+            onUndoDraft={discardFirewallDraft}
+            undoDraftTitle="Discard unsaved firewall draft edits"
           />
           <button className="primary small" onClick={() => openRulesModal('firewallRule', 'insert')}>
             Add firewall rule
@@ -170,40 +196,8 @@ export function FirewallPanel({
         )}
       />
 
-      <div className="rules-grid">
-        <div className="group-card firewall-settings-card">
-          <div className="group-header">
-            <div>
-              <h3>Firewall config</h3>
-              <p className="group-meta">Top-level firewall section that follows routed connection facts.</p>
-              {configFirewallPath ? (
-                <p className="group-meta mono">Config: {configFirewallPath}</p>
-              ) : null}
-            </div>
-            <div className="rules-editor-actions">
-              <button className="ghost small" onClick={() => loadFirewallConfig(apiBase)}>
-                Reload config
-              </button>
-              <button
-                className="primary small"
-                onClick={() => saveFirewallConfig()}
-                disabled={firewallConfigSaving}
-              >
-                {firewallConfigSaving ? 'Saving...' : 'Save firewall'}
-              </button>
-            </div>
-          </div>
-
-          <div className="settings-inline">
-            <div className="control-block">
-              <label>rule count</label>
-              <p className="group-meta mono">{firewallRules.length}</p>
-              <span className="hint">Rules are evaluated in order and follow the routed result instead of a separate firewall DNS strategy.</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="group-card">
+      <div className="rules-grid firewall-grid">
+        <div className="group-card firewall-rules-card">
           <div className="group-header">
             <div>
               <h3>Firewall rules</h3>
@@ -227,19 +221,50 @@ export function FirewallPanel({
           ) : filteredFirewallEntries.length === 0 ? (
             <EmptyState small message="No matching firewall rules." />
           ) : (
-            <div className="rules-list">
+            <div className="rules-list rules-list-sortable">
               {filteredFirewallEntries.map(({ rule, index }) => {
                 const title = buildFirewallTitle(rule, index);
                 const summary = buildFirewallSummary(rule);
                 const action = resolveFirewallAction(rule?.action);
                 const limitSummary = buildFirewallLimitSummary(rule);
+                const dropPosition = getDropPositionForIndex(index);
+                const orderChange = firewallOrderChanges.get(index);
+                const dragClassName = [
+                  'rule-item',
+                  'rule-item-sortable',
+                  'firewall-rule',
+                  `firewall-rule-${action.tone}`,
+                  draggedFirewallRuleIndex === index ? 'rule-item-dragging' : '',
+                  dropPosition === 'before' ? 'rule-item-drop-before' : '',
+                  dropPosition === 'after' ? 'rule-item-drop-after' : ''
+                ].filter(Boolean).join(' ');
 
                 return (
-                  <div className={`rule-item firewall-rule firewall-rule-${action.tone}`} key={`firewall-rule:${index}:${title}`}>
+                  <div
+                    className={dragClassName}
+                    key={`firewall-rule:${index}:${title}`}
+                    onDragOver={(event) => handleFirewallDragOver(event, index)}
+                    onDragLeave={() => handleFirewallDragLeave(index)}
+                    onDrop={(event) => handleFirewallDrop(event, index)}
+                  >
                     <div className="rule-summary">
                       <div className="rule-main">
                         <div className="rule-title firewall-rule-title">
-                          <span className="rule-index">{index + 1}</span>
+                          <span
+                            className={`rule-index rule-drag-handle${orderChange ? ' rule-index-warning' : ''}`}
+                            draggable
+                            title="Drag to reorder"
+                            aria-label={`Drag firewall rule ${index + 1}`}
+                            onDragStart={(event) => handleFirewallDragStart(event, index)}
+                            onDragEnd={clearFirewallDragState}
+                          >
+                            {index + 1}
+                          </span>
+                          {orderChange ? (
+                            <span className="rule-index-change" title="Unsaved order change">
+                              {orderChange}
+                            </span>
+                          ) : null}
                           <h4 className="mono">{highlightFirewallCell(title)}</h4>
                           <span className={`meta-pill firewall-action-pill ${action.tone}`}>
                             {highlightFirewallCell(action.label)}
@@ -274,6 +299,38 @@ export function FirewallPanel({
               })}
             </div>
           )}
+        </div>
+
+        <div className="group-card firewall-settings-card">
+          <div className="group-header">
+            <div>
+              <h3>Firewall config</h3>
+              <p className="group-meta">Top-level firewall section that follows routed connection facts.</p>
+              {configFirewallPath ? (
+                <p className="group-meta mono">Config: {configFirewallPath}</p>
+              ) : null}
+            </div>
+            <div className="rules-editor-actions">
+              <button className="ghost small" onClick={() => loadFirewallConfig(apiBase)}>
+                Reload config
+              </button>
+              <button
+                className="primary small"
+                onClick={() => saveFirewallConfig()}
+                disabled={firewallConfigSaving}
+              >
+                {firewallConfigSaving ? 'Saving...' : 'Save firewall'}
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-inline">
+            <div className="control-block">
+              <label>rule count</label>
+              <p className="group-meta mono">{firewallRules.length}</p>
+              <span className="hint">Rules are evaluated in order and follow the routed result instead of a separate firewall DNS strategy.</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>

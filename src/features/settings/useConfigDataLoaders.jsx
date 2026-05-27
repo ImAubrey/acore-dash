@@ -1,6 +1,9 @@
 import {
+  FIREWALL_DRAFT_NOTICE,
   ROUTING_DRAFT_NOTICE,
+  getFirewallDraft,
   getRoutingDraft,
+  saveFirewallDraft,
   saveRoutingDraft,
   fetchJson,
   normalizeFirewallConfig,
@@ -12,6 +15,7 @@ import {
 export function useConfigDataLoaders({
   apiBase,
   configRulesPath,
+  configFirewallPath,
   setOutbounds,
   setGroups,
   setStatusByTag,
@@ -19,10 +23,16 @@ export function useConfigDataLoaders({
   setStatus,
   setRulesData,
   setConfigRules,
+  configRulesBaseline,
+  setConfigRulesBaseline,
+  setHasRoutingDraft,
   setConfigBalancers,
   setConfigRulesStatus,
   setConfigRulesPath,
   setConfigFirewall,
+  configFirewallBaseline,
+  setConfigFirewallBaseline,
+  setHasFirewallDraft,
   setConfigFirewallStatus,
   setConfigFirewallPath,
   setConfigOutbounds,
@@ -133,13 +143,20 @@ export function useConfigDataLoaders({
     return data;
   };
 
-  const applyRoutingDraft = (draft, fallbackPath = '') => {
+  const applyRoutingDraft = (draft, fallbackPath = '', fallbackRules = null) => {
     const nextRules = Array.isArray(draft?.rules) ? draft.rules : [];
     const nextBalancers = Array.isArray(draft?.balancers) ? draft.balancers : [];
+    const nextBaseRules = Array.isArray(draft?.baseRules) && draft.baseRules.length > 0
+      ? draft.baseRules
+      : Array.isArray(fallbackRules)
+        ? fallbackRules
+        : configRulesBaseline;
     const nextPath = draft?.path || fallbackPath || '';
     setConfigRules(nextRules);
+    setConfigRulesBaseline(Array.isArray(nextBaseRules) ? nextBaseRules : []);
     setConfigBalancers(nextBalancers);
     setConfigRulesPath(nextPath);
+    setHasRoutingDraft(true);
     setConfigRulesStatus(ROUTING_DRAFT_NOTICE);
   };
 
@@ -147,9 +164,37 @@ export function useConfigDataLoaders({
     saveRoutingDraft({
       rules: Array.isArray(nextRules) ? nextRules : [],
       balancers: Array.isArray(nextBalancers) ? nextBalancers : [],
+      baseRules: Array.isArray(configRulesBaseline) ? configRulesBaseline : [],
       path: configRulesPath || ''
-    });
+    }, apiBase);
+    setHasRoutingDraft(true);
     setConfigRulesStatus(ROUTING_DRAFT_NOTICE);
+  };
+
+  const applyFirewallDraft = (draft, fallbackPath = '', fallbackFirewall = null) => {
+    const nextFirewall = normalizeFirewallConfig(draft?.firewall);
+    const nextBaseFirewall = draft?.baseFirewall && Object.keys(draft.baseFirewall).length > 0
+      ? normalizeFirewallConfig(draft.baseFirewall)
+      : fallbackFirewall
+        ? normalizeFirewallConfig(fallbackFirewall)
+        : configFirewallBaseline;
+    const nextPath = draft?.path || fallbackPath || '';
+    setConfigFirewall(nextFirewall);
+    setConfigFirewallBaseline(normalizeFirewallConfig(nextBaseFirewall));
+    setConfigFirewallPath(nextPath);
+    setHasFirewallDraft(true);
+    setConfigFirewallStatus(FIREWALL_DRAFT_NOTICE);
+  };
+
+  const stageFirewallDraft = (nextFirewall) => {
+    const normalized = normalizeFirewallConfig(nextFirewall);
+    saveFirewallDraft({
+      firewall: normalized,
+      baseFirewall: normalizeFirewallConfig(configFirewallBaseline),
+      path: configFirewallPath || ''
+    }, apiBase);
+    setHasFirewallDraft(true);
+    setConfigFirewallStatus(FIREWALL_DRAFT_NOTICE);
   };
 
   const loadRulesConfig = async (base = apiBase) => {
@@ -160,13 +205,15 @@ export function useConfigDataLoaders({
       const rules = Array.isArray(routing.rules) ? routing.rules : [];
       const balancers = Array.isArray(routing.balancers) ? routing.balancers : [];
       const path = resp.path || '';
-      const draft = getRoutingDraft();
+      const draft = getRoutingDraft(base);
       if (draft) {
-        applyRoutingDraft(draft, path);
+        applyRoutingDraft(draft, path, rules);
       } else {
         setConfigRules(rules);
+        setConfigRulesBaseline(rules);
         setConfigBalancers(balancers);
         setConfigRulesPath(path);
+        setHasRoutingDraft(false);
         if (resp.foundRouting === false) {
           setConfigRulesStatus('Routing section not found; saving will create it.');
         } else {
@@ -175,7 +222,7 @@ export function useConfigDataLoaders({
       }
       return resp;
     } catch (err) {
-      const draft = getRoutingDraft();
+      const draft = getRoutingDraft(base);
       if (draft) {
         applyRoutingDraft(draft, configRulesPath);
         setConfigRulesStatus(`${ROUTING_DRAFT_NOTICE} (Config load failed: ${err.message})`);
@@ -191,15 +238,29 @@ export function useConfigDataLoaders({
     try {
       const resp = await fetchJson(`${base}/config/firewall`);
       const firewall = normalizeFirewallConfig(resp?.firewall);
-      setConfigFirewall(firewall);
-      setConfigFirewallPath(resp.path || '');
-      if (resp.foundFirewall === false) {
-        setConfigFirewallStatus('Firewall section not found; saving will create it.');
+      const path = resp.path || '';
+      const draft = getFirewallDraft(base);
+      if (draft) {
+        applyFirewallDraft(draft, path, firewall);
       } else {
-        setConfigFirewallStatus('');
+        setConfigFirewall(firewall);
+        setConfigFirewallBaseline(firewall);
+        setConfigFirewallPath(path);
+        setHasFirewallDraft(false);
+        if (resp.foundFirewall === false) {
+          setConfigFirewallStatus('Firewall section not found; saving will create it.');
+        } else {
+          setConfigFirewallStatus('');
+        }
       }
       return resp;
     } catch (err) {
+      const draft = getFirewallDraft(base);
+      if (draft) {
+        applyFirewallDraft(draft, configFirewallPath);
+        setConfigFirewallStatus(`${FIREWALL_DRAFT_NOTICE} (Config load failed: ${err.message})`);
+        return null;
+      }
       setConfigFirewallStatus(`Config load failed: ${err.message}`);
       throw err;
     }
@@ -297,22 +358,68 @@ export function useConfigDataLoaders({
   };
 
   const uploadRoutingDraft = async (base = apiBase) => {
-    const draft = getRoutingDraft();
+    const draft = getRoutingDraft(base);
     if (!draft) return false;
+    const nextRules = Array.isArray(draft.rules) ? draft.rules : [];
+    const nextBalancers = Array.isArray(draft.balancers) ? draft.balancers : [];
     await fetchJson(`${base}/config/routing`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         routing: {
-          rules: Array.isArray(draft.rules) ? draft.rules : [],
-          balancers: Array.isArray(draft.balancers) ? draft.balancers : []
+          rules: nextRules,
+          balancers: nextBalancers
         },
         path: draft.path || undefined
       })
     });
-    saveRoutingDraft(null);
+    saveRoutingDraft(null, base);
+    setConfigRulesBaseline(nextRules);
+    setHasRoutingDraft(false);
     setConfigRulesStatus('');
     return true;
+  };
+
+  const uploadFirewallDraft = async (base = apiBase) => {
+    const draft = getFirewallDraft(base);
+    if (!draft) return false;
+    const firewall = normalizeFirewallConfig(draft.firewall);
+    await fetchJson(`${base}/config/firewall`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firewall,
+        path: draft.path || undefined
+      })
+    });
+    saveFirewallDraft(null, base);
+    setConfigFirewall(firewall);
+    setConfigFirewallBaseline(firewall);
+    setHasFirewallDraft(false);
+    setConfigFirewallStatus('');
+    return true;
+  };
+
+  const discardRoutingDraft = async (base = apiBase) => {
+    saveRoutingDraft(null, base);
+    setHasRoutingDraft(false);
+    try {
+      await loadRulesConfig(base);
+      setConfigRulesStatus('Discarded local routing edits.');
+    } catch (err) {
+      setConfigRulesStatus(`Discarded local edits. Config reload failed: ${err.message}`);
+    }
+  };
+
+  const discardFirewallDraft = async (base = apiBase) => {
+    saveFirewallDraft(null, base);
+    setHasFirewallDraft(false);
+    try {
+      await loadFirewallConfig(base);
+      setConfigFirewallStatus('Discarded local firewall edits.');
+    } catch (err) {
+      setConfigFirewallStatus(`Discarded local edits. Config reload failed: ${err.message}`);
+    }
   };
 
   return {
@@ -322,6 +429,7 @@ export function useConfigDataLoaders({
     triggerDnsCacheFlushFromSettings,
     fetchRules,
     stageRoutingDraft,
+    stageFirewallDraft,
     loadRulesConfig,
     loadFirewallConfig,
     loadOutboundsConfig,
@@ -329,6 +437,9 @@ export function useConfigDataLoaders({
     refresh,
     loadSettings,
     loadRestartInfo,
-    uploadRoutingDraft
+    uploadRoutingDraft,
+    uploadFirewallDraft,
+    discardRoutingDraft,
+    discardFirewallDraft
   };
 }

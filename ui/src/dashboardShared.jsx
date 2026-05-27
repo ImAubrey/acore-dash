@@ -248,6 +248,14 @@ const formatRateOrSplice = (value, isSplice) => {
   if (isSplice && (!rate || rate <= 0)) return SPLICE_DISPLAY_LABEL;
   return formatRate(rate);
 };
+const getRuntimeRate = (value, fallback = 0) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
+};
+const getOptionalRuntimeRate = (value) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
+};
 
 const formatDelay = (value) => {
   const num = Number(value || 0);
@@ -462,9 +470,15 @@ const normalizeConnectionsPayload = (payload) => {
   const source = payload && typeof payload === 'object' ? payload : {};
   const uploadRaw = Number(source.uploadTotal);
   const downloadRaw = Number(source.downloadTotal);
+  const uploadRate = getOptionalRuntimeRate(source.uploadRate);
+  const downloadRate = getOptionalRuntimeRate(source.downloadRate);
   return {
     uploadTotal: Number.isFinite(uploadRaw) ? uploadRaw : 0,
     downloadTotal: Number.isFinite(downloadRaw) ? downloadRaw : 0,
+    uploadRate: uploadRate === null ? 0 : uploadRate,
+    downloadRate: downloadRate === null ? 0 : downloadRate,
+    rateSampledAt: source.rateSampledAt || '',
+    hasRuntimeRates: Boolean(source.rateSampledAt || uploadRate !== null || downloadRate !== null || source.hasRuntimeRates),
     connections: Array.isArray(source.connections) ? source.connections : []
   };
 };
@@ -750,6 +764,8 @@ const buildConnectionsView = (list, mode) => {
           metadata: {},
           upload: 0,
           download: 0,
+          uploadRate: 0,
+          downloadRate: 0,
           connectionCount: 0,
           details: [],
           start: detail.start || conn.start || '',
@@ -774,6 +790,8 @@ const buildConnectionsView = (list, mode) => {
 
       group.upload += detail.upload || 0;
       group.download += detail.download || 0;
+      group.uploadRate += getRuntimeRate(detail.uploadRate, 0);
+      group.downloadRate += getRuntimeRate(detail.downloadRate, 0);
       group.connectionCount += 1;
       group.details.push(detail);
 
@@ -813,6 +831,11 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
   const nextConnections = [];
   let uploadTotal = 0;
   let downloadTotal = 0;
+  let uploadRate = 0;
+  let downloadRate = 0;
+  let hasConnectionRates = false;
+  const payloadUploadRate = getOptionalRuntimeRate(payload.uploadRate);
+  const payloadDownloadRate = getOptionalRuntimeRate(payload.downloadRate);
 
   payload.connections.forEach((conn) => {
     if (!conn || typeof conn !== 'object') return;
@@ -820,9 +843,16 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     if (details.length === 0) {
       const upload = conn.upload || 0;
       const download = conn.download || 0;
+      const connUploadRate = getOptionalRuntimeRate(conn.uploadRate);
+      const connDownloadRate = getOptionalRuntimeRate(conn.downloadRate);
       nextConnections.push({ ...conn, details });
       uploadTotal += upload;
       downloadTotal += download;
+      if (connUploadRate !== null || connDownloadRate !== null) {
+        hasConnectionRates = true;
+        uploadRate += connUploadRate || 0;
+        downloadRate += connDownloadRate || 0;
+      }
       return;
     }
     const prunedDetails = details.filter((detail) => {
@@ -833,8 +863,26 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     const nextConn = { ...conn, details: prunedDetails };
     const recalculatedUpload = prunedDetails.reduce((sum, detail) => sum + (detail.upload || 0), 0);
     const recalculatedDownload = prunedDetails.reduce((sum, detail) => sum + (detail.download || 0), 0);
+    let recalculatedUploadRate = 0;
+    let recalculatedDownloadRate = 0;
+    let hasDetailRates = false;
+    prunedDetails.forEach((detail) => {
+      const detailUploadRate = getOptionalRuntimeRate(detail.uploadRate);
+      const detailDownloadRate = getOptionalRuntimeRate(detail.downloadRate);
+      if (detailUploadRate === null && detailDownloadRate === null) return;
+      hasDetailRates = true;
+      recalculatedUploadRate += detailUploadRate || 0;
+      recalculatedDownloadRate += detailDownloadRate || 0;
+    });
     nextConn.upload = recalculatedUpload;
     nextConn.download = recalculatedDownload;
+    if (hasDetailRates) {
+      nextConn.uploadRate = recalculatedUploadRate;
+      nextConn.downloadRate = recalculatedDownloadRate;
+      hasConnectionRates = true;
+      uploadRate += recalculatedUploadRate;
+      downloadRate += recalculatedDownloadRate;
+    }
     nextConn.connectionCount = prunedDetails.length;
     uploadTotal += recalculatedUpload;
     downloadTotal += recalculatedDownload;
@@ -845,7 +893,11 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
     ...payload,
     connections: nextConnections,
     uploadTotal,
-    downloadTotal
+    downloadTotal,
+    uploadRate: payloadUploadRate !== null ? payloadUploadRate : uploadRate,
+    downloadRate: payloadDownloadRate !== null ? payloadDownloadRate : downloadRate,
+    rateSampledAt: payload.rateSampledAt,
+    hasRuntimeRates: Boolean(payload.rateSampledAt || payloadUploadRate !== null || payloadDownloadRate !== null || hasConnectionRates)
   };
 };
 

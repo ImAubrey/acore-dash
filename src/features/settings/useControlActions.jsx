@@ -1,6 +1,7 @@
 import {
   clearTimeoutRef,
   fetchJson,
+  getFirewallDraft,
   getRoutingDraft,
   scheduleModalClose,
   startCooldown
@@ -17,6 +18,7 @@ export function useControlActions({
   setConfigSubscriptionStatus,
   setConfigInboundsStatus,
   uploadRoutingDraft,
+  uploadFirewallDraft,
   refresh,
   loadRestartInfo,
   fetchNodes,
@@ -134,10 +136,15 @@ export function useControlActions({
     setHotReloadBusy(true);
     announceHotReloadStatus('Triggering hot reload...', announceFn);
     try {
-      const hasDraft = !!getRoutingDraft();
+      const hasDraft = !!getRoutingDraft(apiBase);
       if (hasDraft) {
         announceHotReloadStatus('Uploading pending routing edits...', announceFn);
         await uploadRoutingDraft(apiBase);
+      }
+      const hasFirewallDraft = !!getFirewallDraft(apiBase);
+      if (hasFirewallDraft) {
+        announceHotReloadStatus('Uploading pending firewall edits...', announceFn);
+        await uploadFirewallDraft(apiBase);
       }
       const resp = await fetchJson(`${apiBase}/core/hotreload`, {
         method: 'POST',
@@ -237,11 +244,22 @@ export function useControlActions({
       return;
     }
     startRestartCooldown(3);
-    const hasDraft = !!getRoutingDraft();
+    const hasDraft = !!getRoutingDraft(apiBase);
     if (hasDraft) {
       setSettingsStatus('Uploading pending routing edits...');
       try {
         await uploadRoutingDraft(apiBase);
+      } catch (err) {
+        setSettingsStatus(`Upload failed: ${err.message}`);
+        setRestartConfirmBusy(false);
+        return;
+      }
+    }
+    const hasFirewallDraft = !!getFirewallDraft(apiBase);
+    if (hasFirewallDraft) {
+      setSettingsStatus('Uploading pending firewall edits...');
+      try {
+        await uploadFirewallDraft(apiBase);
       } catch (err) {
         setSettingsStatus(`Upload failed: ${err.message}`);
         setRestartConfirmBusy(false);
