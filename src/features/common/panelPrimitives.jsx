@@ -171,9 +171,10 @@ export function HotReloadButton({
   const showUndo = typeof draftVisible === 'boolean' ? draftVisible : hasLocalRoutingDraft;
   const undoBusy = typeof draftBusy === 'boolean' ? draftBusy : discardRoutingDraftBusy;
   const undoHandler = typeof onUndoDraft === 'function' ? onUndoDraft : discardRoutingDraft;
+  const hotReloadClassName = joinClassNames(className, 'hot-reload-button');
 
   return (
-    <>
+    <span className="hot-reload-actions">
       <UndoLocalChangesButton
         visible={showUndo}
         busy={undoBusy}
@@ -183,14 +184,14 @@ export function HotReloadButton({
         title={undoDraftTitle}
       />
       <button
-        className={className}
+        className={hotReloadClassName}
         onClick={onClick}
         disabled={disabled || busy}
         title={title}
       >
         {busy ? busyLabel : idleLabel}
       </button>
-    </>
+    </span>
   );
 }
 

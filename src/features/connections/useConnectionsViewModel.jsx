@@ -3,6 +3,11 @@ import {
   CONNECTION_SORT_FIELDS,
   DETAIL_COLUMNS,
   buildConnectionsView,
+  getDetailDestinationLabel,
+  getDetailKey,
+  getDetailLastSeen,
+  getDetailSourceLabel,
+  parseTimestamp,
   toSearchText,
   toRuleSearchText
 } from '../../dashboardShared';
@@ -19,6 +24,7 @@ export function useConnectionsViewModel({
   connListMode,
   connViewMode,
   connRates,
+  detailRates,
   connSortKey,
   connSortDir,
   setConnSortKey,
@@ -96,29 +102,96 @@ export function useConnectionsViewModel({
   const liveConnections = Array.isArray(connections?.connections) ? connections.connections : [];
   const closedList = Array.isArray(closedConnections) ? closedConnections : [];
 
-  const sortConnections = (list, useRateForTraffic = true) => {
-    if (connSortKey === 'default' || !CONNECTION_SORT_FIELDS[connSortKey]) return list;
-    const dir = connSortDir === 'asc' ? 1 : -1;
+  const getSortDirection = () => (connSortDir === 'asc' ? 1 : -1);
+
+  const compareSortValues = (aValue, bValue, field, dir) => {
+    if (field.type !== 'number') {
+      return CONNECTION_TEXT_COLLATOR.compare(String(aValue), String(bValue)) * dir;
+    }
+    const diff = (aValue || 0) - (bValue || 0);
+    if (Number.isNaN(diff)) return 0;
+    return diff * dir;
+  };
+
+  const getConnectionSortValue = (conn, useRateForTraffic) => {
     const field = CONNECTION_SORT_FIELDS[connSortKey];
-    const getValue = (conn) => {
-      if (useRateForTraffic && connSortKey === 'upload') {
-        return connRates.get(conn.id)?.upload || 0;
+    if (!field) return '';
+    if (useRateForTraffic && connSortKey === 'upload') {
+      return connRates.get(conn.id)?.upload || 0;
+    }
+    if (useRateForTraffic && connSortKey === 'download') {
+      return connRates.get(conn.id)?.download || 0;
+    }
+    return field.getValue(conn);
+  };
+
+  const getDetailTrafficSortValue = (conn, detail, index, key, useRateForTraffic) => {
+    if (useRateForTraffic) {
+      if (detail?.id) {
+        const detailKey = getDetailKey(conn.id, detail, index);
+        const liveRate = detailRates?.get(detailKey)?.[key];
+        if (Number.isFinite(liveRate)) return liveRate;
       }
-      if (useRateForTraffic && connSortKey === 'download') {
-        return connRates.get(conn.id)?.download || 0;
-      }
-      return field.getValue(conn);
+      const rawRate = Number(detail?.[`${key}Rate`]);
+      if (Number.isFinite(rawRate) && rawRate >= 0) return rawRate;
+      return 0;
+    }
+    const rawTotal = Number(detail?.[key]);
+    return Number.isFinite(rawTotal) && rawTotal >= 0 ? rawTotal : 0;
+  };
+
+  const getDetailSortValue = (conn, detail, index, useRateForTraffic) => {
+    switch (connSortKey) {
+      case 'destination':
+        return getDetailDestinationLabel(detail);
+      case 'source':
+        return getDetailSourceLabel(detail);
+      case 'rule':
+        return detail?.rulePayload || detail?.rule || conn?.rulePayload || conn?.rule || '-';
+      case 'upload':
+        return getDetailTrafficSortValue(conn, detail, index, 'upload', useRateForTraffic);
+      case 'download':
+        return getDetailTrafficSortValue(conn, detail, index, 'download', useRateForTraffic);
+      case 'sessions':
+        return parseTimestamp(getDetailLastSeen(detail));
+      default:
+        return '';
+    }
+  };
+
+  const sortConnectionDetails = (conn, useRateForTraffic) => {
+    const field = CONNECTION_SORT_FIELDS[connSortKey];
+    const details = Array.isArray(conn?.details) ? conn.details : [];
+    if (!field || connSortKey === 'default' || details.length < 2) return conn;
+
+    const dir = getSortDirection();
+    const sortedDetails = details
+      .map((detail, index) => ({
+        detail,
+        index,
+        value: getDetailSortValue(conn, detail, index, useRateForTraffic)
+      }))
+      .sort((a, b) => {
+        const compared = compareSortValues(a.value, b.value, field, dir);
+        return compared || a.index - b.index;
+      });
+    const changed = sortedDetails.some((entry, index) => entry.index !== index);
+    if (!changed) return conn;
+    return {
+      ...conn,
+      details: sortedDetails.map((entry) => entry.detail)
     };
+  };
+
+  const sortConnectionList = (list, useRateForTraffic = true) => {
+    if (connSortKey === 'default' || !CONNECTION_SORT_FIELDS[connSortKey]) return list;
+    const dir = getSortDirection();
+    const field = CONNECTION_SORT_FIELDS[connSortKey];
     return [...list].sort((a, b) => {
-      const aValue = getValue(a);
-      const bValue = getValue(b);
-      if (field.type !== 'number') {
-        return CONNECTION_TEXT_COLLATOR.compare(String(aValue), String(bValue)) * dir;
-      }
-      const diff = (aValue || 0) - (bValue || 0);
-      if (Number.isNaN(diff)) return 0;
-      return diff * dir;
-    });
+      const aValue = getConnectionSortValue(a, useRateForTraffic);
+      const bValue = getConnectionSortValue(b, useRateForTraffic);
+      return compareSortValues(aValue, bValue, field, dir);
+    }).map((conn) => sortConnectionDetails(conn, useRateForTraffic));
   };
 
   const displayConnections = useMemo(
@@ -133,13 +206,13 @@ export function useConnectionsViewModel({
 
   const sortedConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
-    return sortConnections(displayConnections || [], true);
-  }, [displayConnections, connRates, connSortKey, connSortDir, isConnectionsPage]);
+    return sortConnectionList(displayConnections || [], true);
+  }, [displayConnections, connRates, detailRates, connSortKey, connSortDir, isConnectionsPage]);
 
   const sortedClosedConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
-    return sortConnections(displayClosedConnections || [], false);
-  }, [displayClosedConnections, connSortKey, connSortDir, isConnectionsPage]);
+    return sortConnectionList(displayClosedConnections || [], false);
+  }, [displayClosedConnections, detailRates, connSortKey, connSortDir, isConnectionsPage]);
 
   const filteredConnections = useMemo(() => {
     if (!isConnectionsPage) return [];

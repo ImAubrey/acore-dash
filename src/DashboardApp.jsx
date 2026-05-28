@@ -63,8 +63,6 @@ import {
   formatJsonText,
   FAILED_STATUS_TEXT_REGEX,
   isFailedStatusText,
-  normalizeBalancerStrategy,
-  getBalancerStrategyTone,
   clearTimeoutRef,
   clearIntervalRef,
   scheduleModalClose,
@@ -157,6 +155,51 @@ import {
 } from './dashboardShared';
 
 const MAX_CLOSED_CONNECTIONS = 500;
+const EMPTY_OUTBOUND_STATS = new Map();
+
+const getPositiveNumber = (value, fallback = 0) => {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : fallback;
+};
+
+const getOptionalPositiveNumber = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : null;
+};
+
+const getOutboundStatsTag = (item, fallback = '') => String(
+  item?.metadata?.outboundTag
+  || item?.outboundTag
+  || fallback
+  || ''
+).trim();
+
+const getOutboundStatsItemKey = (conn, detail, index) => {
+  const item = detail || conn || {};
+  const directId =
+    item.id
+    ?? item.ID
+    ?? item.connectionId
+    ?? item.connectionID
+    ?? item.connId
+    ?? item.ConnID;
+  if (directId !== undefined && directId !== null && directId !== '') {
+    return `${detail && detail !== conn ? 'detail' : 'conn'}:${directId}`;
+  }
+  return `${detail && detail !== conn ? 'detail' : 'conn'}:${conn?.id || 'group'}:${index}`;
+};
+
+const addOutboundTrafficStat = (stats, tag, patch) => {
+  if (!tag) return;
+  let current = stats.get(tag);
+  if (!current) {
+    current = { connections: 0, uploadRate: 0, downloadRate: 0 };
+    stats.set(tag, current);
+  }
+  current.connections += patch.connections || 0;
+  current.uploadRate += patch.uploadRate || 0;
+  current.downloadRate += patch.downloadRate || 0;
+};
 
 const buildDetailSnapshotMap = (payload) => {
   const snapshots = new Map();
@@ -208,8 +251,21 @@ const toClosedConnectionRecord = (snapshot, closedAt) => {
   };
 };
 
+const RULES_FIREWALL_COMBINED_MIN_WIDTH = 1180;
+
+const getRulesFirewallCombinedLayout = () => {
+  if (typeof window === 'undefined') return true;
+  return window.innerWidth >= RULES_FIREWALL_COMBINED_MIN_WIDTH;
+};
+
 export default function App() {
   const [page, setPage] = useState(getPageFromHash());
+  const [rulesFirewallCombined, setRulesFirewallCombined] = useState(getRulesFirewallCombinedLayout);
+  const displayPage = rulesFirewallCombined && page === 'firewall' ? 'rules' : page;
+  const visiblePages = useMemo(() => {
+    if (!rulesFirewallCombined) return PAGES;
+    return Object.fromEntries(Object.entries(PAGES).filter(([key]) => key !== 'firewall'));
+  }, [rulesFirewallCombined]);
   const [uiLanguage] = useState(getInitialUiLanguage);
   const [apiBase, setApiBase] = useState(getInitialApiBase());
   const [metricsHttp, setMetricsHttp] = useState(getInitialMetricsHttp());
@@ -345,6 +401,7 @@ export default function App() {
   const trafficShiftRafRef = useRef(null);
   const connTotalsRef = useRef(new Map());
   const detailTotalsRef = useRef(new Map());
+  const nodeOutboundTotalsRef = useRef({ sampleAt: 0, totals: new Map() });
   const connDetailSnapshotsRef = useRef(new Map());
   const rulesModalCloseTimerRef = useRef(null);
   const restartCooldownRef = useRef(null);
@@ -494,17 +551,17 @@ export default function App() {
   }, [connections]);
 
   const uniqueDestinations = useMemo(() => {
-    if (page !== 'dashboard') return 0;
+    if (displayPage !== 'dashboard') return 0;
     const set = new Set();
     activeConnections.forEach((conn) => {
       const label = getConnectionDestination(conn);
       set.add(label);
     });
     return set.size;
-  }, [activeConnections, page]);
+  }, [activeConnections, displayPage]);
 
   const topSources = useMemo(() => {
-    if (page !== 'dashboard') return [];
+    if (displayPage !== 'dashboard') return [];
     const toMeta = (value) => (value && typeof value === 'object' ? value : {});
     const toText = (value) => String(value || '').trim();
 
@@ -568,7 +625,7 @@ export default function App() {
         percent: ratio * 100
       };
     });
-  }, [activeConnections, page]);
+  }, [activeConnections, displayPage]);
 
   const outboundMix = useMemo(() => {
     const map = new Map();
@@ -707,78 +764,8 @@ export default function App() {
     return [...list, ...runtimeOnly];
   }, [configOutbounds, runtimeOutboundTags]);
 
-  const allOutboundTags = useMemo(() => {
-    const seen = new Set();
-    const list = [];
-    [...(configOutboundTags || []), ...(runtimeOutboundTags || [])].forEach((rawTag) => {
-      const tag = normalizeTag(rawTag);
-      if (!tag || seen.has(tag)) return;
-      seen.add(tag);
-      list.push(tag);
-    });
-    list.sort();
-    return list;
-  }, [configOutboundTags, runtimeOutboundTags]);
-
-  const allBalancerTags = useMemo(() => {
-    const seen = new Set();
-    const list = [];
-    (configBalancers || []).forEach((balancer) => {
-      const tag = normalizeTag(balancer?.tag);
-      if (!tag || seen.has(tag)) return;
-      seen.add(tag);
-      list.push(tag);
-    });
-    list.sort();
-    return list;
-  }, [configBalancers]);
-
-  const resolveOutboundSelectors = (selectors, tags = allOutboundTags, balancerTags = allBalancerTags) => {
-    if (!Array.isArray(selectors) || selectors.length === 0) return [];
-
-    const normalizedTags = Array.isArray(tags) ? tags : [];
-    const normalizedSelectors = [];
-    const balancerSet = new Set(
-      Array.isArray(balancerTags)
-        ? balancerTags.map((tag) => normalizeTag(tag)).filter((tag) => !!tag)
-        : []
-    );
-    const seen = new Set();
-    const out = [];
-    selectors.forEach((raw) => {
-      const value = normalizeTag(raw);
-      if (!value) return;
-      if (balancerSet.has(value)) {
-        if (!seen.has(value)) {
-          seen.add(value);
-          out.push(value);
-        }
-        return;
-      }
-      normalizedSelectors.push(value);
-    });
-    if (normalizedSelectors.length === 0) {
-      out.sort();
-      return out;
-    }
-
-    normalizedTags.forEach((rawTag) => {
-      const tag = normalizeTag(rawTag);
-      if (!tag || seen.has(tag)) return;
-      for (const selector of normalizedSelectors) {
-        if (tag.startsWith(selector)) {
-          seen.add(tag);
-          out.push(tag);
-          break;
-        }
-      }
-    });
-    out.sort();
-    return out;
-  };
-
   const protocolMix = useMemo(() => {
-    if (page !== 'dashboard') return [];
+    if (displayPage !== 'dashboard') return [];
     const map = new Map();
     activeConnections.forEach((conn) => {
       (conn.details || []).forEach((detail) => {
@@ -834,7 +821,7 @@ export default function App() {
     list.sort((a, b) => b.value - a.value);
     const maxValue = Math.max(...list.map((item) => item.value), 0);
     return list.map((item) => ({ ...item, percent: maxValue ? (item.value / maxValue) * 100 : 0 }));
-  }, [activeConnections, page]);
+  }, [activeConnections, displayPage]);
 
   const protocolTotal = useMemo(
     () => protocolMix.reduce((sum, item) => sum + item.value, 0),
@@ -863,7 +850,7 @@ export default function App() {
       });
       return { upload, download };
     }
-    if (page === 'dashboard' && latestSample) {
+    if (displayPage === 'dashboard' && latestSample) {
       return {
         upload: safeRate(latestSample.up),
         download: safeRate(latestSample.down)
@@ -873,7 +860,7 @@ export default function App() {
       upload: safeRate(connections.uploadRate),
       download: safeRate(connections.downloadRate)
     };
-  }, [connRates, connections.uploadRate, connections.downloadRate, latestSample, page]);
+  }, [connRates, connections.uploadRate, connections.downloadRate, latestSample, displayPage]);
   const averageSpeed = useMemo(() => {
     if (!throughputSeries.length) return 0;
     const total = throughputSeries.reduce((sum, value) => sum + value, 0);
@@ -946,7 +933,7 @@ export default function App() {
       window.cancelAnimationFrame(trafficShiftRafRef.current);
       trafficShiftRafRef.current = null;
     }
-    if (page !== 'dashboard') {
+    if (displayPage !== 'dashboard') {
       setTrafficShiftActive(false);
       setTrafficShift(0);
       return undefined;
@@ -970,7 +957,7 @@ export default function App() {
       }
       trafficShiftRafRef.current = null;
     };
-  }, [page, trafficSeries, trafficChart.step]);
+  }, [displayPage, trafficSeries, trafficChart.step]);
 
   const throughputSpark = useMemo(() => {
     const points = buildPoints(throughputSeries, 140, 40, 6);
@@ -1158,17 +1145,18 @@ export default function App() {
     [normalizedFirewallSearchQuery]
   );
   const filteredLogLines = useMemo(() => {
-    if (page !== 'logs') return [];
+    if (displayPage !== 'logs') return [];
     if (!normalizedLogSearchQuery) return logLines;
     return logLines.filter((line) => String(line || '').toLowerCase().includes(normalizedLogSearchQuery));
-  }, [page, logLines, normalizedLogSearchQuery]);
+  }, [displayPage, logLines, normalizedLogSearchQuery]);
   const firewallRules = useMemo(() => getFirewallRuleList(configFirewall), [configFirewall]);
   const filteredFirewallEntries = useMemo(() => {
-    if (page !== 'firewall') return [];
+    const firewallVisible = displayPage === 'firewall' || (displayPage === 'rules' && rulesFirewallCombined);
+    if (!firewallVisible) return [];
     const entries = firewallRules.map((rule, index) => ({ rule, index }));
     if (!normalizedFirewallSearchQuery) return entries;
     return entries.filter(({ rule }) => toSearchText(rule).toLowerCase().includes(normalizedFirewallSearchQuery));
-  }, [page, firewallRules, normalizedFirewallSearchQuery]);
+  }, [displayPage, rulesFirewallCombined, firewallRules, normalizedFirewallSearchQuery]);
   const renderDetailCell = useMemo(
     () => createDetailCellRenderer({
       highlightConnCell,
@@ -1184,17 +1172,17 @@ export default function App() {
     filteredConnections,
     filteredClosedConnections,
     filteredRuleEntries,
-    filteredBalancerEntries,
     toggleDetailColumn,
     detailVisibleColumns,
     detailGridStyle
   } = useConnectionsViewModel({
-    page,
+    page: displayPage,
     connections,
     closedConnections,
     connListMode,
     connViewMode,
     connRates,
+    detailRates,
     connSortKey,
     connSortDir,
     setConnSortKey,
@@ -1258,12 +1246,91 @@ export default function App() {
     });
   };
 
-  const isDashboardPage = page === 'dashboard';
-  const shouldStreamConnections = isDashboardPage || isConnectionsPage;
+  const isDashboardPage = displayPage === 'dashboard';
+  const isNodesPage = displayPage === 'nodes';
+  const shouldStreamConnections = isDashboardPage || isConnectionsPage || isNodesPage;
+  const nodeOutboundStatsByTag = useMemo(() => {
+    if (!isNodesPage) return EMPTY_OUTBOUND_STATS;
+
+    const active = Array.isArray(connections?.connections) ? connections.connections : [];
+    const now = Date.now();
+    const previousSnapshot = nodeOutboundTotalsRef.current || {};
+    const previousTotals = previousSnapshot.apiBase === apiBase && previousSnapshot.totals
+      ? previousSnapshot.totals
+      : new Map();
+    const elapsedMs = previousSnapshot.apiBase === apiBase && previousSnapshot.sampleAt
+      ? now - previousSnapshot.sampleAt
+      : 0;
+    const elapsedSeconds = elapsedMs > 0 && elapsedMs <= Math.max(connRefreshIntervalMs * 4, 4000)
+      ? elapsedMs / 1000
+      : 0;
+    const nextTotals = new Map();
+    const stats = new Map();
+
+    const addItem = (conn, item, index, fallbackTag, count) => {
+      const tag = getOutboundStatsTag(item, fallbackTag);
+      if (!tag) return;
+
+      const upload = getPositiveNumber(item?.upload);
+      const download = getPositiveNumber(item?.download);
+      const key = getOutboundStatsItemKey(conn, item, index);
+      const previous = previousTotals.get(key);
+      const runtimeUploadRate = getOptionalPositiveNumber(item?.uploadRate);
+      const runtimeDownloadRate = getOptionalPositiveNumber(item?.downloadRate);
+      const uploadRate = runtimeUploadRate !== null
+        ? runtimeUploadRate
+        : previous && previous.tag === tag && elapsedSeconds > 0
+          ? Math.max(0, upload - previous.upload) / elapsedSeconds
+          : 0;
+      const downloadRate = runtimeDownloadRate !== null
+        ? runtimeDownloadRate
+        : previous && previous.tag === tag && elapsedSeconds > 0
+          ? Math.max(0, download - previous.download) / elapsedSeconds
+          : 0;
+
+      nextTotals.set(key, { tag, upload, download });
+      addOutboundTrafficStat(stats, tag, {
+        connections: count,
+        uploadRate,
+        downloadRate
+      });
+    };
+
+    active.forEach((conn, connIndex) => {
+      if (!conn || typeof conn !== 'object') return;
+      const fallbackTag = getOutboundStatsTag(conn);
+      const details = Array.isArray(conn.details) ? conn.details : [];
+      if (details.length > 0) {
+        details.forEach((detail, detailIndex) => {
+          if (!detail || typeof detail !== 'object') return;
+          addItem(conn, detail, detailIndex, fallbackTag, 1);
+        });
+        return;
+      }
+
+      const rawCount = Number(conn.connectionCount);
+      const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 1;
+      addItem(conn, conn, connIndex, fallbackTag, count);
+    });
+
+    nodeOutboundTotalsRef.current = {
+      apiBase,
+      sampleAt: now,
+      totals: nextTotals
+    };
+    return stats;
+  }, [apiBase, connRefreshIntervalMs, connections, isNodesPage]);
   const connStreamLabel = connStreamPaused
     ? 'paused'
     : connStreamStatus;
-  const pageMeta = PAGES[page] || PAGES.connections;
+  const basePageMeta = PAGES[displayPage] || PAGES.connections;
+  const pageMeta = displayPage === 'rules' && rulesFirewallCombined
+    ? {
+      ...basePageMeta,
+      title: 'Rules & Firewall',
+      description: 'Routing and firewall controls in one workspace.'
+    }
+    : basePageMeta;
 
   const {
     fetchNodes,
@@ -1427,7 +1494,7 @@ export default function App() {
   });
 
   const { applyLogLevel } = useLogsStream({
-    page,
+    page: displayPage,
     apiBase,
     accessKey,
     logsDisabled,
@@ -1452,6 +1519,16 @@ export default function App() {
     const onHash = () => setPage(getPageFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const updateRulesFirewallLayout = () => {
+      setRulesFirewallCombined(getRulesFirewallCombinedLayout());
+    };
+    updateRulesFirewallLayout();
+    window.addEventListener('resize', updateRulesFirewallLayout);
+    return () => window.removeEventListener('resize', updateRulesFirewallLayout);
   }, []);
 
   useEffect(() => {
@@ -1492,7 +1569,7 @@ export default function App() {
   }, [restartInfo?.inProgress, apiBase]);
 
   useEffect(() => {
-    if (page !== 'dashboard') return undefined;
+    if (displayPage !== 'dashboard') return undefined;
     fetchDnsCacheStats(apiBase, { silent: true }).catch(() => {});
     if (typeof window === 'undefined') return undefined;
     const timer = window.setInterval(() => {
@@ -1501,7 +1578,7 @@ export default function App() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [page, apiBase]);
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
     if (!uiStateLoaded || uiStateHydratingRef.current) return;
@@ -1612,70 +1689,44 @@ export default function App() {
   // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
 
   useEffect(() => {
-    if (page !== 'rules') return;
+    if (displayPage !== 'rules') return;
     setRulesStatus('Loading...');
     fetchRules(apiBase)
       .then(() => setRulesStatus(''))
       .catch((err) => setRulesStatus(`Rules failed: ${err.message}`));
     loadRulesConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
+    if (rulesFirewallCombined) {
+      loadFirewallConfig(apiBase).catch(() => {});
+    }
+  }, [displayPage, rulesFirewallCombined, apiBase]);
 
   useEffect(() => {
-    if (page !== 'firewall') return;
+    if (displayPage !== 'firewall') return;
     loadFirewallConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
-    if (page !== 'nodes') return;
+    if (displayPage !== 'nodes') return;
     loadOutboundsConfig(apiBase).catch(() => {});
+    loadRulesConfig(apiBase).catch(() => {});
     loadSubscriptionConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
-    if (page !== 'subscriptions') return;
+    if (displayPage !== 'subscriptions') return;
     loadSubscriptionConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
-    if (page !== 'inbounds') return;
+    if (displayPage !== 'inbounds') return;
     loadInboundsConfig(apiBase).catch(() => {});
     loadDnsConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
-    if (page !== 'settings') return;
+    if (displayPage !== 'settings') return;
     loadMainConfig(apiBase).catch(() => {});
-  }, [page, apiBase]);
-
-  const [firewallConfigSaving, setFirewallConfigSaving] = useState(false);
-
-  const saveFirewallConfig = useCallback(async (nextFirewall = configFirewall) => {
-    if (firewallConfigSaving) return false;
-    setFirewallConfigSaving(true);
-    setConfigFirewallStatus('Saving...');
-    try {
-      const normalized = normalizeFirewallConfig(nextFirewall);
-      await fetchJson(`${apiBase}/config/firewall`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firewall: normalized,
-          path: configFirewallPath || undefined
-        })
-      });
-      setConfigFirewall(normalized);
-      setConfigFirewallBaseline(normalized);
-      saveFirewallDraft(null, apiBase);
-      setHasFirewallDraft(false);
-      setConfigFirewallStatus('Saved to config. Hot reload core to apply.');
-      return true;
-    } catch (err) {
-      setConfigFirewallStatus(`Save failed: ${err.message}`);
-      return false;
-    } finally {
-      setFirewallConfigSaving(false);
-    }
-  }, [apiBase, configFirewall, configFirewallPath, firewallConfigSaving]);
+  }, [displayPage, apiBase]);
 
   const {
     getRuleLabel,
@@ -1835,8 +1886,8 @@ export default function App() {
 
   const stageClassName = [
     'stage',
-    page === 'settings' ? 'stage-settings' : '',
-    page === 'connections' ? 'stage-connections' : ''
+    displayPage === 'settings' ? 'stage-settings' : '',
+    displayPage === 'connections' ? 'stage-connections' : ''
   ]
     .filter(Boolean)
     .join(' ');
@@ -1865,9 +1916,9 @@ export default function App() {
   }), [discardLocalRoutingDraft, discardRoutingDraftBusy, hasRoutingDraft]);
 
   const heroHeaderProps = {
-    page,
+    page: displayPage,
     pageMeta,
-    PAGES,
+    PAGES: visiblePages,
     metricsPanelHistory,
     currentMetricsPanelId,
     applySavedMetricsPanel,
@@ -1878,7 +1929,7 @@ export default function App() {
   };
 
   const dashboardPanelProps = {
-    page,
+    page: displayPage,
     connStreamLabel,
     toggleConnStream,
     connStreamPaused,
@@ -1936,7 +1987,7 @@ export default function App() {
   };
 
   const connectionsPanelProps = {
-    page,
+    page: displayPage,
     connListMode,
     setConnListMode,
     connSearchQuery,
@@ -1992,7 +2043,7 @@ export default function App() {
   };
 
   const nodesPanelProps = {
-    page,
+    page: displayPage,
     groups,
     status,
     refresh,
@@ -2019,14 +2070,17 @@ export default function App() {
     openRulesModal,
     displayOutbounds,
     runtimeOutboundsByTag,
+    outboundStatsByTag: nodeOutboundStatsByTag,
+    formatRate,
     openInfoModal,
     openDeleteConfirm,
     pickSelectorStrategyTarget,
-    getGroupModeLabel
+    getGroupModeLabel,
+    configBalancers
   };
 
   const subscriptionsPanelProps = {
-    page,
+    page: displayPage,
     configSubscriptionStatus,
     isFailedStatusText,
     saveSubscriptionBlock,
@@ -2050,7 +2104,7 @@ export default function App() {
   };
 
   const inboundsPanelProps = {
-    page,
+    page: displayPage,
     configInboundsStatus,
     isFailedStatusText,
     loadInboundsConfig,
@@ -2076,8 +2130,32 @@ export default function App() {
     setConfigDnsStatus
   };
 
+  const firewallRulesProps = {
+    page: displayPage,
+    configFirewallStatus,
+    isFailedStatusText,
+    firewallSearchQuery,
+    setFirewallSearchQuery,
+    triggerHotReloadFromFirewall,
+    hotReloadBusy,
+    openRulesModal,
+    configFirewall,
+    configFirewallBaseline,
+    hasFirewallDraft,
+    filteredFirewallEntries,
+    normalizedFirewallSearchQuery,
+    configFirewallPath,
+    loadFirewallConfig,
+    apiBase,
+    openDeleteConfirm,
+    discardFirewallDraftBusy,
+    discardFirewallDraft: discardLocalFirewallDraft,
+    reorderFirewallRules,
+    highlightFirewallCell
+  };
+
   const rulesPanelProps = {
-    page,
+    page: displayPage,
     rulesStatus,
     isFailedStatusText,
     configRulesStatus,
@@ -2098,42 +2176,13 @@ export default function App() {
     hasRuleReLookup,
     highlightRuleCell,
     openDeleteConfirm,
-    configBalancers,
-    filteredBalancerEntries,
-    getBalancerStrategyTone,
-    resolveOutboundSelectors,
-    rulesData
-  };
-
-  const firewallPanelProps = {
-    page,
-    configFirewallStatus,
-    isFailedStatusText,
-    firewallSearchQuery,
-    setFirewallSearchQuery,
-    triggerHotReloadFromFirewall,
-    hotReloadBusy,
-    openRulesModal,
-    configFirewall,
-    configFirewallBaseline,
-    hasFirewallDraft,
-    filteredFirewallEntries,
-    normalizedFirewallSearchQuery,
-    configFirewallPath,
-    loadFirewallConfig,
-    apiBase,
-    openDeleteConfirm,
-    setConfigFirewall,
-    saveFirewallConfig,
-    firewallConfigSaving,
-    discardFirewallDraftBusy,
-    discardFirewallDraft: discardLocalFirewallDraft,
-    reorderFirewallRules,
-    highlightFirewallCell
+    rulesData,
+    combinedFirewall: rulesFirewallCombined,
+    firewallProps: firewallRulesProps
   };
 
   const logsPanelProps = {
-    page,
+    page: displayPage,
     logsDisabled,
     logStreamStatus,
     setLogsDisabled,
@@ -2154,7 +2203,7 @@ export default function App() {
   };
 
   const settingsPanelProps = {
-    page,
+    page: displayPage,
     metricsHttp,
     setMetricsHttp,
     metricsKeyVisible,
@@ -2162,6 +2211,7 @@ export default function App() {
     metricsAccessKey,
     setMetricsAccessKey,
     metricsPanelHistory,
+    currentMetricsPanelId,
     applyMetricsSettings,
     applySavedMetricsPanel,
     removeSavedMetricsPanel,
@@ -2261,7 +2311,6 @@ export default function App() {
           subscriptionsPanelProps={subscriptionsPanelProps}
           inboundsPanelProps={inboundsPanelProps}
           rulesPanelProps={rulesPanelProps}
-          firewallPanelProps={firewallPanelProps}
           logsPanelProps={logsPanelProps}
           settingsPanelProps={settingsPanelProps}
           appModalsProps={appModalsProps}

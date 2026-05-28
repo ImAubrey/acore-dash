@@ -744,13 +744,20 @@ const normalizeDnsCacheStats = (payload) => {
 const clamp = (value, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 const CONNECTION_ACTIVITY_SCALE = 256 * 1024;
 const DETAIL_ACTIVITY_SCALE = 64 * 1024;
+const CONNECTION_COUNT_ACTIVITY_SCALE = 24;
 
-const getRateActivity = (rate, scale) => {
-  if (!rate) return 0;
-  const total = (rate.upload || 0) + (rate.download || 0);
-  if (total <= 0) return 0;
-  const normalized = total / scale;
-  return clamp(Math.sqrt(normalized), 0, 1);
+const getRateActivity = (rate, scale, connectionCount = 0, countScale = CONNECTION_COUNT_ACTIVITY_SCALE) => {
+  const upload = Number(rate?.upload || 0);
+  const download = Number(rate?.download || 0);
+  const total = Math.max(0, upload) + Math.max(0, download);
+  const trafficActivity = total > 0 && scale > 0
+    ? clamp(Math.sqrt(total / scale), 0, 1)
+    : 0;
+  const count = Number(connectionCount || 0);
+  const countActivity = count > 1 && countScale > 0
+    ? clamp(Math.sqrt((count - 1) / countScale), 0, 1)
+    : 0;
+  return Math.max(trafficActivity, countActivity);
 };
 
 const buildPoints = (values, width, height, padding = 12) => {
@@ -1108,6 +1115,119 @@ const normalizeFirewallConfig = (firewall) => {
   delete normalized.domain_strategy;
   delete normalized.domainStrategy;
   return normalized;
+};
+
+const FIREWALL_ACTION_LABELS = {
+  0: 'mark',
+  1: 'allow',
+  2: 'block',
+  3: 'limit',
+  4: 'speed',
+  mark: 'mark',
+  allow: 'allow',
+  block: 'block',
+  limit: 'limit',
+  speed: 'speed'
+};
+const FIREWALL_ACTION_TONES = new Set(['mark', 'allow', 'block', 'limit', 'speed']);
+const FIREWALL_LIMIT_KEY_LABELS = {
+  0: 'srcIp',
+  1: 'dstIp',
+  2: 'srcDstIp',
+  3: 'srcPrefix',
+  4: 'dstPrefix',
+  srcip: 'srcIp',
+  sourceip: 'srcIp',
+  source_ip: 'srcIp',
+  dstip: 'dstIp',
+  destinationip: 'dstIp',
+  destination_ip: 'dstIp',
+  srcdstip: 'srcDstIp',
+  sourcedestinationip: 'srcDstIp',
+  source_destination_ip: 'srcDstIp',
+  'src-dst-ip': 'srcDstIp',
+  srcprefix: 'srcPrefix',
+  sourceprefix: 'srcPrefix',
+  source_prefix: 'srcPrefix',
+  'src-prefix': 'srcPrefix',
+  dstprefix: 'dstPrefix',
+  destinationprefix: 'dstPrefix',
+  destination_prefix: 'dstPrefix',
+  'dst-prefix': 'dstPrefix'
+};
+const FIREWALL_LIMIT_MODE_LABELS = {
+  0: 'activeConnections',
+  1: 'newConnections',
+  active: 'activeConnections',
+  activeconnections: 'activeConnections',
+  active_connections: 'activeConnections',
+  new: 'newConnections',
+  newconnections: 'newConnections',
+  new_connections: 'newConnections'
+};
+
+const resolveFirewallAction = (value) => {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const key = typeof raw === 'string' ? raw.toLowerCase() : raw;
+  const label = FIREWALL_ACTION_LABELS[key] || String(raw || 'allow').trim().toLowerCase() || 'allow';
+  const tone = FIREWALL_ACTION_TONES.has(label) ? label : 'allow';
+  return { label, tone };
+};
+
+const getFirewallRuleAction = (rule) => {
+  const current = normalizeFirewallRule(rule);
+  const rawAction = current.action;
+  const hasExplicitAction = rawAction !== undefined
+    && rawAction !== null
+    && String(rawAction).trim() !== '';
+  return resolveFirewallAction(
+    hasExplicitAction
+      ? rawAction
+      : String(current.ruleTag || '').trim()
+        ? 'mark'
+        : 'allow'
+  );
+};
+
+const getFirewallLimitDetail = (rule) => {
+  const current = normalizeFirewallRule(rule);
+  const limit = current.limit && typeof current.limit === 'object' && !Array.isArray(current.limit)
+    ? current.limit
+    : null;
+  if (!limit) return '';
+
+  const rawKey = limit.key ?? limit.countBy;
+  const keyToken = typeof rawKey === 'string' ? rawKey.trim().toLowerCase() : rawKey;
+  const key = FIREWALL_LIMIT_KEY_LABELS[keyToken] || String(rawKey ?? '').trim() || 'key?';
+
+  const rawMax = limit.maxConnections ?? limit.max_connections ?? limit.max;
+  const max = rawMax === null || rawMax === undefined || rawMax === ''
+    ? 'max?'
+    : String(rawMax).trim();
+
+  const rawMode = limit.mode;
+  const modeToken = typeof rawMode === 'string' ? rawMode.trim().toLowerCase() : rawMode;
+  const mode = FIREWALL_LIMIT_MODE_LABELS[modeToken] || String(rawMode ?? '').trim() || 'activeConnections';
+
+  return `${key}:${max}:${mode}`;
+};
+
+const getFirewallRuleTitle = (rule, index, options = {}) => {
+  const current = normalizeFirewallRule(rule);
+  const ruleTag = String(current.ruleTag || '').trim();
+  if (ruleTag) return ruleTag;
+
+  const domain = Array.isArray(current.domain) ? String(current.domain[0] || '').trim() : '';
+  if (domain) return domain;
+
+  const inboundTag = Array.isArray(current.inboundTag) ? String(current.inboundTag[0] || '').trim() : '';
+  if (inboundTag) return inboundTag;
+
+  const numericIndex = Number(index);
+  const fallback = options.numberedFallback === false || !Number.isFinite(numericIndex)
+    ? 'firewall rule'
+    : `firewall rule ${numericIndex + 1}`;
+  return fallback;
 };
 
 const highlightSearchText = (value, queryLower) => {
@@ -2172,6 +2292,7 @@ export {
   clamp,
   CONNECTION_ACTIVITY_SCALE,
   DETAIL_ACTIVITY_SCALE,
+  CONNECTION_COUNT_ACTIVITY_SCALE,
   getRateActivity,
   buildPoints,
   buildLinePath,
@@ -2197,6 +2318,11 @@ export {
   normalizeFirewallRule,
   getFirewallRuleList,
   normalizeFirewallConfig,
+  FIREWALL_ACTION_LABELS,
+  resolveFirewallAction,
+  getFirewallRuleAction,
+  getFirewallLimitDetail,
+  getFirewallRuleTitle,
   highlightSearchText,
   getDestinationLabel,
   getSourceLabel,

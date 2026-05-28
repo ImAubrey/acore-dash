@@ -13,19 +13,14 @@ import {
   scheduleModalClose,
   getSubscriptionUrlDisplay,
   fetchJson,
+  FIREWALL_ACTION_LABELS,
   getFirewallRuleList,
+  getFirewallRuleTitle,
   normalizeFirewallConfig,
   normalizeFirewallRule,
   normalizeRuleDestination
 } from '../../dashboardShared';
 import { moveListItemByDrop } from '../common/useSortableRuleList';
-
-const FIREWALL_ACTION_LABELS = {
-  0: 'mark',
-  1: 'allow',
-  2: 'block',
-  3: 'limit'
-};
 
 export function useRulesModalCrud({
   apiBase,
@@ -178,16 +173,7 @@ export function useRulesModalCrud({
   };
 
   const getFirewallRuleLabel = (rule, index) => {
-    const current = normalizeFirewallRule(rule);
-    const ruleTag = String(current.ruleTag || '').trim();
-    const domain = Array.isArray(current.domain) ? String(current.domain[0] || '').trim() : '';
-    if (ruleTag) {
-      return `${index + 1}. ${ruleTag}`;
-    }
-    if (domain) {
-      return `${index + 1}. ${domain}`;
-    }
-    return `${index + 1}. firewall rule`;
+    return `${index + 1}. ${getFirewallRuleTitle(rule, index, { numberedFallback: false })}`;
   };
 
   const openRulesModal = (target, mode, index = -1, afterIndex = -1, item = null) => {
@@ -775,7 +761,7 @@ export function useRulesModalCrud({
       }
       if (typeof actionRaw === 'number') {
         if (!(actionRaw in FIREWALL_ACTION_LABELS)) {
-          setRulesModalStatus('action must be mark, allow, block, or limit.');
+          setRulesModalStatus('action must be mark, allow, block, limit, or speed.');
           return;
         }
         parsed.action = FIREWALL_ACTION_LABELS[actionRaw];

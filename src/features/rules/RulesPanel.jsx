@@ -8,6 +8,8 @@ import {
 } from '../common/panelPrimitives';
 import { getRuleOrderChanges, useSortableRuleList } from '../common/useSortableRuleList';
 import { normalizeRuleDestination } from '../../dashboardShared';
+import { EditIcon, TrashIcon } from '../connections/actionIcons';
+import { FirewallRulesCard } from '../firewall/FirewallPanel';
 
 export function RulesPanel({
   page,
@@ -30,12 +32,10 @@ export function RulesPanel({
   hasRuleReLookup,
   highlightRuleCell,
   openDeleteConfirm,
-  configBalancers,
-  filteredBalancerEntries,
-  getBalancerStrategyTone,
-  resolveOutboundSelectors,
   rulesData,
-  reorderRoutingRules
+  reorderRoutingRules,
+  combinedFirewall = false,
+  firewallProps: incomingFirewallProps
 }) {
   const {
     draggedIndex: draggedRuleIndex,
@@ -50,49 +50,107 @@ export function RulesPanel({
     () => getRuleOrderChanges(configRules, configRulesBaseline, isRoutingDraftNotice),
     [configRules, configRulesBaseline, isRoutingDraftNotice]
   );
+  const showRules = page === 'rules';
+  const showFirewall = page === 'firewall' || (page === 'rules' && combinedFirewall);
+  const sharedPage = showRules && showFirewall;
+  const firewallProps = incomingFirewallProps || {};
+  const panelClassName = [
+    'panel',
+    'rules',
+    showFirewall && !showRules ? 'firewall' : '',
+    sharedPage ? 'rules-firewall-shared' : ''
+  ].filter(Boolean).join(' ');
+  const panelTitle = sharedPage
+    ? 'Rules & Firewall'
+    : showFirewall
+      ? 'Firewall'
+      : 'Rule Browser';
+  const panelDescription = sharedPage
+    ? 'Edit routing rules and firewall rules side by side.'
+    : showFirewall
+      ? 'Edit top-level firewall rules with flat routing-style match fields.'
+      : 'Edit routing rules reported by the router module.';
+  const rulesStatusItems = [
+    { text: rulesStatus, danger: typeof isFailedStatusText === 'function' && isFailedStatusText(rulesStatus) },
+    {
+      text: configRulesStatus,
+      danger: isRoutingDraftNotice || (typeof isFailedStatusText === 'function' && isFailedStatusText(configRulesStatus))
+    }
+  ].filter((item) => item.text);
+  const firewallStatusItems = [
+    {
+      text: firewallProps.configFirewallStatus,
+      danger: typeof isFailedStatusText === 'function' && isFailedStatusText(firewallProps.configFirewallStatus)
+    }
+  ].filter((item) => item.text);
+  const headerStatusItems = showFirewall && !showRules ? firewallStatusItems : rulesStatusItems;
+  const headerActions = showFirewall && !showRules
+    ? (
+      <>
+      <HeaderSearchInput
+        value={firewallProps.firewallSearchQuery}
+        setValue={firewallProps.setFirewallSearchQuery}
+        placeholder="Search firewall rules..."
+        ariaLabel="Search firewall rules"
+      />
+      <HotReloadButton
+        busy={firewallProps.hotReloadBusy}
+        onClick={firewallProps.triggerHotReloadFromFirewall}
+        draftVisible={firewallProps.hasFirewallDraft}
+        draftBusy={firewallProps.discardFirewallDraftBusy}
+        onUndoDraft={firewallProps.discardFirewallDraft}
+        undoDraftTitle="Discard unsaved firewall draft edits"
+      />
+      <button className="primary small" onClick={() => openRulesModal('firewallRule', 'insert')}>
+        Add firewall rule
+      </button>
+      </>
+    )
+    : (
+      <>
+      <HeaderSearchInput
+        value={ruleSearchQuery}
+        setValue={setRuleSearchQuery}
+        placeholder="Search routing rules..."
+        ariaLabel="Search routing rules"
+      />
+      <HotReloadButton
+        busy={hotReloadBusy}
+        onClick={triggerHotReloadFromRules}
+      />
+      <button className="primary small" onClick={() => openRulesModal('rule', 'insert')}>
+        Add rule
+      </button>
+      </>
+    );
 
-  if (page !== 'rules') {
+  if (!showRules && !showFirewall) {
     return null;
   }
 
   return (
-    <section className="panel rules" style={{ '--delay': '0.18s' }}>
-      <PanelHeader
-        title="Rule Browser"
-        description="Edit routing rules and inspect balancers reported by the router module."
-        actions={(
-          <>
-          <div className="header-status">
-            <StatusText
-              text={rulesStatus}
-              danger={isFailedStatusText(rulesStatus)}
-            />
-            <StatusText
-              text={configRulesStatus}
-              danger={isRoutingDraftNotice || isFailedStatusText(configRulesStatus)}
-            />
-          </div>
-          <HeaderSearchInput
-            value={ruleSearchQuery}
-            setValue={setRuleSearchQuery}
-            placeholder="Search rules and balancers..."
-            ariaLabel="Search rules and balancers"
-          />
-          <HotReloadButton
-            busy={hotReloadBusy}
-            onClick={triggerHotReloadFromRules}
-          />
-          <button className="ghost small" onClick={() => openRulesModal('rule', 'insert')}>
-            Add rule
-          </button>
-          <button className="ghost small" onClick={() => openRulesModal('balancer', 'insert')}>
-            Add balancer
-          </button>
-          </>
-        )}
-      />
+    <section className={panelClassName} style={{ '--delay': '0.18s' }}>
+      <div className="rules-sticky-head">
+        <PanelHeader
+          title={panelTitle}
+          actions={headerActions}
+        />
+        <div className={`connections-header-note rules-header-note${headerStatusItems.length ? ' rules-status-note' : ''}`}>
+          {headerStatusItems.length ? (
+            headerStatusItems.map((item, index) => (
+              <StatusText
+                key={`${item.text}-${index}`}
+                text={item.text}
+                danger={item.danger}
+                className="rules-status-note-item"
+              />
+            ))
+          ) : panelDescription}
+        </div>
+      </div>
 
-      <div className="rules-grid">
+      <div className={`rules-grid${sharedPage ? ' rules-firewall-grid' : ''}`}>
+        {showRules ? (
         <div className="group-card">
           <div className="group-header">
             <div>
@@ -206,16 +264,20 @@ export function RulesPanel({
                       </div>
                       <div className="rule-actions">
                         <button
-                          className="ghost small danger-text"
+                          className="action-icon-button action-icon-danger"
                           onClick={() => openDeleteConfirm('rule', index)}
+                          title="Delete"
+                          aria-label={`Delete routing rule ${index + 1}`}
                         >
-                          Delete
+                          <TrashIcon />
                         </button>
                         <button
-                          className="ghost small"
+                          className="action-icon-button action-icon-edit"
                           onClick={() => openRulesModal('rule', 'edit', index, index, rule)}
+                          title="Edit"
+                          aria-label={`Edit routing rule ${index + 1}`}
                         >
-                          Edit
+                          <EditIcon />
                         </button>
                       </div>
                     </div>
@@ -225,99 +287,13 @@ export function RulesPanel({
             </div>
           )}
         </div>
+        ) : null}
 
-        <div className="group-card">
-          <div className="group-header">
-            <div>
-              <h3>Balancers</h3>
-              <p className="group-meta">
-                Total {configBalancers.length}
-                {normalizedRuleSearchQuery ? ` · Match ${filteredBalancerEntries.length}` : ''}
-              </p>
-              {configRulesPath ? (
-                <p className="group-meta mono">Config: {configRulesPath}</p>
-              ) : null}
-            </div>
-            <div className="rules-editor-actions">
-              <button className="ghost small" onClick={() => loadRulesConfig(apiBase)}>
-                Reload config
-              </button>
-            </div>
-          </div>
-          {configBalancers.length === 0 ? (
-            <EmptyState small message="No balancers configured." />
-          ) : filteredBalancerEntries.length === 0 ? (
-            <EmptyState small message="No matching balancers." />
-          ) : (
-            <div className="rules-list">
-              {filteredBalancerEntries.map(({ balancer, index }) => {
-                const tag = String(balancer.tag || '').trim();
-                const key = `balancer:${tag || index}`;
-                const selectors = Array.isArray(balancer.selector)
-                  ? balancer.selector
-                  : Array.isArray(balancer.selectors)
-                    ? balancer.selectors
-                    : [];
-                const strategyTone = getBalancerStrategyTone(balancer, selectors);
-                const resolved = resolveOutboundSelectors(selectors);
-                const strategyText = balancer.strategy ? `Strategy: ${balancer.strategy}` : 'Strategy: -';
-                const fallbackText = balancer.fallbackTag ? ` · Fallback: ${balancer.fallbackTag}` : '';
-                return (
-                  <div className={`rule-item balancer-item balancer-${strategyTone}`} key={key}>
-                    <div className="rule-summary">
-                      <div>
-                        <div className="rule-title">
-                          <span className="rule-index">{index + 1}</span>
-                          <h4 className="mono">{highlightRuleCell(tag || '(no tag)')}</h4>
-                        </div>
-                        <p className="rule-meta">{highlightRuleCell(`${strategyText}${fallbackText}`)}</p>
-                        {selectors.length > 0 ? (
-                          <>
-                            <p className="rule-meta">
-                              {highlightRuleCell(`Selector prefixes: ${selectors.join(', ')}`)}
-                            </p>
-                            <p className="rule-meta">
-                              {resolved.length > 0 ? (
-                                <>
-                                  {highlightRuleCell(`Candidates (${resolved.length}):`)}
-                                  <span className="candidate-tags">
-                                    {resolved.map((candidate) => (
-                                      <span className="candidate-tag" key={`${key}-${candidate}`}>
-                                        {highlightRuleCell(candidate)}
-                                      </span>
-                                    ))}
-                                  </span>
-                                </>
-                              ) : (
-                                highlightRuleCell('Candidates: (none)')
-                              )}
-                            </p>
-                          </>
-                        ) : null}
-                      </div>
-                      <div className="rule-actions">
-                        <button
-                          className="ghost small danger-text"
-                          onClick={() => openDeleteConfirm('balancer', index)}
-                        >
-                          Delete
-                        </button>
-                        <button
-                          className="ghost small"
-                          onClick={() => openRulesModal('balancer', 'edit', index, index, balancer)}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {showFirewall ? (
+          <FirewallRulesCard {...firewallProps} embedded={sharedPage} />
+        ) : null}
       </div>
-      {rulesData.updatedAt ? (
+      {showRules && rulesData.updatedAt ? (
         <div className="rules-footer">Updated {rulesData.updatedAt}</div>
       ) : null}
     </section>

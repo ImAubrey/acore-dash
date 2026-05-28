@@ -5,6 +5,7 @@ import {
   PanelHeader,
   StatusText
 } from '../common/panelPrimitives';
+import { EditIcon, TrashIcon } from '../connections/actionIcons';
 
 export function SubscriptionsPanel(props) {
   const {
@@ -161,16 +162,20 @@ export function SubscriptionsPanel(props) {
                           {hotReloadBusy ? 'Updating...' : 'Update now'}
                         </button>
                         <button
-                          className="ghost small danger-text"
+                          className="action-icon-button action-icon-danger"
                           onClick={() => openDeleteConfirm('subscription', index)}
+                          title="Delete"
+                          aria-label={`Delete outbound subscription ${name || displayUrl || index + 1}`}
                         >
-                          Delete
+                          <TrashIcon />
                         </button>
                         <button
-                          className="ghost small"
+                          className="action-icon-button action-icon-edit"
                           onClick={() => openRulesModal('subscription', 'edit', index, index, sub)}
+                          title="Edit"
+                          aria-label={`Edit outbound subscription ${name || displayUrl || index + 1}`}
                         >
-                          Edit
+                          <EditIcon />
                         </button>
                       </div>
                     </div>
@@ -255,16 +260,20 @@ export function SubscriptionsPanel(props) {
                           {hotReloadBusy ? 'Updating...' : 'Update now'}
                         </button>
                         <button
-                          className="ghost small danger-text"
+                          className="action-icon-button action-icon-danger"
                           onClick={() => openDeleteConfirm('subscriptionDatabase', index)}
+                          title="Delete"
+                          aria-label={`Delete database subscription ${type || displayUrl || index + 1}`}
                         >
-                          Delete
+                          <TrashIcon />
                         </button>
                         <button
-                          className="ghost small"
+                          className="action-icon-button action-icon-edit"
                           onClick={() => openRulesModal('subscriptionDatabase', 'edit', index, index, db)}
+                          title="Edit"
+                          aria-label={`Edit database subscription ${type || displayUrl || index + 1}`}
                         >
-                          Edit
+                          <EditIcon />
                         </button>
                       </div>
                     </div>

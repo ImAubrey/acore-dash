@@ -10,6 +10,7 @@ import {
   PanelHeader,
   StatusText
 } from '../common/panelPrimitives';
+import { EditIcon, InfoIcon, TrashIcon } from '../connections/actionIcons';
 
 export function InboundsPanel(props) {
   const {
@@ -125,22 +126,28 @@ export function InboundsPanel(props) {
                       </div>
                       <div className="outbound-actions">
                         <button
-                          className="ghost small"
+                          className="action-icon-button action-icon-info"
                           onClick={() => openInfoModal(`Inbound: ${tag || '(no tag)'}`, inbound || null)}
+                          title="Info"
+                          aria-label={`Info for inbound ${tag || index + 1}`}
                         >
-                          Info
+                          <InfoIcon />
                         </button>
                         <button
-                          className="ghost small danger-text"
+                          className="action-icon-button action-icon-danger"
                           onClick={() => openDeleteConfirm('inbound', index)}
+                          title="Delete"
+                          aria-label={`Delete inbound ${tag || index + 1}`}
                         >
-                          Delete
+                          <TrashIcon />
                         </button>
                         <button
-                          className="ghost small"
+                          className="action-icon-button action-icon-edit"
                           onClick={() => openRulesModal('inbound', 'edit', index, index, inbound)}
+                          title="Edit"
+                          aria-label={`Edit inbound ${tag || index + 1}`}
                         >
-                          Edit
+                          <EditIcon />
                         </button>
                       </div>
                     </div>

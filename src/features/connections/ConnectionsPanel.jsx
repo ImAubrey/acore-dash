@@ -242,100 +242,102 @@ export function ConnectionsPanel({
       )}
       style={{ '--delay': '0.05s' }}
     >
-      <PanelHeader
-        title={(
-          <span className="connections-title">
-            <span>Live Connections</span>
-            <span className="connections-title-switch" role="tablist" aria-label="Connection list mode">
-              <button
-                type="button"
-                className={`view-pill ${!isClosedMode ? 'active' : ''}`}
-                onClick={() => setConnListMode('live')}
-                aria-pressed={!isClosedMode}
-              >
-                Live
-              </button>
-              <button
-                type="button"
-                className={`view-pill ${isClosedMode ? 'active' : ''}`}
-                onClick={() => setConnListMode('closed')}
-                aria-pressed={isClosedMode}
-              >
-                Closed
-              </button>
-            </span>
-          </span>
-        )}
-        actions={(
-          <>
-            <HeaderSearchInput
-              value={connSearchQuery}
-              setValue={setConnSearchQuery}
-              placeholder={isClosedMode
-                ? 'Search closed connections...'
-                : 'Search all fields, including folded details...'}
-              ariaLabel={isClosedMode ? 'Search closed connections' : 'Search all connection fields'}
-            />
-            <button
-              type="button"
-              className={`view-pill expand-default-toggle connections-expand-action ${connExpandDefaultOpen ? 'active' : ''}`}
-              onClick={toggleConnExpandDefault}
-              title={connExpandDefaultOpen
-                ? 'Default expanded. Click to switch to default collapsed.'
-                : 'Default collapsed. Click to switch to default expanded.'}
-              aria-pressed={connExpandDefaultOpen}
-            >
-              {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
-            </button>
-            <div className="view-toggle">
-              <button
-                type="button"
-                className={`view-pill ${connViewMode === 'current' ? 'active' : ''}`}
-                onClick={() => setConnViewMode('current')}
-              >
-                Current
-              </button>
-              <button
-                type="button"
-                className={`view-pill ${connViewMode === 'source' ? 'active' : ''}`}
-                onClick={() => setConnViewMode('source')}
-              >
-                Source
-              </button>
-              <button
-                type="button"
-                className={`view-pill ${connViewMode === 'destination' ? 'active' : ''}`}
-                onClick={() => setConnViewMode('destination')}
-              >
-                Destination
-              </button>
-            </div>
-            <div className="connections-live-actions">
-              {!isClosedMode ? (
+      <div className="connections-sticky-head">
+        <PanelHeader
+          title={(
+            <span className="connections-title">
+              <span>Live Connections</span>
+              <span className="connections-title-switch" role="tablist" aria-label="Connection list mode">
                 <button
                   type="button"
-                  className="pill conn-close-all"
-                  onClick={handleCloseAllConnections}
-                  disabled={closingAllConnections || !canCloseAllConnections}
-                  title="Close all visible connections"
+                  className={`view-pill ${!isClosedMode ? 'active' : ''}`}
+                  onClick={() => setConnListMode('live')}
+                  aria-pressed={!isClosedMode}
                 >
-                  {closingAllConnections ? 'Closing...' : 'Close all'}
+                  Live
                 </button>
-              ) : null}
+                <button
+                  type="button"
+                  className={`view-pill ${isClosedMode ? 'active' : ''}`}
+                  onClick={() => setConnListMode('closed')}
+                  aria-pressed={isClosedMode}
+                >
+                  Closed
+                </button>
+              </span>
+            </span>
+          )}
+          actions={(
+            <>
+              <HeaderSearchInput
+                value={connSearchQuery}
+                setValue={setConnSearchQuery}
+                placeholder={isClosedMode
+                  ? 'Search closed connections...'
+                  : 'Search all fields, including folded details...'}
+                ariaLabel={isClosedMode ? 'Search closed connections' : 'Search all connection fields'}
+              />
               <button
                 type="button"
-                className={`pill ${connStreamLabel}`}
-                onClick={toggleConnStream}
-                title={connStreamPaused ? 'Resume live updates' : 'Pause live updates'}
+                className={`view-pill expand-default-toggle connections-expand-action ${connExpandDefaultOpen ? 'active' : ''}`}
+                onClick={toggleConnExpandDefault}
+                title={connExpandDefaultOpen
+                  ? 'Default expanded. Click to switch to default collapsed.'
+                  : 'Default collapsed. Click to switch to default expanded.'}
+                aria-pressed={connExpandDefaultOpen}
               >
-                {connStreamLabel}
+                {connExpandDefaultOpen ? 'Collapse' : 'Expand'}
               </button>
-            </div>
-          </>
-        )}
-      />
-      <div className="connections-header-note">{connectionHeaderNote}</div>
-      {renderDetailColumnControls('connections-columns-toolbar')}
+              <div className="view-toggle">
+                <button
+                  type="button"
+                  className={`view-pill ${connViewMode === 'current' ? 'active' : ''}`}
+                  onClick={() => setConnViewMode('current')}
+                >
+                  Current
+                </button>
+                <button
+                  type="button"
+                  className={`view-pill ${connViewMode === 'source' ? 'active' : ''}`}
+                  onClick={() => setConnViewMode('source')}
+                >
+                  Source
+                </button>
+                <button
+                  type="button"
+                  className={`view-pill ${connViewMode === 'destination' ? 'active' : ''}`}
+                  onClick={() => setConnViewMode('destination')}
+                >
+                  Destination
+                </button>
+              </div>
+              <div className="connections-live-actions">
+                {!isClosedMode ? (
+                  <button
+                    type="button"
+                    className="pill conn-close-all"
+                    onClick={handleCloseAllConnections}
+                    disabled={closingAllConnections || !canCloseAllConnections}
+                    title="Close all visible connections"
+                  >
+                    {closingAllConnections ? 'Closing...' : 'Close all'}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`pill ${connStreamLabel}`}
+                  onClick={toggleConnStream}
+                  title={connStreamPaused ? 'Resume live updates' : 'Pause live updates'}
+                >
+                  {connStreamLabel}
+                </button>
+              </div>
+            </>
+          )}
+        />
+        <div className="connections-header-note">{connectionHeaderNote}</div>
+        {renderDetailColumnControls('connections-columns-toolbar')}
+      </div>
       <div className={`connections-table-wrap${connectionsPerfMode ? ' connections-table-wrap-perf' : ''}`}>
         <div className="table connections-table">
           <div className="row header">
@@ -362,7 +364,7 @@ export function ConnectionsPanel({
               || (details.length > 0 && details.every((detail) => isSpliceType(detail?.metadata?.type)));
             const connActivity = isClosedMode
               ? 0
-              : getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE);
+              : getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE, conn.connectionCount || 1);
             const destinationRawBase = getConnectionDestination(conn);
             const destinationRaw = connViewMode === 'current'
               ? resolveMixedDestinationRoot(conn, visibleDetails, destinationRawBase, normalizedConnSearchQuery)
@@ -383,6 +385,7 @@ export function ConnectionsPanel({
                 <div
                   className={joinClassNames(
                     'row',
+                    isClosedMode ? '' : 'activity-row',
                     preventManualExpandToggle ? '' : 'clickable',
                     isExpanded ? 'expanded' : ''
                   )}
@@ -478,7 +481,6 @@ export function ConnectionsPanel({
                 </div>
                 {isExpanded && (
                   <div className="detail-wrap" style={detailGridStyleForMode}>
-                    {renderDetailColumnControls()}
                     <div className="detail-row header">
                       {renderedDetailColumns.map((column) => (
                         <button

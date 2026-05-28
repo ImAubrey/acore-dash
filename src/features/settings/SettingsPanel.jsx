@@ -29,6 +29,7 @@ const getRestartInfoMessage = (restartInfo) => {
 
 function SavedMetricsPanels({
   metricsPanelHistory,
+  currentMetricsPanelId,
   metricsKeyVisible,
   applySavedMetricsPanel,
   removeSavedMetricsPanel
@@ -45,8 +46,9 @@ function SavedMetricsPanels({
         <div className="metrics-history-list">
           {metricsPanelHistory.map((item) => {
             const optionLabel = formatMetricsPanelOptionLabel(item);
+            const isActive = String(item.id || '') === String(currentMetricsPanelId || '');
             return (
-              <div className="metrics-history-item" key={item.id}>
+              <div className={`metrics-history-item${isActive ? ' active' : ''}`} key={item.id}>
                 <div className="metrics-history-top">
                   <button
                     type="button"
@@ -61,6 +63,7 @@ function SavedMetricsPanels({
                     type="button"
                     className="metrics-history-entry"
                     title={optionLabel ? `Switch to ${optionLabel}` : `Switch to ${item.base}`}
+                    aria-current={isActive ? 'true' : undefined}
                     onClick={() => applySavedMetricsPanel(item)}
                   >
                     <span className="mono metrics-history-base">{item.base}</span>
@@ -97,6 +100,7 @@ export function SettingsPanel(props) {
     metricsAccessKey,
     setMetricsAccessKey,
     metricsPanelHistory,
+    currentMetricsPanelId,
     applyMetricsSettings,
     applySavedMetricsPanel,
     removeSavedMetricsPanel,
@@ -153,6 +157,7 @@ export function SettingsPanel(props) {
       />
       <SavedMetricsPanels
         metricsPanelHistory={metricsPanelHistory}
+        currentMetricsPanelId={currentMetricsPanelId}
         metricsKeyVisible={metricsKeyVisible}
         applySavedMetricsPanel={applySavedMetricsPanel}
         removeSavedMetricsPanel={removeSavedMetricsPanel}
