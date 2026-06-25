@@ -20,6 +20,22 @@ const getRuntimeRate = (value, fallback = 0) => {
   const rate = Number(value);
   return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
 };
+const distributeGroupRateFallback = (entries, rateKey, totalRate, weightKey) => {
+  const rate = Number(totalRate || 0);
+  if (!Array.isArray(entries) || entries.length === 0 || !Number.isFinite(rate) || rate <= 0) return;
+  const currentRateTotal = entries.reduce((sum, entry) => sum + (Number(entry?.[rateKey]) || 0), 0);
+  if (currentRateTotal > 0) return;
+  const weightTotal = entries.reduce((sum, entry) => {
+    const weight = Number(entry?.[weightKey] || 0);
+    return sum + (Number.isFinite(weight) && weight > 0 ? weight : 0);
+  }, 0);
+  const denominator = weightTotal > 0 ? weightTotal : entries.length;
+  entries.forEach((entry) => {
+    const rawWeight = Number(entry?.[weightKey] || 0);
+    const weight = weightTotal > 0 && Number.isFinite(rawWeight) && rawWeight > 0 ? rawWeight : 1;
+    entry[rateKey] = (rate * weight) / denominator;
+  });
+};
 
 export function useConnectionTelemetry({
   apiBase,
@@ -292,6 +308,7 @@ export function useConnectionTelemetry({
       nextConnRates.set(connRateKey, { upload: uploadRate, download: downloadRate });
       nextConnTotals.set(connRateKey, { upload: currentUpload, download: currentDownload, time: now });
 
+      const detailRateEntries = [];
       (conn.details || []).forEach((detail, idx) => {
         const detailKey = getDetailKey(connRateKey, detail, idx);
         const detailUpload = detail.upload || 0;
@@ -308,8 +325,22 @@ export function useConnectionTelemetry({
         }
         detailUploadRate = getRuntimeRate(detail.uploadRate, detailUploadRate);
         detailDownloadRate = getRuntimeRate(detail.downloadRate, detailDownloadRate);
-        nextDetailRates.set(detailKey, { upload: detailUploadRate, download: detailDownloadRate });
+        detailRateEntries.push({
+          detailKey,
+          uploadRate: detailUploadRate,
+          downloadRate: detailDownloadRate,
+          upload: detailUpload,
+          download: detailDownload
+        });
         nextDetailTotals.set(detailKey, { upload: detailUpload, download: detailDownload, time: now });
+      });
+      distributeGroupRateFallback(detailRateEntries, 'uploadRate', uploadRate, 'upload');
+      distributeGroupRateFallback(detailRateEntries, 'downloadRate', downloadRate, 'download');
+      detailRateEntries.forEach((entry) => {
+        nextDetailRates.set(entry.detailKey, {
+          upload: entry.uploadRate,
+          download: entry.downloadRate
+        });
       });
     });
 
