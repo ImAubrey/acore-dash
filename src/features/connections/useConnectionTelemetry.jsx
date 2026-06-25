@@ -37,7 +37,6 @@ export function useConnectionTelemetry({
   pendingConnRef,
   connTotalsRef,
   detailTotalsRef,
-  expandedConnections,
   connViewMode,
   setConnections,
   setConnStreamStatus,
@@ -272,7 +271,6 @@ export function useConnectionTelemetry({
     const nextConnTotals = new Map();
     const nextDetailRates = new Map();
     const nextDetailTotals = new Map();
-    const hasRuntimeRates = Boolean(connections.rateSampledAt || connections.hasRuntimeRates);
 
     (displayConnections || []).forEach((conn) => {
       const connRateKey = getConnectionRateKey(conn);
@@ -282,19 +280,18 @@ export function useConnectionTelemetry({
       const prev = connTotalsRef.current.get(connRateKey);
       let uploadRate = 0;
       let downloadRate = 0;
-      if (prev && !hasRuntimeRates) {
+      if (prev) {
         const elapsed = (now - prev.time) / 1000;
         if (elapsed > 0) {
           uploadRate = Math.max(0, currentUpload - prev.upload) / elapsed;
           downloadRate = Math.max(0, currentDownload - prev.download) / elapsed;
         }
       }
-      uploadRate = getRuntimeRate(conn.uploadRate, hasRuntimeRates ? 0 : uploadRate);
-      downloadRate = getRuntimeRate(conn.downloadRate, hasRuntimeRates ? 0 : downloadRate);
+      uploadRate = getRuntimeRate(conn.uploadRate, uploadRate);
+      downloadRate = getRuntimeRate(conn.downloadRate, downloadRate);
       nextConnRates.set(connRateKey, { upload: uploadRate, download: downloadRate });
       nextConnTotals.set(connRateKey, { upload: currentUpload, download: currentDownload, time: now });
 
-      if (!expandedConnections?.has(connRateKey)) return;
       (conn.details || []).forEach((detail, idx) => {
         const detailKey = getDetailKey(connRateKey, detail, idx);
         const detailUpload = detail.upload || 0;
@@ -302,15 +299,15 @@ export function useConnectionTelemetry({
         const prevDetail = detailTotalsRef.current.get(detailKey);
         let detailUploadRate = 0;
         let detailDownloadRate = 0;
-        if (prevDetail && !hasRuntimeRates) {
+        if (prevDetail) {
           const elapsed = (now - prevDetail.time) / 1000;
           if (elapsed > 0) {
             detailUploadRate = Math.max(0, detailUpload - prevDetail.upload) / elapsed;
             detailDownloadRate = Math.max(0, detailDownload - prevDetail.download) / elapsed;
           }
         }
-        detailUploadRate = getRuntimeRate(detail.uploadRate, hasRuntimeRates ? 0 : detailUploadRate);
-        detailDownloadRate = getRuntimeRate(detail.downloadRate, hasRuntimeRates ? 0 : detailDownloadRate);
+        detailUploadRate = getRuntimeRate(detail.uploadRate, detailUploadRate);
+        detailDownloadRate = getRuntimeRate(detail.downloadRate, detailDownloadRate);
         nextDetailRates.set(detailKey, { upload: detailUploadRate, download: detailDownloadRate });
         nextDetailTotals.set(detailKey, { upload: detailUpload, download: detailDownload, time: now });
       });
@@ -320,7 +317,7 @@ export function useConnectionTelemetry({
     detailTotalsRef.current = nextDetailTotals;
     setConnRates(nextConnRates);
     setDetailRates(nextDetailRates);
-  }, [displayConnections, isConnectionsPage, expandedConnections, connections.rateSampledAt, connections.hasRuntimeRates]);
+  }, [displayConnections, isConnectionsPage]);
 
   useEffect(() => {
     connTotalsRef.current = new Map();
