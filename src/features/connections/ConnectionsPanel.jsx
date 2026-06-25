@@ -1,7 +1,7 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
 import { CloseIcon, InfoIcon } from './actionIcons';
-import { getInlineRatePair, getResolvedRatePair } from '../../dashboardShared';
+import { getConnectionRateKey, getInlineRatePair, getResolvedRatePair } from '../../dashboardShared';
 
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
 const MAX_RENDER_CONNECTION_ROWS = 400;
@@ -355,7 +355,7 @@ export function ConnectionsPanel({
           {renderedConnections.map((conn, connIndex) => {
             const groupCloseIds = isClosedMode ? [] : getGroupCloseIds(conn);
             const canClose = groupCloseIds.length > 0;
-            const connId = conn?.id === undefined || conn?.id === null ? '' : String(conn.id);
+            const connId = getConnectionRateKey(conn);
             const isExpanded = connId ? expandedConnections.has(connId) : false;
             const visibleDetails = normalizedConnSearchQuery
               ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
@@ -363,7 +363,7 @@ export function ConnectionsPanel({
             const details = conn.details || [];
             const connIsSplice = isSpliceType(conn?.metadata?.type)
               || (details.length > 0 && details.every((detail) => isSpliceType(detail?.metadata?.type)));
-            const connRate = getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id));
+            const connRate = getResolvedRatePair(getInlineRatePair(conn), connRates.get(connId));
             const connActivity = isClosedMode
               ? 0
               : getRateActivity(connRate, CONNECTION_ACTIVITY_SCALE, conn.connectionCount || 1);
@@ -501,7 +501,7 @@ export function ConnectionsPanel({
                       ? visibleDetails.slice(0, MAX_RENDER_DETAILS_PER_GROUP)
                       : visibleDetails).map((detail, idx) => {
                       const detailIndex = details.indexOf(detail);
-                      const detailKey = getDetailKey(conn.id, detail, detailIndex >= 0 ? detailIndex : idx);
+                      const detailKey = getDetailKey(connId, detail, detailIndex >= 0 ? detailIndex : idx);
                       const detailRate = isClosedMode
                         ? null
                         : getResolvedRatePair(getInlineRatePair(detail), detailRates.get(detailKey));

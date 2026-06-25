@@ -1805,6 +1805,18 @@ const pruneConnectionsPayload = (payload, now, windowMs = DASHBOARD_CACHE_WINDOW
 
 const getConnectionDestination = (conn) => getDestinationLabel(conn?.metadata, 'unknown');
 const getConnectionSource = (conn) => getSourceLabel(conn?.metadata, '0.0.0.0');
+const getStableKeyPart = (value) => {
+  const text = String(value ?? '').trim();
+  return text ? text.replace(/[|\\]/g, '_') : '';
+};
+const getFirstStableKeyPart = (...values) => {
+  for (const value of values) {
+    const part = getStableKeyPart(value);
+    if (part) return part;
+  }
+  return '';
+};
+const getConnectionRateKey = (conn) => getStableKeyPart(conn?.id);
 const getConnectionRule = (conn) => {
   const direct = String(conn?.rulePayload || conn?.rule || '').trim();
   if (direct) return direct;
@@ -1823,7 +1835,39 @@ const getConnectionRule = (conn) => {
   }
   return merged || '-';
 };
-const getDetailKey = (connId, detail, index) => (detail.id ? String(detail.id) : `${connId}-${index}`);
+const getDetailKey = (connId, detail, index) => {
+  const directId = getFirstStableKeyPart(
+    detail?.id,
+    detail?.ID,
+    detail?.connectionId,
+    detail?.connectionID,
+    detail?.connId,
+    detail?.ConnID
+  );
+  if (directId) return directId;
+
+  const metadata = detail?.metadata && typeof detail.metadata === 'object' ? detail.metadata : {};
+  const parts = [
+    connId,
+    metadata.sourceIP,
+    metadata.sourcePort,
+    metadata.acoreSrcIP,
+    metadata.acoreSrcPort,
+    metadata.host || metadata.destinationHost || metadata.destinationIP,
+    metadata.destinationPort,
+    metadata.inboundTag,
+    metadata.outboundTag,
+    metadata.network,
+    metadata.type,
+    detail?.rulePayload || detail?.rule,
+    detail?.start
+  ].map(getStableKeyPart).filter(Boolean);
+  if (parts.length > 1) return parts.join('|');
+
+  const fallbackConnId = getStableKeyPart(connId) || 'conn';
+  const fallbackIndex = Number.isFinite(Number(index)) ? Math.trunc(Number(index)) : 0;
+  return `${fallbackConnId}-${fallbackIndex}`;
+};
 const normalizeConnectionIds = (ids) => {
   const seen = new Set();
   const out = [];
@@ -2378,6 +2422,7 @@ export {
   getConnectionDestination,
   getConnectionSource,
   getConnectionRule,
+  getConnectionRateKey,
   getDetailKey,
   normalizeConnectionIds,
   collectCloseIdCandidates,

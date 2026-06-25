@@ -1,6 +1,7 @@
 import { startTransition, useEffect, useRef } from 'react';
 import {
   appendAccessKeyParam,
+  getConnectionRateKey,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
   TRAFFIC_MAX_SAMPLES,
@@ -210,13 +211,14 @@ export function useConnectionTelemetry({
 
       if (!hasRuntimeRates) {
         (connections.connections || []).forEach((conn) => {
+          const connRateKey = getConnectionRateKey(conn);
           const details = Array.isArray(conn.details) && conn.details.length > 0
             ? conn.details
             : [conn];
           details.forEach((detail, idx) => {
             const key = detail === conn
-              ? `conn:${conn.id}`
-              : `detail:${getDetailKey(conn.id, detail, idx)}`;
+              ? `conn:${connRateKey}`
+              : `detail:${getDetailKey(connRateKey, detail, idx)}`;
             const currentUpload = Number(detail.upload || 0);
             const currentDownload = Number(detail.download || 0);
             const safeUpload = Number.isFinite(currentUpload) && currentUpload >= 0 ? currentUpload : 0;
@@ -273,9 +275,11 @@ export function useConnectionTelemetry({
     const hasRuntimeRates = Boolean(connections.rateSampledAt || connections.hasRuntimeRates);
 
     (displayConnections || []).forEach((conn) => {
+      const connRateKey = getConnectionRateKey(conn);
+      if (!connRateKey) return;
       const currentUpload = conn.upload || 0;
       const currentDownload = conn.download || 0;
-      const prev = connTotalsRef.current.get(conn.id);
+      const prev = connTotalsRef.current.get(connRateKey);
       let uploadRate = 0;
       let downloadRate = 0;
       if (prev && !hasRuntimeRates) {
@@ -287,12 +291,12 @@ export function useConnectionTelemetry({
       }
       uploadRate = getRuntimeRate(conn.uploadRate, hasRuntimeRates ? 0 : uploadRate);
       downloadRate = getRuntimeRate(conn.downloadRate, hasRuntimeRates ? 0 : downloadRate);
-      nextConnRates.set(conn.id, { upload: uploadRate, download: downloadRate });
-      nextConnTotals.set(conn.id, { upload: currentUpload, download: currentDownload, time: now });
+      nextConnRates.set(connRateKey, { upload: uploadRate, download: downloadRate });
+      nextConnTotals.set(connRateKey, { upload: currentUpload, download: currentDownload, time: now });
 
-      if (!expandedConnections?.has(conn.id)) return;
+      if (!expandedConnections?.has(connRateKey)) return;
       (conn.details || []).forEach((detail, idx) => {
-        const detailKey = getDetailKey(conn.id, detail, idx);
+        const detailKey = getDetailKey(connRateKey, detail, idx);
         const detailUpload = detail.upload || 0;
         const detailDownload = detail.download || 0;
         const prevDetail = detailTotalsRef.current.get(detailKey);

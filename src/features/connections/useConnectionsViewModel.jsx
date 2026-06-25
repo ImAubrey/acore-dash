@@ -3,6 +3,7 @@ import {
   CONNECTION_SORT_FIELDS,
   DETAIL_COLUMNS,
   buildConnectionsView,
+  getConnectionRateKey,
   getInlineRatePair,
   getDetailDestinationLabel,
   getDetailKey,
@@ -118,22 +119,21 @@ export function useConnectionsViewModel({
   const getConnectionSortValue = (conn, useRateForTraffic) => {
     const field = CONNECTION_SORT_FIELDS[connSortKey];
     if (!field) return '';
+    const connRateKey = getConnectionRateKey(conn);
     if (useRateForTraffic && connSortKey === 'upload') {
-      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id)).upload;
+      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(connRateKey)).upload;
     }
     if (useRateForTraffic && connSortKey === 'download') {
-      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id)).download;
+      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(connRateKey)).download;
     }
     return field.getValue(conn);
   };
 
   const getDetailTrafficSortValue = (conn, detail, index, key, useRateForTraffic) => {
     if (useRateForTraffic) {
-      if (detail?.id) {
-        const detailKey = getDetailKey(conn.id, detail, index);
-        const resolvedRate = getResolvedRatePair(getInlineRatePair(detail), detailRates?.get(detailKey));
-        if (resolvedRate.resolved) return resolvedRate[key];
-      }
+      const detailKey = getDetailKey(getConnectionRateKey(conn), detail, index);
+      const resolvedRate = getResolvedRatePair(getInlineRatePair(detail), detailRates?.get(detailKey));
+      if (resolvedRate.resolved) return resolvedRate[key];
       const rawRate = Number(detail?.[`${key}Rate`]);
       if (Number.isFinite(rawRate) && rawRate >= 0) return rawRate;
       return 0;
