@@ -107,7 +107,7 @@ export function DashboardPanel({
           <div className="metric-card">
             <span className="metric-label">Unique destinations</span>
             <strong className="metric-value">{uniqueDestinations}</strong>
-            <span className="metric-meta">{outbounds.length} outbounds online</span>
+            <span className="metric-meta">{totalConnections} connection groups · {totalSessions} sessions</span>
             <div className="meter">
               <span style={{ transform: `scaleX(${destinationRatio})` }} />
             </div>

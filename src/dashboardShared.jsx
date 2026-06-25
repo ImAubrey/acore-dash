@@ -519,9 +519,9 @@ const formatRate = (num) => `${formatBytes(num)}/s`;
 const SPLICE_LABEL = 'splice';
 const SPLICE_DISPLAY_LABEL = 'SPLICE';
 const isSpliceType = (value) => typeof value === 'string' && value.toLowerCase().includes('splice');
-const formatRateOrSplice = (value, isSplice) => {
+const formatRateOrSplice = (value, isSplice, hasRateSample = false) => {
   const rate = Number(value || 0);
-  if (isSplice && (!rate || rate <= 0)) return SPLICE_DISPLAY_LABEL;
+  if (isSplice && !hasRateSample && (!rate || rate <= 0)) return SPLICE_DISPLAY_LABEL;
   return formatRate(rate);
 };
 const getRuntimeRate = (value, fallback = 0) => {
@@ -531,6 +531,30 @@ const getRuntimeRate = (value, fallback = 0) => {
 const getOptionalRuntimeRate = (value) => {
   const rate = Number(value);
   return Number.isFinite(rate) && rate >= 0 ? rate : null;
+};
+const getInlineRatePair = (value) => {
+  if (!value || typeof value !== 'object') return null;
+  const upload = getOptionalRuntimeRate(value.uploadRate);
+  const download = getOptionalRuntimeRate(value.downloadRate);
+  if (upload === null && download === null) return null;
+  return {
+    upload: upload || 0,
+    download: download || 0
+  };
+};
+const getResolvedRatePair = (...candidates) => {
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const upload = getOptionalRuntimeRate(candidate.upload);
+    const download = getOptionalRuntimeRate(candidate.download);
+    if (upload === null && download === null) continue;
+    return {
+      upload: upload || 0,
+      download: download || 0,
+      resolved: true
+    };
+  }
+  return { upload: 0, download: 0, resolved: false };
 };
 
 const formatDelay = (value) => {
@@ -960,7 +984,8 @@ const removeMetricsPanelHistoryEntry = (items, id) => {
 
 const CHART_COLORS = ['#ff6b4a', '#2f9aa0', '#f2b354', '#3b73d4', '#7cc57a', '#cf8450'];
 const DASHBOARD_CACHE_WINDOW_MS = 30 * 1000;
-const TRAFFIC_WINDOW = Math.max(2, Math.round(DASHBOARD_CACHE_WINDOW_MS / 1000));
+const TRAFFIC_MIN_SAMPLE_INTERVAL_MS = 200;
+const TRAFFIC_MAX_SAMPLES = Math.ceil(DASHBOARD_CACHE_WINDOW_MS / TRAFFIC_MIN_SAMPLE_INTERVAL_MS) + 2;
 const TRAFFIC_ANIMATION_MS = 1000;
 const TRAFFIC_GRID_LINES = [40, 100, 160];
 const TRAFFIC_CLIP_ID = 'traffic-clip';
@@ -2265,6 +2290,8 @@ export {
   SPLICE_LABEL,
   isSpliceType,
   formatRateOrSplice,
+  getInlineRatePair,
+  getResolvedRatePair,
   formatDelay,
   formatTime,
   formatJson,
@@ -2301,7 +2328,8 @@ export {
   buildConicGradient,
   CHART_COLORS,
   DASHBOARD_CACHE_WINDOW_MS,
-  TRAFFIC_WINDOW,
+  TRAFFIC_MIN_SAMPLE_INTERVAL_MS,
+  TRAFFIC_MAX_SAMPLES,
   TRAFFIC_ANIMATION_MS,
   TRAFFIC_GRID_LINES,
   TRAFFIC_CLIP_ID,

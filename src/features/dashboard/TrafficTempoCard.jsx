@@ -79,7 +79,7 @@ export function TrafficTempoCard({
               className={`chart-motion${trafficShiftActive ? '' : ' snap'}`}
               style={{
                 '--shift': `${trafficShift}px`,
-                '--duration': `${TRAFFIC_ANIMATION_MS}ms`
+                '--duration': `${trafficChart.durationMs || TRAFFIC_ANIMATION_MS}ms`
               }}
               clipPath={`url(#${TRAFFIC_CLIP_ID})`}
             >

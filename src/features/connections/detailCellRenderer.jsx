@@ -205,9 +205,17 @@ export function createDetailCellRenderer({
         );
       }
       case 'upload':
-        return highlightConnCell(formatRateOrSplice(detailRate?.upload || 0, isSpliceType(detail?.metadata?.type)));
+        return highlightConnCell(formatRateOrSplice(
+          detailRate?.upload || 0,
+          isSpliceType(detail?.metadata?.type),
+          detailRate?.resolved
+        ));
       case 'download':
-        return highlightConnCell(formatRateOrSplice(detailRate?.download || 0, isSpliceType(detail?.metadata?.type)));
+        return highlightConnCell(formatRateOrSplice(
+          detailRate?.download || 0,
+          isSpliceType(detail?.metadata?.type),
+          detailRate?.resolved
+        ));
       case 'lastSeen':
         return highlightConnCell(formatTime(getDetailLastSeen(detail)));
       case 'close':

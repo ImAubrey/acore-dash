@@ -1,6 +1,7 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
 import { CloseIcon, InfoIcon } from './actionIcons';
+import { getInlineRatePair, getResolvedRatePair } from '../../dashboardShared';
 
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
 const MAX_RENDER_CONNECTION_ROWS = 400;
@@ -362,9 +363,10 @@ export function ConnectionsPanel({
             const details = conn.details || [];
             const connIsSplice = isSpliceType(conn?.metadata?.type)
               || (details.length > 0 && details.every((detail) => isSpliceType(detail?.metadata?.type)));
+            const connRate = getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id));
             const connActivity = isClosedMode
               ? 0
-              : getRateActivity(connRates.get(conn.id), CONNECTION_ACTIVITY_SCALE, conn.connectionCount || 1);
+              : getRateActivity(connRate, CONNECTION_ACTIVITY_SCALE, conn.connectionCount || 1);
             const destinationRawBase = getConnectionDestination(conn);
             const destinationRaw = connViewMode === 'current'
               ? resolveMixedDestinationRoot(conn, visibleDetails, destinationRawBase, normalizedConnSearchQuery)
@@ -447,12 +449,12 @@ export function ConnectionsPanel({
                   <span className="mono">
                     {isClosedMode
                       ? highlightConnCell(formatBytes(conn.upload || 0))
-                      : highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.upload || 0, connIsSplice))}
+                      : highlightConnCell(formatRateOrSplice(connRate.upload, connIsSplice, connRate.resolved))}
                   </span>
                   <span className="mono">
                     {isClosedMode
                       ? highlightConnCell(formatBytes(conn.download || 0))
-                      : highlightConnCell(formatRateOrSplice(connRates.get(conn.id)?.download || 0, connIsSplice))}
+                      : highlightConnCell(formatRateOrSplice(connRate.download, connIsSplice, connRate.resolved))}
                   </span>
                   <span className="row-actions">
                     <button
@@ -498,8 +500,11 @@ export function ConnectionsPanel({
                     {(visibleDetails.length > MAX_RENDER_DETAILS_PER_GROUP
                       ? visibleDetails.slice(0, MAX_RENDER_DETAILS_PER_GROUP)
                       : visibleDetails).map((detail, idx) => {
-                      const detailKey = getDetailKey(conn.id, detail, idx);
-                      const detailRate = isClosedMode ? null : detailRates.get(detailKey);
+                      const detailIndex = details.indexOf(detail);
+                      const detailKey = getDetailKey(conn.id, detail, detailIndex >= 0 ? detailIndex : idx);
+                      const detailRate = isClosedMode
+                        ? null
+                        : getResolvedRatePair(getInlineRatePair(detail), detailRates.get(detailKey));
                       const detailActivity = isClosedMode ? 0 : getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
                       const detailBg = ZEBRA_DETAIL_BACKGROUNDS[idx % ZEBRA_DETAIL_BACKGROUNDS.length];
                       const detailStyle = { '--activity': String(detailActivity), '--row-bg': detailBg };

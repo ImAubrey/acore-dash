@@ -3,10 +3,12 @@ import {
   CONNECTION_SORT_FIELDS,
   DETAIL_COLUMNS,
   buildConnectionsView,
+  getInlineRatePair,
   getDetailDestinationLabel,
   getDetailKey,
   getDetailLastSeen,
   getDetailSourceLabel,
+  getResolvedRatePair,
   parseTimestamp,
   toSearchText,
   toRuleSearchText
@@ -117,10 +119,10 @@ export function useConnectionsViewModel({
     const field = CONNECTION_SORT_FIELDS[connSortKey];
     if (!field) return '';
     if (useRateForTraffic && connSortKey === 'upload') {
-      return connRates.get(conn.id)?.upload || 0;
+      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id)).upload;
     }
     if (useRateForTraffic && connSortKey === 'download') {
-      return connRates.get(conn.id)?.download || 0;
+      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id)).download;
     }
     return field.getValue(conn);
   };
@@ -129,8 +131,8 @@ export function useConnectionsViewModel({
     if (useRateForTraffic) {
       if (detail?.id) {
         const detailKey = getDetailKey(conn.id, detail, index);
-        const liveRate = detailRates?.get(detailKey)?.[key];
-        if (Number.isFinite(liveRate)) return liveRate;
+        const resolvedRate = getResolvedRatePair(getInlineRatePair(detail), detailRates?.get(detailKey));
+        if (resolvedRate.resolved) return resolvedRate[key];
       }
       const rawRate = Number(detail?.[`${key}Rate`]);
       if (Number.isFinite(rawRate) && rawRate >= 0) return rawRate;

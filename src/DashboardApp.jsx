@@ -57,6 +57,8 @@ import {
   SPLICE_LABEL,
   isSpliceType,
   formatRateOrSplice,
+  getInlineRatePair,
+  getResolvedRatePair,
   formatDelay,
   formatTime,
   formatJson,
@@ -86,7 +88,7 @@ import {
   buildAreaPath,
   buildConicGradient,
   CHART_COLORS,
-  TRAFFIC_WINDOW,
+  DASHBOARD_CACHE_WINDOW_MS,
   TRAFFIC_ANIMATION_MS,
   TRAFFIC_GRID_LINES,
   TRAFFIC_CLIP_ID,
@@ -863,9 +865,21 @@ export default function App() {
   }, [connRates, connections.uploadRate, connections.downloadRate, latestSample, displayPage]);
   const averageSpeed = useMemo(() => {
     if (!throughputSeries.length) return 0;
-    const total = throughputSeries.reduce((sum, value) => sum + value, 0);
-    return total / throughputSeries.length;
-  }, [throughputSeries]);
+    if (trafficSeries.length < 2) {
+      return throughputSeries[0] || 0;
+    }
+    let weightedTotal = 0;
+    let totalMs = 0;
+    for (let i = 1; i < trafficSeries.length; i += 1) {
+      const sample = trafficSeries[i];
+      const prev = trafficSeries[i - 1];
+      const elapsed = Math.max(0, (sample.time || 0) - (prev.time || 0));
+      if (!elapsed) continue;
+      weightedTotal += ((sample.up || 0) + (sample.down || 0)) * elapsed;
+      totalMs += elapsed;
+    }
+    return totalMs ? weightedTotal / totalMs : throughputSeries[throughputSeries.length - 1] || 0;
+  }, [trafficSeries, throughputSeries]);
   const sessionBaseline = useMemo(() => {
     const sessionSamples = trafficSeries.map((sample) => sample.sessions || 0);
     return Math.max(...sessionSamples, totalSessions || 0, 1);
@@ -891,22 +905,30 @@ export default function App() {
     const axisGutter = 76;
     const plotLeft = axisGutter;
     const plotRight = width - plotPaddingRight;
-    const step = TRAFFIC_WINDOW > 1 ? (plotRight - plotLeft) / (TRAFFIC_WINDOW - 1) : 0;
+    const plotWidth = plotRight - plotLeft;
+    const latest = trafficSeries.length ? trafficSeries[trafficSeries.length - 1] : null;
+    const previous = trafficSeries.length > 1 ? trafficSeries[trafficSeries.length - 2] : null;
+    const windowEnd = latest?.time || Date.now();
+    const windowStart = windowEnd - DASHBOARD_CACHE_WINDOW_MS;
     const maxValue = Math.max(
       ...trafficSeries.map((sample) => Math.max(sample.up, sample.down)),
       1
     );
-    const buildFixedPoints = (values) => {
-      if (!values || values.length === 0) return [];
-      return values.map((value, index) => {
+    const buildTimedPoints = (key) => {
+      if (!trafficSeries.length) return [];
+      return trafficSeries.map((sample) => {
+        const value = sample[key] || 0;
         const ratio = maxValue ? value / maxValue : 0;
-        const x = plotLeft + step * index;
+        const timeRatio = clamp(((sample.time || windowStart) - windowStart) / DASHBOARD_CACHE_WINDOW_MS, 0, 1);
+        const x = plotLeft + plotWidth * timeRatio;
         const y = height - plotPaddingY - ratio * (height - plotPaddingY * 2);
         return { x, y };
       });
     };
-    const uploadPoints = buildFixedPoints(trafficSeries.map((sample) => sample.up));
-    const downloadPoints = buildFixedPoints(trafficSeries.map((sample) => sample.down));
+    const uploadPoints = buildTimedPoints('up');
+    const downloadPoints = buildTimedPoints('down');
+    const sampleGap = latest && previous ? Math.max(0, latest.time - previous.time) : 0;
+    const shift = clamp(sampleGap / DASHBOARD_CACHE_WINDOW_MS, 0, 1) * plotWidth;
     const ticks = TRAFFIC_GRID_LINES.map((y) => {
       const ratio = clamp(1 - (y - plotPaddingY) / (height - plotPaddingY * 2), 0, 1);
       return { y, value: maxValue * ratio };
@@ -918,7 +940,8 @@ export default function App() {
       plotRight,
       plotPaddingY,
       axisLabelX: plotLeft - 8,
-      step,
+      shift,
+      durationMs: sampleGap ? Math.round(clamp(sampleGap, 160, TRAFFIC_ANIMATION_MS)) : 0,
       maxValue,
       ticks,
       uploadLine: buildLinePath(uploadPoints),
@@ -938,18 +961,18 @@ export default function App() {
       setTrafficShift(0);
       return undefined;
     }
-    if (trafficSeries.length < TRAFFIC_WINDOW + 1 || !trafficChart.step) {
+    if (trafficSeries.length < 2 || !trafficChart.shift) {
       setTrafficShiftActive(false);
       setTrafficShift(0);
       return undefined;
     }
     setTrafficShiftActive(false);
-    setTrafficShift(0);
+    setTrafficShift(trafficChart.shift);
     if (typeof window === 'undefined') return undefined;
     trafficShiftRafRef.current = window.requestAnimationFrame(() => {
       trafficShiftRafRef.current = null;
       setTrafficShiftActive(true);
-      setTrafficShift(-trafficChart.step);
+      setTrafficShift(0);
     });
     return () => {
       if (trafficShiftRafRef.current && typeof window !== 'undefined') {
@@ -957,7 +980,7 @@ export default function App() {
       }
       trafficShiftRafRef.current = null;
     };
-  }, [displayPage, trafficSeries, trafficChart.step]);
+  }, [displayPage, trafficSeries, trafficChart.shift]);
 
   const throughputSpark = useMemo(() => {
     const points = buildPoints(throughputSeries, 140, 40, 6);
@@ -1079,7 +1102,7 @@ export default function App() {
     event.stopPropagation();
     openInfoModal(`Connection group: ${conn?.id || ''}`.trim(), {
       connection: conn,
-      rate: connRates.get(conn.id) || null
+      rate: getResolvedRatePair(getInlineRatePair(conn), connRates.get(conn.id))
     });
   };
 

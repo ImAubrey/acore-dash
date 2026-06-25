@@ -3,7 +3,7 @@ import {
   appendAccessKeyParam,
   getDetailKey,
   DASHBOARD_CACHE_WINDOW_MS,
-  TRAFFIC_WINDOW,
+  TRAFFIC_MAX_SAMPLES,
   normalizeConnectionsPayload,
   parseConnectionsPayload
 } from '../../dashboardShared';
@@ -223,12 +223,16 @@ export function useConnectionTelemetry({
             const safeDownload = Number.isFinite(currentDownload) && currentDownload >= 0 ? currentDownload : 0;
             const previous = trafficTotalsRef.current.get(key);
             if (previous) {
-              up += Math.max(0, safeUpload - previous.upload);
-              down += Math.max(0, safeDownload - previous.download);
+              const elapsed = (now - previous.time) / 1000;
+              if (elapsed > 0) {
+                up += Math.max(0, safeUpload - previous.upload) / elapsed;
+                down += Math.max(0, safeDownload - previous.download) / elapsed;
+              }
             }
             nextTrafficTotals.set(key, {
               upload: safeUpload,
-              download: safeDownload
+              download: safeDownload,
+              time: now
             });
           });
         });
@@ -248,8 +252,8 @@ export function useConnectionTelemetry({
       ];
       const cutoff = now - DASHBOARD_CACHE_WINDOW_MS;
       const pruned = next.filter((sample) => sample.time >= cutoff);
-      if (pruned.length > TRAFFIC_WINDOW + 1) {
-        return pruned.slice(-(TRAFFIC_WINDOW + 1));
+      if (pruned.length > TRAFFIC_MAX_SAMPLES) {
+        return pruned.slice(-TRAFFIC_MAX_SAMPLES);
       }
       return pruned;
     });
