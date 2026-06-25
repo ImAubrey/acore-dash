@@ -1104,7 +1104,7 @@ export default function App() {
     const connRateKey = getConnectionRateKey(conn);
     openInfoModal(`Connection group: ${conn?.id || ''}`.trim(), {
       connection: conn,
-      rate: getResolvedRatePair(getInlineRatePair(conn), connRates.get(connRateKey))
+      rate: getResolvedRatePair(connRates.get(connRateKey), getInlineRatePair(conn))
     });
   };
 

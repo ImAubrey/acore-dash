@@ -20,6 +20,13 @@ const getRuntimeRate = (value, fallback = 0) => {
   const rate = Number(value);
   return Number.isFinite(rate) && rate >= 0 ? rate : fallback;
 };
+const getPreferredRuntimeRate = (value, fallback = 0) => {
+  const rate = Number(value);
+  if (Number.isFinite(rate) && rate > 0) return rate;
+  const fallbackRate = Number(fallback || 0);
+  if (Number.isFinite(fallbackRate) && fallbackRate > 0) return fallbackRate;
+  return Number.isFinite(rate) && rate >= 0 ? rate : fallbackRate;
+};
 const distributeGroupRateFallback = (entries, rateKey, totalRate, weightKey) => {
   const rate = Number(totalRate || 0);
   if (!Array.isArray(entries) || entries.length === 0 || !Number.isFinite(rate) || rate <= 0) return;
@@ -303,8 +310,8 @@ export function useConnectionTelemetry({
           downloadRate = Math.max(0, currentDownload - prev.download) / elapsed;
         }
       }
-      uploadRate = getRuntimeRate(conn.uploadRate, uploadRate);
-      downloadRate = getRuntimeRate(conn.downloadRate, downloadRate);
+      uploadRate = getPreferredRuntimeRate(conn.uploadRate, uploadRate);
+      downloadRate = getPreferredRuntimeRate(conn.downloadRate, downloadRate);
       nextConnRates.set(connRateKey, { upload: uploadRate, download: downloadRate });
       nextConnTotals.set(connRateKey, { upload: currentUpload, download: currentDownload, time: now });
 
@@ -323,8 +330,8 @@ export function useConnectionTelemetry({
             detailDownloadRate = Math.max(0, detailDownload - prevDetail.download) / elapsed;
           }
         }
-        detailUploadRate = getRuntimeRate(detail.uploadRate, detailUploadRate);
-        detailDownloadRate = getRuntimeRate(detail.downloadRate, detailDownloadRate);
+        detailUploadRate = getPreferredRuntimeRate(detail.uploadRate, detailUploadRate);
+        detailDownloadRate = getPreferredRuntimeRate(detail.downloadRate, detailDownloadRate);
         detailRateEntries.push({
           detailKey,
           uploadRate: detailUploadRate,

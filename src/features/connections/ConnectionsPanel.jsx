@@ -1,7 +1,12 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
 import { CloseIcon, InfoIcon } from './actionIcons';
-import { getConnectionRateKey, getInlineRatePair, getResolvedRatePair } from '../../dashboardShared';
+import {
+  getConnectionRateKey,
+  getInlineRatePair,
+  getResolvedRatePair,
+  normalizeDetailColumnsVisible
+} from '../../dashboardShared';
 
 const CONNECTIONS_PERF_MODE_THRESHOLD = 40;
 const MAX_RENDER_CONNECTION_ROWS = 400;
@@ -197,7 +202,8 @@ export function ConnectionsPanel({
   const connectionsPerfMode = visibleConnections.length >= CONNECTIONS_PERF_MODE_THRESHOLD;
   const forceCompactText = connectionsPerfMode || overflowConnectionsCount > 0;
   const activeDetailColumns = DETAIL_COLUMNS;
-  const visibleDetailColumnsForMode = activeDetailColumns.filter((column) => detailColumnsVisible.has(column.key));
+  const effectiveDetailColumnsVisible = normalizeDetailColumnsVisible(detailColumnsVisible);
+  const visibleDetailColumnsForMode = activeDetailColumns.filter((column) => effectiveDetailColumnsVisible.has(column.key));
   const renderedDetailColumns = visibleDetailColumnsForMode.length
     ? visibleDetailColumnsForMode
     : activeDetailColumns;
@@ -207,7 +213,7 @@ export function ConnectionsPanel({
       <span className="detail-categories-label">Columns</span>
       <div className="detail-categories-list">
         {activeDetailColumns.map((column) => {
-          const isVisible = detailColumnsVisible.has(column.key);
+          const isVisible = effectiveDetailColumnsVisible.has(column.key);
           const columnHint = column.hint ? ` (${column.hint})` : '';
           return (
             <button
@@ -363,7 +369,7 @@ export function ConnectionsPanel({
             const details = conn.details || [];
             const connIsSplice = isSpliceType(conn?.metadata?.type)
               || (details.length > 0 && details.every((detail) => isSpliceType(detail?.metadata?.type)));
-            const connRate = getResolvedRatePair(getInlineRatePair(conn), connRates.get(connId));
+            const connRate = getResolvedRatePair(connRates.get(connId), getInlineRatePair(conn));
             const connActivity = isClosedMode
               ? 0
               : getRateActivity(connRate, CONNECTION_ACTIVITY_SCALE, conn.connectionCount || 1);
@@ -504,7 +510,7 @@ export function ConnectionsPanel({
                       const detailKey = getDetailKey(connId, detail, detailIndex >= 0 ? detailIndex : idx);
                       const detailRate = isClosedMode
                         ? null
-                        : getResolvedRatePair(getInlineRatePair(detail), detailRates.get(detailKey));
+                        : getResolvedRatePair(detailRates.get(detailKey), getInlineRatePair(detail));
                       const detailActivity = isClosedMode ? 0 : getRateActivity(detailRate, DETAIL_ACTIVITY_SCALE);
                       const detailBg = ZEBRA_DETAIL_BACKGROUNDS[idx % ZEBRA_DETAIL_BACKGROUNDS.length];
                       const detailStyle = { '--activity': String(detailActivity), '--row-bg': detailBg };

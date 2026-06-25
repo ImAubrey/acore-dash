@@ -10,6 +10,7 @@ import {
   getDetailLastSeen,
   getDetailSourceLabel,
   getResolvedRatePair,
+  normalizeDetailColumnsVisible,
   parseTimestamp,
   toSearchText,
   toRuleSearchText
@@ -77,6 +78,19 @@ export function useConnectionsViewModel({
     if (!key) return;
     setDetailColumnsVisible((prev) => {
       const next = new Set(prev);
+      if (key === 'upload' || key === 'download') {
+        const hasTrafficColumn = next.has('upload') || next.has('download');
+        if (hasTrafficColumn) {
+          const trafficCount = (next.has('upload') ? 1 : 0) + (next.has('download') ? 1 : 0);
+          if (next.size <= trafficCount) return prev;
+          next.delete('upload');
+          next.delete('download');
+        } else {
+          next.add('upload');
+          next.add('download');
+        }
+        return next;
+      }
       if (next.has(key)) {
         if (next.size <= 1) return prev;
         next.delete(key);
@@ -87,9 +101,14 @@ export function useConnectionsViewModel({
     });
   };
 
-  const detailVisibleColumns = useMemo(
-    () => DETAIL_COLUMNS.filter((column) => detailColumnsVisible.has(column.key)),
+  const effectiveDetailColumnsVisible = useMemo(
+    () => normalizeDetailColumnsVisible(detailColumnsVisible),
     [detailColumnsVisible]
+  );
+
+  const detailVisibleColumns = useMemo(
+    () => DETAIL_COLUMNS.filter((column) => effectiveDetailColumnsVisible.has(column.key)),
+    [effectiveDetailColumnsVisible]
   );
 
   const detailGridTemplate = useMemo(() => {
@@ -121,10 +140,10 @@ export function useConnectionsViewModel({
     if (!field) return '';
     const connRateKey = getConnectionRateKey(conn);
     if (useRateForTraffic && connSortKey === 'upload') {
-      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(connRateKey)).upload;
+      return getResolvedRatePair(connRates.get(connRateKey), getInlineRatePair(conn)).upload;
     }
     if (useRateForTraffic && connSortKey === 'download') {
-      return getResolvedRatePair(getInlineRatePair(conn), connRates.get(connRateKey)).download;
+      return getResolvedRatePair(connRates.get(connRateKey), getInlineRatePair(conn)).download;
     }
     return field.getValue(conn);
   };
@@ -132,7 +151,7 @@ export function useConnectionsViewModel({
   const getDetailTrafficSortValue = (conn, detail, index, key, useRateForTraffic) => {
     if (useRateForTraffic) {
       const detailKey = getDetailKey(getConnectionRateKey(conn), detail, index);
-      const resolvedRate = getResolvedRatePair(getInlineRatePair(detail), detailRates?.get(detailKey));
+      const resolvedRate = getResolvedRatePair(detailRates?.get(detailKey), getInlineRatePair(detail));
       if (resolvedRate.resolved) return resolvedRate[key];
       const rawRate = Number(detail?.[`${key}Rate`]);
       if (Number.isFinite(rawRate) && rawRate >= 0) return rawRate;

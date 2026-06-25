@@ -1975,6 +1975,16 @@ const DETAIL_COLUMNS = [
   { key: 'close', label: 'Close', width: 'minmax(0, 0.6fr)', cellClassName: 'row-actions', headerClassName: 'detail-header-actions' }
 ];
 const DETAIL_COLUMN_KEYS = new Set(DETAIL_COLUMNS.map((column) => column.key));
+const normalizeDetailColumnsVisible = (columns) => {
+  const next = new Set(Array.isArray(columns) || columns instanceof Set ? columns : []);
+  const hasUpload = next.has('upload');
+  const hasDownload = next.has('download');
+  if (hasUpload || hasDownload) {
+    next.add('upload');
+    next.add('download');
+  }
+  return next;
+};
 
 const fetchJson = async (url, options = {}) => {
   const res = await fetch(url, withAccessKey(options, url));
@@ -2431,6 +2441,7 @@ export {
   CONNECTION_SORT_FIELDS,
   DETAIL_COLUMNS,
   DETAIL_COLUMN_KEYS,
+  normalizeDetailColumnsVisible,
   fetchJson,
   LOG_MAX_LINES,
   toNewestFirst,

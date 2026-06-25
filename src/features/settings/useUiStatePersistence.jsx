@@ -3,6 +3,7 @@ import {
   UI_STATE_SAVE_DELAY_MS,
   clearTimeoutRef,
   fetchJson,
+  normalizeDetailColumnsVisible,
   normalizeUiState
 } from '../../dashboardShared';
 
@@ -41,7 +42,7 @@ export function useUiStatePersistence({
     setConnStreamPaused(typeof state.connStreamPaused === 'boolean' ? state.connStreamPaused : false);
     setConnSortKey(state.connSortKey || 'default');
     setConnSortDir(state.connSortDir || 'desc');
-    setDetailColumnsVisible(new Set(state.detailColumns || DEFAULT_DETAIL_COLUMNS));
+    setDetailColumnsVisible(normalizeDetailColumnsVisible(state.detailColumns || DEFAULT_DETAIL_COLUMNS));
   };
 
   const saveUiState = async (payload, base = apiBase) => {
