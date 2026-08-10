@@ -1,7 +1,9 @@
+import { useRef } from 'react';
 import { fetchJson } from '../../dashboardShared';
 
 export function useSubscriptionConfig({
   apiBase,
+  notify,
   configSubscriptionPath,
   setConfigSubscriptionPath,
   configSubscriptionInbound,
@@ -14,6 +16,12 @@ export function useSubscriptionConfig({
   setConfigSubscriptionFull,
   setConfigSubscriptionStatus
 }) {
+  // The API returns a generic JSON object. Retain fields introduced by newer cores so
+  // changing a visual field never erases configuration the dashboard does not know yet.
+  const subscriptionExtrasRef = useRef({ base: String(apiBase || ''), value: {} });
+  const announce = (message, tone = 'success') => {
+    notify?.({ channel: 'subscription-config', message, tone });
+  };
   const normalizeSubscriptionList = (value) => {
     if (value === null || value === undefined) return [];
     if (Array.isArray(value)) return value;
@@ -22,7 +30,10 @@ export function useSubscriptionConfig({
   };
 
   const buildSubscriptionPatch = ({ inbound, outbounds, databases, full }) => {
-    const patch = {};
+    const extras = subscriptionExtrasRef.current;
+    const patch = {
+      ...(extras.base === String(apiBase || '') ? extras.value : {})
+    };
     const inboundTag = String(inbound || '').trim();
     if (inboundTag) {
       patch['subscription-inbound'] = inboundTag;
@@ -59,6 +70,15 @@ export function useSubscriptionConfig({
     try {
       const resp = await fetchJson(`${base}/config/subscription`);
       const subscription = resp && typeof resp.subscription === 'object' ? resp.subscription : {};
+      const {
+        outbound: _outbound,
+        database: _database,
+        full: _full,
+        'subscription-inbound': _subscriptionInbound,
+        subscriptionInbound: _subscriptionInboundAlias,
+        ...extras
+      } = subscription || {};
+      subscriptionExtrasRef.current = { base: String(base || ''), value: extras };
       const inbound = String(subscription?.['subscription-inbound'] || subscription?.subscriptionInbound || '').trim();
       const outbounds = normalizeSubscriptionList(subscription?.outbound);
       const databases = normalizeSubscriptionList(subscription?.database);
@@ -81,7 +101,7 @@ export function useSubscriptionConfig({
   };
 
   const saveSubscriptionBlock = async () => {
-    setConfigSubscriptionStatus('Saving...');
+    announce('Saving subscription config...', 'progress');
     try {
       const subscription = buildSubscriptionPatch({
         inbound: configSubscriptionInbound,
@@ -90,27 +110,28 @@ export function useSubscriptionConfig({
         full: configSubscriptionFull
       });
       if (!subscription) {
-        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        announce('Nothing to save: the subscription block is empty.', 'info');
         return;
       }
       await writeSubscriptionConfig(subscription);
-      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+      announce('Subscription config saved. Hot reload core to apply.');
     } catch (err) {
-      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+      announce(`Subscription save failed: ${err.message}`, 'error');
     }
   };
 
   const clearSubscriptionBlock = async () => {
-    setConfigSubscriptionStatus('Clearing subscription...');
+    announce('Clearing subscription config...', 'progress');
     try {
       await writeSubscriptionConfig(null);
+      subscriptionExtrasRef.current = { base: String(apiBase || ''), value: {} };
       setConfigSubscriptionInbound('');
       setConfigSubscriptionOutbounds([]);
       setConfigSubscriptionDatabases([]);
       setConfigSubscriptionFull([]);
-      setConfigSubscriptionStatus('Subscription cleared. Hot reload core to apply.');
+      announce('Subscription config cleared. Hot reload core to apply.');
     } catch (err) {
-      setConfigSubscriptionStatus(`Clear failed: ${err.message}`);
+      announce(`Subscription clear failed: ${err.message}`, 'error');
     }
   };
 
@@ -128,7 +149,7 @@ export function useSubscriptionConfig({
     nextOutbounds[index] = nextEntry;
     setConfigSubscriptionOutbounds(nextOutbounds);
 
-    setConfigSubscriptionStatus('Saving...');
+    announce('Saving subscription config...', 'progress');
     try {
       const subscription = buildSubscriptionPatch({
         inbound: configSubscriptionInbound,
@@ -137,13 +158,13 @@ export function useSubscriptionConfig({
         full: configSubscriptionFull
       });
       if (!subscription) {
-        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        announce('Nothing to save: the subscription block is empty.', 'info');
         return;
       }
       await writeSubscriptionConfig(subscription);
-      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+      announce('Subscription config saved. Hot reload core to apply.');
     } catch (err) {
-      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+      announce(`Subscription save failed: ${err.message}`, 'error');
     }
   };
 
@@ -161,7 +182,7 @@ export function useSubscriptionConfig({
     nextDatabases[index] = nextEntry;
     setConfigSubscriptionDatabases(nextDatabases);
 
-    setConfigSubscriptionStatus('Saving...');
+    announce('Saving subscription config...', 'progress');
     try {
       const subscription = buildSubscriptionPatch({
         inbound: configSubscriptionInbound,
@@ -170,13 +191,13 @@ export function useSubscriptionConfig({
         full: configSubscriptionFull
       });
       if (!subscription) {
-        setConfigSubscriptionStatus('Nothing to save (subscription block is empty).');
+        announce('Nothing to save: the subscription block is empty.', 'info');
         return;
       }
       await writeSubscriptionConfig(subscription);
-      setConfigSubscriptionStatus('Saved to config. Hot reload core to apply.');
+      announce('Subscription config saved. Hot reload core to apply.');
     } catch (err) {
-      setConfigSubscriptionStatus(`Save failed: ${err.message}`);
+      announce(`Subscription save failed: ${err.message}`, 'error');
     }
   };
 

@@ -14,6 +14,7 @@ import {
 
 export function useConfigDataLoaders({
   apiBase,
+  notify,
   configRulesPath,
   configFirewallPath,
   setOutbounds,
@@ -108,12 +109,14 @@ export function useConfigDataLoaders({
   const triggerDnsCacheFlushFromDashboard = async () => {
     if (dnsCacheFlushBusy) return;
     setDnsCacheFlushBusy(true);
-    setDnsCacheStatus('Flushing DNS cache...');
+    notify?.({ channel: 'dns-cache', message: 'Flushing DNS cache...', tone: 'progress' });
     try {
       await flushDnsCache(apiBase);
-      setDnsCacheStatus('DNS cache flushed.');
+      setDnsCacheStatus('');
+      notify?.({ channel: 'dns-cache', message: 'DNS cache flushed.', tone: 'success' });
     } catch (err) {
       setDnsCacheStatus(`DNS cache flush failed: ${err.message}`);
+      notify?.({ channel: 'dns-cache', message: `DNS cache flush failed: ${err.message}`, tone: 'error' });
     } finally {
       setDnsCacheFlushBusy(false);
     }
@@ -122,12 +125,14 @@ export function useConfigDataLoaders({
   const triggerDnsCacheFlushFromSettings = async () => {
     if (dnsCacheFlushBusy) return;
     setDnsCacheFlushBusy(true);
-    setSettingsStatus('Flushing DNS cache...');
+    notify?.({ channel: 'dns-cache', message: 'Flushing DNS cache...', tone: 'progress' });
     try {
       await flushDnsCache(apiBase);
-      setSettingsStatus('DNS cache flushed.');
+      setSettingsStatus('');
+      notify?.({ channel: 'dns-cache', message: 'DNS cache flushed.', tone: 'success' });
     } catch (err) {
       setSettingsStatus(`DNS cache flush failed: ${err.message}`);
+      notify?.({ channel: 'dns-cache', message: `DNS cache flush failed: ${err.message}`, tone: 'error' });
     } finally {
       setDnsCacheFlushBusy(false);
     }
@@ -138,6 +143,8 @@ export function useConfigDataLoaders({
     setRulesData({
       rules: Array.isArray(data?.rules) ? data.rules : [],
       balancers: Array.isArray(data?.balancers) ? data.balancers : [],
+      dynamicRules: Array.isArray(data?.dynamicRules) ? data.dynamicRules : [],
+      receivedAt: Date.now(),
       updatedAt: data?.updatedAt || ''
     });
     return data;
@@ -229,6 +236,7 @@ export function useConfigDataLoaders({
         return null;
       }
       setConfigRulesStatus(`Config load failed: ${err.message}`);
+      notify?.({ channel: 'routing-config', message: `Routing config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
@@ -262,6 +270,7 @@ export function useConfigDataLoaders({
         return null;
       }
       setConfigFirewallStatus(`Config load failed: ${err.message}`);
+      notify?.({ channel: 'firewall-config', message: `Firewall config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
@@ -281,6 +290,7 @@ export function useConfigDataLoaders({
       return resp;
     } catch (err) {
       setConfigOutboundsStatus(`Config load failed: ${err.message}`);
+      notify?.({ channel: 'outbounds-config', message: `Outbounds config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
@@ -300,12 +310,17 @@ export function useConfigDataLoaders({
       return resp;
     } catch (err) {
       setConfigInboundsStatus(`Config load failed: ${err.message}`);
+      notify?.({ channel: 'inbounds-config', message: `Inbounds config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
 
-  const refresh = async (base = apiBase) => {
+  const refresh = async (base = apiBase, options = {}) => {
+    const { announce = true } = options;
     setStatus('Refreshing...');
+    if (announce) {
+      notify?.({ channel: 'nodes-refresh', message: 'Refreshing nodes...', tone: 'progress' });
+    }
     try {
       const [conn, out] = await Promise.all([
         fetchJson(`${base}/connections`),
@@ -318,11 +333,20 @@ export function useConfigDataLoaders({
           .map(([key, value]) => `${key}: ${value}`)
           .join(' | ');
         setStatus(`Nodes warning: ${message}`);
+        if (announce) {
+          notify?.({ channel: 'nodes-refresh', message: `Nodes refreshed with warnings: ${message}`, tone: 'info' });
+        }
       } else {
         setStatus('Refreshed');
+        if (announce) {
+          notify?.({ channel: 'nodes-refresh', message: 'Nodes refreshed.', tone: 'success' });
+        }
       }
     } catch (err) {
       setStatus(`Refresh failed: ${err.message}`);
+      if (announce) {
+        notify?.({ channel: 'nodes-refresh', message: `Nodes refresh failed: ${err.message}`, tone: 'error' });
+      }
     }
   };
 
@@ -340,6 +364,7 @@ export function useConfigDataLoaders({
       setSettingsStatus('');
     } catch (err) {
       setSettingsStatus(`Load failed: ${err.message}`);
+      notify?.({ channel: 'settings-load', message: `Settings load failed: ${err.message}`, tone: 'error' });
     }
   };
 
@@ -406,8 +431,10 @@ export function useConfigDataLoaders({
     try {
       await loadRulesConfig(base);
       setConfigRulesStatus('Discarded local routing edits.');
+      notify?.({ channel: 'routing-config', message: 'Discarded local routing edits.', tone: 'success' });
     } catch (err) {
       setConfigRulesStatus(`Discarded local edits. Config reload failed: ${err.message}`);
+      notify?.({ channel: 'routing-config', message: `Discarded local edits; config reload failed: ${err.message}`, tone: 'error' });
     }
   };
 
@@ -417,8 +444,10 @@ export function useConfigDataLoaders({
     try {
       await loadFirewallConfig(base);
       setConfigFirewallStatus('Discarded local firewall edits.');
+      notify?.({ channel: 'firewall-config', message: 'Discarded local firewall edits.', tone: 'success' });
     } catch (err) {
       setConfigFirewallStatus(`Discarded local edits. Config reload failed: ${err.message}`);
+      notify?.({ channel: 'firewall-config', message: `Discarded local edits; config reload failed: ${err.message}`, tone: 'error' });
     }
   };
 

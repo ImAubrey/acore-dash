@@ -2,8 +2,7 @@ import { useMemo } from 'react';
 import {
   EmptyState,
   HeaderSearchInput,
-  HotReloadButton,
-  StatusText
+  HotReloadButton
 } from '../common/panelPrimitives';
 import { getRuleOrderChanges, useSortableRuleList } from '../common/useSortableRuleList';
 import {
@@ -13,6 +12,7 @@ import {
   getFirewallRuleTitle
 } from '../../dashboardShared';
 import { EditIcon, TrashIcon } from '../connections/actionIcons';
+import { getFirewallTriggerDetail } from '../rules/dynamicRules';
 
 export function FirewallRulesCard({
   embedded = false,
@@ -102,16 +102,6 @@ export function FirewallRulesCard({
           )}
         </div>
       </div>
-      {embedded && configFirewallStatus ? (
-        <div className="connections-header-note rules-status-note firewall-card-status-note">
-          <StatusText
-            text={configFirewallStatus}
-            danger={typeof isFailedStatusText === 'function' && isFailedStatusText(configFirewallStatus)}
-            className="rules-status-note-item"
-          />
-        </div>
-      ) : null}
-
       {firewallRules.length === 0 ? (
         <EmptyState small message="No firewall rules configured." />
       ) : filteredFirewallEntries.length === 0 ? (
@@ -122,6 +112,10 @@ export function FirewallRulesCard({
             const title = getFirewallRuleTitle(rule, index);
             const action = getFirewallRuleAction(rule);
             const limitDetail = action.tone === 'limit' ? getFirewallLimitDetail(rule) : '';
+            const triggerDetail = action.tone === 'trigger' ? getFirewallTriggerDetail(rule) : '';
+            const actionLabel = action.tone === 'trigger' && rule?.trigger?.dynamicRule
+              ? 'Dynamic trigger'
+              : action.label;
             const dropPosition = getDropPositionForIndex(index);
             const orderChange = firewallOrderChanges.get(index);
             const dragClassName = [
@@ -162,11 +156,16 @@ export function FirewallRulesCard({
                       ) : null}
                       <h4 className="mono" title={title}>{highlight(title)}</h4>
                       <span className={`meta-pill firewall-action-pill ${action.tone}`}>
-                        {highlight(action.label)}
+                        {highlight(actionLabel)}
                       </span>
                       {limitDetail ? (
                         <span className="meta-pill firewall-limit-detail-pill" title={`limit ${limitDetail}`}>
                           {highlight(limitDetail)}
+                        </span>
+                      ) : null}
+                      {triggerDetail ? (
+                        <span className="meta-pill firewall-trigger-detail-pill" title={triggerDetail}>
+                          {highlight(triggerDetail)}
                         </span>
                       ) : null}
                     </div>

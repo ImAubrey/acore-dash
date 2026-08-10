@@ -1,5 +1,6 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader } from '../common/panelPrimitives';
+import { ScrollArea } from '../common/ScrollArea';
 
 export function LogsPanel(props) {
   const {
@@ -29,7 +30,6 @@ export function LogsPanel(props) {
     <section className="panel logs" style={{ '--delay': '0.2s' }}>
       <PanelHeader
         title="Logs"
-        description="Streaming live logs from the remote core."
         actions={(
           <div className="log-controls">
           <button type="button" className={`pill ${logsDisabled ? 'paused' : logStreamStatus}`} onClick={() => setLogsDisabled((prev) => !prev)} title={logsDisabled ? 'Enable log streaming' : 'Disable log streaming'}>{logsDisabled ? 'disabled' : logStreamStatus}</button>
@@ -47,7 +47,7 @@ export function LogsPanel(props) {
           </div>
         )}
       />
-      <div className="log-view" ref={logsRef}>
+      <ScrollArea className="log-view" viewportRef={logsRef} ariaLabel="Streaming log output">
         {logLines.length === 0 ? (
           <div className="log-empty">{logsDisabled ? 'Logs are disabled. Toggle to start.' : 'No logs yet.'}</div>
         ) : filteredLogLines.length === 0 ? (
@@ -55,7 +55,7 @@ export function LogsPanel(props) {
         ) : (
           filteredLogLines.map((line, idx) => (<div className={`log-line ${getLogLineLevelClass(line)}`} key={`${idx}-${line.slice(0, 16)}`}>{renderLogLine(line)}</div>))
         )}
-      </div>
+      </ScrollArea>
     </section>
   );
 }

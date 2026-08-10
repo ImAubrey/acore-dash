@@ -9,6 +9,7 @@ import {
 
 export function useControlActions({
   apiBase,
+  notify,
   hotReloadBusy,
   setHotReloadBusy,
   setSettingsStatus,
@@ -42,13 +43,8 @@ export function useControlActions({
   restartConfirmCloseTimerRef,
   startupInfo
 }) {
-  const announceHotReloadStatus = (message, announceFn) => {
-    if (typeof announceFn === 'function') {
-      announceFn(message);
-    }
-    if (announceFn !== setSettingsStatus) {
-      setSettingsStatus(message);
-    }
+  const announceHotReloadStatus = (message, tone = 'progress') => {
+    notify?.({ channel: 'core-reload', message, tone });
   };
 
   const FULL_HOT_RELOAD_TARGETS = ['all'];
@@ -59,7 +55,7 @@ export function useControlActions({
     const delays = [1500, 4000, 8000];
     delays.forEach((delay) => {
       window.setTimeout(() => {
-        refresh(base);
+        refresh(base, { announce: false });
         loadRestartInfo(base);
       }, delay);
     });
@@ -103,7 +99,7 @@ export function useControlActions({
     return `${modeLabel} failed${idText}: ${reason}`;
   };
 
-  const pollHotReloadStatus = async (announceFn, taskId) => {
+  const pollHotReloadStatus = async (taskId) => {
     const id = String(taskId || '').trim();
     if (!id || typeof loadRestartInfo !== 'function') return null;
     const startedAt = Date.now();
@@ -120,7 +116,7 @@ export function useControlActions({
       emptyCount = 0;
       const message = formatHotReloadTaskStatus(task);
       if (message && message !== lastMessage) {
-        announceHotReloadStatus(message, announceFn);
+        announceHotReloadStatus(message, task.inProgress ? 'progress' : task.ok ? 'success' : 'error');
         lastMessage = message;
       }
       if (!task.inProgress) {
@@ -131,19 +127,19 @@ export function useControlActions({
     return null;
   };
 
-  const performHotReload = async (announceFn) => {
+  const performHotReload = async () => {
     if (hotReloadBusy) return;
     setHotReloadBusy(true);
-    announceHotReloadStatus('Triggering hot reload...', announceFn);
+    announceHotReloadStatus('Triggering hot reload...');
     try {
       const hasDraft = !!getRoutingDraft(apiBase);
       if (hasDraft) {
-        announceHotReloadStatus('Uploading pending routing edits...', announceFn);
+        announceHotReloadStatus('Uploading pending routing edits...');
         await uploadRoutingDraft(apiBase);
       }
       const hasFirewallDraft = !!getFirewallDraft(apiBase);
       if (hasFirewallDraft) {
-        announceHotReloadStatus('Uploading pending firewall edits...', announceFn);
+        announceHotReloadStatus('Uploading pending firewall edits...');
         await uploadFirewallDraft(apiBase);
       }
       const resp = await fetchJson(`${apiBase}/core/hotreload`, {
@@ -155,9 +151,9 @@ export function useControlActions({
       const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
       const warnings = Array.isArray(resp?.hotReload?.warnings) ? resp.hotReload.warnings : [];
       if (taskId) {
-        announceHotReloadStatus(`Hot reload scheduled (id ${taskId}).`, announceFn);
+        announceHotReloadStatus(`Hot reload scheduled (id ${taskId}).`);
       }
-      const finalTask = await pollHotReloadStatus(announceFn, taskId);
+      const finalTask = await pollHotReloadStatus(taskId);
       if (!finalTask) {
         const baseMsg = taskId ? `Hot reload applied (id ${taskId}).` : 'Hot reload applied.';
         const message = needsRestart
@@ -167,34 +163,31 @@ export function useControlActions({
           : warnings.length > 0
             ? `${baseMsg} ${warnings[0]}`
             : baseMsg;
-        announceHotReloadStatus(message, announceFn);
+        announceHotReloadStatus(message, 'success');
       } else if (warnings.length > 0) {
         const finalMessage = formatHotReloadTaskStatus(finalTask) || `Hot reload completed (id ${taskId}).`;
-        announceHotReloadStatus(`${finalMessage} ${warnings[0]}`, announceFn);
+        announceHotReloadStatus(`${finalMessage} ${warnings[0]}`, finalTask.ok ? 'success' : 'error');
       }
       schedulePostRestartRefresh(apiBase);
     } catch (err) {
-      announceHotReloadStatus(`Hot reload failed: ${err.message}`, announceFn);
+      announceHotReloadStatus(`Hot reload failed: ${err.message}`, 'error');
     } finally {
       setHotReloadBusy(false);
     }
   };
 
-  const makeHotReloadTrigger = (announceFn) => () => {
-    if (typeof announceFn !== 'function') return;
-    performHotReload(announceFn);
-  };
+  const makeHotReloadTrigger = () => () => performHotReload();
 
-  const triggerHotReload = makeHotReloadTrigger(setSettingsStatus);
-  const triggerHotReloadFromNodes = makeHotReloadTrigger(setConfigOutboundsStatus);
-  const triggerHotReloadFromRules = makeHotReloadTrigger(setRulesStatus);
-  const triggerHotReloadFromFirewall = makeHotReloadTrigger(setConfigFirewallStatus);
-  const triggerHotReloadFromSubscriptions = makeHotReloadTrigger(setConfigSubscriptionStatus);
-  const triggerHotReloadFromInbounds = makeHotReloadTrigger(setConfigInboundsStatus);
+  const triggerHotReload = makeHotReloadTrigger();
+  const triggerHotReloadFromNodes = makeHotReloadTrigger();
+  const triggerHotReloadFromRules = makeHotReloadTrigger();
+  const triggerHotReloadFromFirewall = makeHotReloadTrigger();
+  const triggerHotReloadFromSubscriptions = makeHotReloadTrigger();
+  const triggerHotReloadFromInbounds = makeHotReloadTrigger();
 
   const triggerDelayTest = () => {
     if (delayTestCooldown > 0 || delayTestBusy) return;
-    setStatus('Latency test starting in 5s...');
+    notify?.({ channel: 'latency-test', message: 'Latency test starts in 5 seconds...', tone: 'progress' });
     startCooldown(5, setDelayTestCooldown, delayTestCooldownRef);
     clearTimeoutRef(delayTestTriggerRef);
     const targetBase = apiBase;
@@ -206,10 +199,10 @@ export function useControlActions({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({})
         });
-        setStatus('Latency test triggered.');
+        notify?.({ channel: 'latency-test', message: 'Latency test triggered.', tone: 'success' });
         schedulePostDelayTestRefresh(targetBase);
       } catch (err) {
-        setStatus(`Latency test failed: ${err.message}`);
+        notify?.({ channel: 'latency-test', message: `Latency test failed: ${err.message}`, tone: 'error' });
       } finally {
         setDelayTestBusy(false);
         clearTimeoutRef(delayTestTriggerRef);
@@ -246,33 +239,33 @@ export function useControlActions({
     startRestartCooldown(3);
     const hasDraft = !!getRoutingDraft(apiBase);
     if (hasDraft) {
-      setSettingsStatus('Uploading pending routing edits...');
+      notify?.({ channel: 'core-restart', message: 'Uploading pending routing edits...', tone: 'progress' });
       try {
         await uploadRoutingDraft(apiBase);
       } catch (err) {
-        setSettingsStatus(`Upload failed: ${err.message}`);
+        notify?.({ channel: 'core-restart', message: `Upload failed: ${err.message}`, tone: 'error' });
         setRestartConfirmBusy(false);
         return;
       }
     }
     const hasFirewallDraft = !!getFirewallDraft(apiBase);
     if (hasFirewallDraft) {
-      setSettingsStatus('Uploading pending firewall edits...');
+      notify?.({ channel: 'core-restart', message: 'Uploading pending firewall edits...', tone: 'progress' });
       try {
         await uploadFirewallDraft(apiBase);
       } catch (err) {
-        setSettingsStatus(`Upload failed: ${err.message}`);
+        notify?.({ channel: 'core-restart', message: `Upload failed: ${err.message}`, tone: 'error' });
         setRestartConfirmBusy(false);
         return;
       }
     }
-    setSettingsStatus('Restarting core...');
+    notify?.({ channel: 'core-restart', message: 'Restarting core...', tone: 'progress' });
     try {
       await fetchJson(`${apiBase}/core/restart`, { method: 'POST' });
-      setSettingsStatus('Restart scheduled.');
+      notify?.({ channel: 'core-restart', message: 'Restart scheduled.', tone: 'success' });
       schedulePostRestartRefresh(apiBase);
     } catch (err) {
-      setSettingsStatus(`Restart failed: ${err.message}`);
+      notify?.({ channel: 'core-restart', message: `Restart failed: ${err.message}`, tone: 'error' });
     } finally {
       setRestartConfirmBusy(false);
     }
@@ -281,7 +274,7 @@ export function useControlActions({
   const triggerRestart = () => {
     if (restartCooldown > 0 || restartConfirmBusy) return;
     if (!startupInfo.available) {
-      setSettingsStatus('Startup info is required for in-process restart.');
+      notify?.({ channel: 'core-restart', message: 'Startup info is required for in-process restart.', tone: 'error' });
       return;
     }
     clearTimeoutRef(restartConfirmCloseTimerRef);

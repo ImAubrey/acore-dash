@@ -3,13 +3,16 @@ import {
   EmptyState,
   HeaderSearchInput,
   HotReloadButton,
-  PanelHeader,
-  StatusText
+  PanelHeader
 } from '../common/panelPrimitives';
 import { getRuleOrderChanges, useSortableRuleList } from '../common/useSortableRuleList';
-import { normalizeRuleDestination } from '../../dashboardShared';
+import {
+  FIREWALL_TRIGGER_RULE_TEMPLATE,
+  normalizeRuleDestination
+} from '../../dashboardShared';
 import { EditIcon, TrashIcon } from '../connections/actionIcons';
 import { FirewallRulesCard } from '../firewall/FirewallPanel';
+import { DynamicRulesCard } from './DynamicRulesCard';
 
 export function RulesPanel({
   page,
@@ -65,25 +68,6 @@ export function RulesPanel({
     : showFirewall
       ? 'Firewall'
       : 'Rule Browser';
-  const panelDescription = sharedPage
-    ? 'Edit routing rules and firewall rules side by side.'
-    : showFirewall
-      ? 'Edit top-level firewall rules with flat routing-style match fields.'
-      : 'Edit routing rules reported by the router module.';
-  const rulesStatusItems = [
-    { text: rulesStatus, danger: typeof isFailedStatusText === 'function' && isFailedStatusText(rulesStatus) },
-    {
-      text: configRulesStatus,
-      danger: isRoutingDraftNotice || (typeof isFailedStatusText === 'function' && isFailedStatusText(configRulesStatus))
-    }
-  ].filter((item) => item.text);
-  const firewallStatusItems = [
-    {
-      text: firewallProps.configFirewallStatus,
-      danger: typeof isFailedStatusText === 'function' && isFailedStatusText(firewallProps.configFirewallStatus)
-    }
-  ].filter((item) => item.text);
-  const headerStatusItems = showFirewall && !showRules ? firewallStatusItems : rulesStatusItems;
   const headerActions = showFirewall && !showRules
     ? (
       <>
@@ -103,6 +87,19 @@ export function RulesPanel({
       />
       <button className="primary small" onClick={() => openRulesModal('firewallRule', 'insert')}>
         Add firewall rule
+      </button>
+      <button
+        className="primary small"
+        onClick={() => openRulesModal(
+          'firewallRule',
+          'insert',
+          -1,
+          -1,
+          null,
+          FIREWALL_TRIGGER_RULE_TEMPLATE
+        )}
+      >
+        Add trigger
       </button>
       </>
     )
@@ -135,18 +132,6 @@ export function RulesPanel({
           title={panelTitle}
           actions={headerActions}
         />
-        <div className={`connections-header-note rules-header-note${headerStatusItems.length ? ' rules-status-note' : ''}`}>
-          {headerStatusItems.length ? (
-            headerStatusItems.map((item, index) => (
-              <StatusText
-                key={`${item.text}-${index}`}
-                text={item.text}
-                danger={item.danger}
-                className="rules-status-note-item"
-              />
-            ))
-          ) : panelDescription}
-        </div>
       </div>
 
       <div className={`rules-grid${sharedPage ? ' rules-firewall-grid' : ''}`}>
@@ -290,7 +275,13 @@ export function RulesPanel({
         ) : null}
 
         {showFirewall ? (
-          <FirewallRulesCard {...firewallProps} embedded={sharedPage} />
+          <div className="rules-firewall-column">
+            <DynamicRulesCard
+              rulesData={rulesData}
+              openRulesModal={openRulesModal}
+            />
+            <FirewallRulesCard {...firewallProps} embedded={sharedPage} />
+          </div>
         ) : null}
       </div>
       {showRules && rulesData.updatedAt ? (

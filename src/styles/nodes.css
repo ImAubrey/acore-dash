@@ -72,7 +72,8 @@
   gap: 8px;
 }
 
-.nodes-outbounds-card .outbound-card {
+.nodes-outbounds-card .outbound-card,
+.inbound-list-grid .outbound-card {
   gap: 8px;
   padding: 9px 10px;
   border-radius: 10px;
@@ -82,12 +83,14 @@
   gap: 8px;
 }
 
-.nodes-outbounds-card .outbound-title {
+.nodes-outbounds-card .outbound-title,
+.inbound-list-grid .outbound-title {
   align-items: center;
   gap: 6px;
 }
 
-.nodes-outbounds-card .outbound-title h3 {
+.nodes-outbounds-card .outbound-title h3,
+.inbound-list-grid .outbound-title h3 {
   flex: 0 1 auto;
   min-width: 0;
   margin: 0;
@@ -112,29 +115,36 @@
   flex-basis: 14px;
 }
 
-.nodes-outbounds-card .outbound-card p {
+.nodes-outbounds-card .outbound-card p,
+.inbound-list-grid .outbound-card p {
   font-size: 12px;
   line-height: 1.2;
 }
 
 .nodes-outbounds-card .outbound-card .status-pill,
-.nodes-outbounds-card .outbound-card .meta-pill {
+.nodes-outbounds-card .outbound-card .meta-pill,
+.inbound-list-grid .outbound-card .status-pill,
+.inbound-list-grid .outbound-card .meta-pill {
   padding: 3px 6px;
   font-size: 9px;
   line-height: 1.1;
 }
 
-.nodes-outbounds-card .outbound-side {
+.nodes-outbounds-card .outbound-side,
+.inbound-list-grid .outbound-side {
   gap: 5px;
 }
 
 .nodes-outbounds-card .outbound-meta,
-.nodes-outbounds-card .outbound-actions {
+.nodes-outbounds-card .outbound-actions,
+.inbound-list-grid .outbound-meta,
+.inbound-list-grid .outbound-actions {
   gap: 5px;
 }
 
 .nodes-outbounds-card .outbound-actions,
-.outbound-group-modal .outbound-actions {
+.outbound-group-modal .outbound-actions,
+.inbound-list-grid .outbound-actions {
   align-items: center;
   justify-content: flex-end;
   flex-wrap: nowrap;
@@ -142,7 +152,8 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-bundle,
-.outbound-group-modal .outbound-traffic-bundle {
+.outbound-group-modal .outbound-traffic-bundle,
+.inbound-list-grid .outbound-traffic-bundle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -174,7 +185,8 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-bundle::before,
-.outbound-group-modal .outbound-traffic-bundle::before {
+.outbound-group-modal .outbound-traffic-bundle::before,
+.inbound-list-grid .outbound-traffic-bundle::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -193,13 +205,15 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-bundle > *,
-.outbound-group-modal .outbound-traffic-bundle > * {
+.outbound-group-modal .outbound-traffic-bundle > *,
+.inbound-list-grid .outbound-traffic-bundle > * {
   position: relative;
   z-index: 1;
 }
 
 .nodes-outbounds-card .outbound-traffic-item,
-.outbound-group-modal .outbound-traffic-item {
+.outbound-group-modal .outbound-traffic-item,
+.inbound-list-grid .outbound-traffic-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -211,7 +225,8 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-separator,
-.outbound-group-modal .outbound-traffic-separator {
+.outbound-group-modal .outbound-traffic-separator,
+.inbound-list-grid .outbound-traffic-separator {
   width: 1px;
   height: 12px;
   align-self: center;
@@ -224,7 +239,8 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-bundle .conn-action-icon,
-.outbound-group-modal .outbound-traffic-bundle .conn-action-icon {
+.outbound-group-modal .outbound-traffic-bundle .conn-action-icon,
+.inbound-list-grid .outbound-traffic-bundle .conn-action-icon {
   width: 10px;
   height: 10px;
   flex: 1 1 10px;
@@ -252,17 +268,20 @@
 }
 
 .nodes-outbounds-card .outbound-traffic-count,
-.outbound-group-modal .outbound-traffic-count {
+.outbound-group-modal .outbound-traffic-count,
+.inbound-list-grid .outbound-traffic-count {
   color: #315785;
 }
 
 .nodes-outbounds-card .outbound-traffic-upload,
-.outbound-group-modal .outbound-traffic-upload {
+.outbound-group-modal .outbound-traffic-upload,
+.inbound-list-grid .outbound-traffic-upload {
   color: #b35b10;
 }
 
 .nodes-outbounds-card .outbound-traffic-download,
-.outbound-group-modal .outbound-traffic-download {
+.outbound-group-modal .outbound-traffic-download,
+.inbound-list-grid .outbound-traffic-download {
   color: #1f6fb8;
 }
 
@@ -474,7 +493,8 @@
 
 @media (max-width: 720px) {
   .nodes-outbounds-card .outbound-traffic-bundle,
-  .outbound-group-modal .outbound-traffic-bundle {
+  .outbound-group-modal .outbound-traffic-bundle,
+  .inbound-list-grid .outbound-traffic-bundle {
     flex-basis: 198px;
     width: 198px;
     max-width: 198px;
@@ -488,7 +508,8 @@
   }
 
   .nodes-outbounds-card .outbound-traffic-bundle .conn-action-icon,
-  .outbound-group-modal .outbound-traffic-bundle .conn-action-icon {
+  .outbound-group-modal .outbound-traffic-bundle .conn-action-icon,
+  .inbound-list-grid .outbound-traffic-bundle .conn-action-icon {
     width: 8px;
     height: 8px;
     flex-basis: 8px;

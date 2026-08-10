@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ScrollArea } from '../common/ScrollArea';
 
 const TOP_SOURCES_VISIBLE_ROWS = 8;
 
@@ -64,8 +65,7 @@ export function TopDestinationsCard({
         <div className="chart-empty">No source traffic yet.</div>
       ) : (
         <div className="split-list-frame top-sources-frame">
-          <div className="split-list-scroll">
-            <div className="top-sources-list">
+          <ScrollArea className="split-list-scroll" contentClassName="top-sources-list" ariaLabel="Top sources list">
               {sortedSources.map((item, index) => {
                 const color = CHART_COLORS[index % CHART_COLORS.length];
                 const queryValue = String(item.query || '').trim();
@@ -120,8 +120,7 @@ export function TopDestinationsCard({
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
+          </ScrollArea>
         </div>
       )}
     </section>

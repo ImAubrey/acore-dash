@@ -1,16 +1,19 @@
 import React from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { json, jsonParseLinter } from '@codemirror/lang-json';
-import { linter, lintGutter } from '@codemirror/lint';
-import { EditorView } from '@codemirror/view';
-import { githubLight } from '@uiw/codemirror-theme-github';
 import {
   EmptyState,
   HotReloadButton,
-  PanelHeader,
-  StatusText
+  PanelHeader
 } from '../common/panelPrimitives';
-import { EditIcon, InfoIcon, TrashIcon } from '../connections/actionIcons';
+import {
+  ConnectionsIcon,
+  DownloadIcon,
+  EditIcon,
+  InfoIcon,
+  TrashIcon,
+  UploadIcon
+} from '../connections/actionIcons';
+import { DnsEditorCard } from './DnsEditorCard';
+import { CONNECTION_ACTIVITY_SCALE, getRateActivity } from '../../dashboardShared';
 
 export function InboundsPanel(props) {
   const {
@@ -24,6 +27,8 @@ export function InboundsPanel(props) {
     openRulesModal,
     configInboundsPath,
     configInbounds,
+    inboundStatsByTag,
+    formatRate,
     openInfoModal,
     openDeleteConfirm,
     loadDnsConfig,
@@ -46,17 +51,8 @@ export function InboundsPanel(props) {
     <section className="panel inbounds" style={{ '--delay': '0.16s' }}>
       <PanelHeader
         title="Inbounds"
-        description="Edit top-level inbound definitions (`inbounds`) and persist changes to config."
         actions={(
           <>
-          {configInboundsStatus ? (
-            <div className="header-status">
-              <StatusText
-                text={configInboundsStatus}
-                danger={isFailedStatusText(configInboundsStatus)}
-              />
-            </div>
-          ) : null}
           <button
             className="ghost small"
             onClick={() => {
@@ -78,11 +74,7 @@ export function InboundsPanel(props) {
           </>
         )}
       />
-      <div className="config-editor-meta">
-        {configInboundsPath ? <span className="status">Config: {configInboundsPath}</span> : null}
-        <span className="status">Total: {configInbounds.length}</span>
-      </div>
-      <div className="rules-grid inbounds-grid">
+      <div className="inbounds-page-body">
         <div className="group-card">
           <div className="group-header">
             <div>
@@ -94,7 +86,7 @@ export function InboundsPanel(props) {
             <EmptyState small message="No inbounds configured." />
           ) : (
             <div className="outbound-grid inbound-list-grid">
-              {(configInbounds || []).map((inbound, index) => {
+              {configInbounds.map((inbound, index) => {
                 const tag = String(inbound?.tag || '').trim();
                 const protocol = String(inbound?.protocol || '').trim() || 'unknown';
                 const listen = String(inbound?.listen || '').trim();
@@ -104,6 +96,20 @@ export function InboundsPanel(props) {
                 const sniffingEnabled = inbound?.sniffing?.enabled === true;
                 const clients = Array.isArray(inbound?.settings?.clients) ? inbound.settings.clients.length : 0;
                 const key = `${tag || protocol || 'inbound'}-${index}`;
+                const trafficStats = tag && inboundStatsByTag ? inboundStatsByTag.get(tag) : null;
+                const connectionCount = trafficStats?.connections || 0;
+                const uploadRate = trafficStats?.uploadRate || 0;
+                const downloadRate = trafficStats?.downloadRate || 0;
+                const formatInboundRate = typeof formatRate === 'function'
+                  ? formatRate
+                  : (value) => `${Math.max(0, Number(value) || 0)} B/s`;
+                const uploadLabel = formatInboundRate(uploadRate);
+                const downloadLabel = formatInboundRate(downloadRate);
+                const trafficActivity = getRateActivity(
+                  { upload: uploadRate, download: downloadRate },
+                  CONNECTION_ACTIVITY_SCALE,
+                  connectionCount
+                );
                 return (
                   <div className="outbound-card" key={key}>
                     <div className="outbound-info">
@@ -125,6 +131,26 @@ export function InboundsPanel(props) {
                         {clients > 0 ? <span className="meta-pill">{`${clients} clients`}</span> : null}
                       </div>
                       <div className="outbound-actions">
+                        <span
+                          className="meta-pill outbound-traffic-bundle"
+                          style={{ '--activity': String(trafficActivity) }}
+                          title={`${connectionCount} connections | Upload ${uploadLabel} | Download ${downloadLabel}`}
+                        >
+                          <span className="outbound-traffic-item outbound-traffic-count">
+                            <ConnectionsIcon />
+                            <span className="outbound-traffic-value">{connectionCount}</span>
+                          </span>
+                          <span className="outbound-traffic-separator" aria-hidden="true" />
+                          <span className="outbound-traffic-item outbound-traffic-upload">
+                            <UploadIcon />
+                            <span className="outbound-traffic-value">{uploadLabel}</span>
+                          </span>
+                          <span className="outbound-traffic-separator" aria-hidden="true" />
+                          <span className="outbound-traffic-item outbound-traffic-download">
+                            <DownloadIcon />
+                            <span className="outbound-traffic-value">{downloadLabel}</span>
+                          </span>
+                        </span>
                         <button
                           className="action-icon-button action-icon-info"
                           onClick={() => openInfoModal(`Inbound: ${tag || '(no tag)'}`, inbound || null)}
@@ -157,75 +183,22 @@ export function InboundsPanel(props) {
             </div>
           )}
         </div>
-
-        <div className="group-card inbounds-dns-editor">
-          <div className="group-header">
-            <div>
-              <h3>DNS editor</h3>
-              <p className="group-meta">Edit top-level DNS section (`dns`).</p>
-            </div>
-            <div className="rules-editor-actions">
-              <button
-                className="ghost small"
-                onClick={() => {
-                  loadDnsConfig(apiBase).catch(() => {});
-                }}
-              >
-                Reload config
-              </button>
-              <button
-                className="ghost small"
-                onClick={resetDnsEditor}
-                disabled={!configDnsDirty}
-              >
-                Reset
-              </button>
-              <button
-                className="ghost small"
-                onClick={formatDnsEditor}
-                disabled={configDnsSaving}
-              >
-                Format
-              </button>
-              <button
-                className="primary small"
-                onClick={saveDnsConfig}
-                disabled={configDnsSaving}
-              >
-                {configDnsSaving ? 'Saving...' : 'Save DNS'}
-              </button>
-            </div>
-          </div>
-          <div className="config-editor-meta">
-            <StatusText
-              text={configDnsStatus}
-              danger={isFailedStatusText(configDnsStatus)}
-            />
-            {configDnsPath ? <span className="status">Config: {configDnsPath}</span> : null}
-            {configDnsDirty ? <span className="status">Unsaved changes</span> : null}
-          </div>
-          <div className="rules-modal-editor config-json-editor">
-            <CodeMirror
-              value={configDnsText}
-              height="320px"
-              theme={githubLight}
-              extensions={[
-                json(),
-                lintGutter(),
-                linter(jsonParseLinter()),
-                EditorView.lineWrapping
-              ]}
-              onChange={(value) => {
-                setConfigDnsText(value);
-                setConfigDnsDirty(true);
-                if (configDnsStatus && !isFailedStatusText(configDnsStatus)) {
-                  setConfigDnsStatus('');
-                }
-              }}
-              aria-label="Edit DNS config JSON"
-            />
-          </div>
-        </div>
+        <DnsEditorCard
+          apiBase={apiBase}
+          loadDnsConfig={loadDnsConfig}
+          resetDnsEditor={resetDnsEditor}
+          configDnsDirty={configDnsDirty}
+          formatDnsEditor={formatDnsEditor}
+          configDnsSaving={configDnsSaving}
+          saveDnsConfig={saveDnsConfig}
+          configDnsStatus={configDnsStatus}
+          configDnsPath={configDnsPath}
+          configDnsText={configDnsText}
+          setConfigDnsText={setConfigDnsText}
+          setConfigDnsDirty={setConfigDnsDirty}
+          setConfigDnsStatus={setConfigDnsStatus}
+          isFailedStatusText={isFailedStatusText}
+        />
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useTopbarLayout } from './topbarLayout';
+import { ScrollArea } from '../common/ScrollArea';
 
 const NAV_ACCENTS = {
   dashboard: '#ff8a5b',
@@ -129,16 +130,20 @@ const NavIcon = ({ pageKey }) => {
 
 export function PageNav({ page, pages }) {
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const { wrapRef, navRef, collapsed, centered } = useTopbarLayout(page);
+  const { wrapRef, navRef, collapsed, aligned } = useTopbarLayout(page);
   const currentLabel = pages?.[page]?.label || 'Menu';
   const wrapClassName = [
     'topbar-menu-wrap',
     collapsed ? 'is-collapsed' : 'is-expanded',
-    centered ? 'is-centered' : ''
+    aligned ? 'is-aligned' : ''
   ].filter(Boolean).join(' ');
   const navClassName = [
     'nav topbar-menu',
     collapsed ? 'is-collapsed' : 'is-expanded',
+    menuOpen ? 'is-open' : ''
+  ].filter(Boolean).join(' ');
+  const scrollAreaClassName = [
+    'topbar-scroll-area',
     menuOpen ? 'is-open' : ''
   ].filter(Boolean).join(' ');
 
@@ -166,12 +171,18 @@ export function PageNav({ page, pages }) {
         </span>
         <span>{currentLabel}</span>
       </button>
-      <nav
-        ref={navRef}
-        id="topbar-menu"
-        className={navClassName}
-        aria-label="Topbar"
-        aria-hidden={collapsed && !menuOpen ? true : undefined}
+      <ScrollArea
+        className={scrollAreaClassName}
+        viewportAs="nav"
+        viewportRef={navRef}
+        viewportClassName={navClassName}
+        viewportProps={{
+          id: 'topbar-menu',
+          'aria-label': 'Topbar',
+          'aria-hidden': collapsed && !menuOpen ? true : undefined
+        }}
+        axis="horizontal"
+        ariaLabel="Page navigation"
       >
         {Object.entries(pages).map(([key, value]) => (
           <a
@@ -185,7 +196,7 @@ export function PageNav({ page, pages }) {
             <span className="nav-link-text">{value.label}</span>
           </a>
         ))}
-      </nav>
+      </ScrollArea>
     </div>
   );
 }

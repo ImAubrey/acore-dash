@@ -1,0 +1,136 @@
+/* DNS secondary editor modals. The shared modal header/footer and ScrollArea
+   provide the fixed chrome; these rules only arrange DNS-specific content. */
+.dns-editor-modal-backdrop {
+  z-index: 1300;
+}
+
+.dns-editor-modal {
+  width: min(980px, 94vw);
+  height: min(88dvh, 840px);
+  max-height: 88dvh;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+}
+
+.dns-editor-modal-scroll {
+  min-height: 0;
+}
+
+.dns-editor-modal-content {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.dns-editor-modal-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dns-editor-modal-footer .status {
+  min-width: 0;
+  color: var(--danger);
+}
+
+.dns-modal-toggle-grid {
+  grid-column: 1 / -1;
+}
+
+.dns-host-modal-form {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Main DNS pages intentionally remain concise: edits live in the modal. */
+.dns-server-card {
+  display: block;
+  position: relative;
+}
+
+.dns-server-card.rule-item-drop-before::before {
+  top: 0;
+  z-index: 1;
+}
+
+.dns-server-card.rule-item-drop-after::after {
+  bottom: 0;
+  z-index: 1;
+}
+
+.dns-server-summary {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 1fr) minmax(0, auto) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+.dns-host-summary {
+  grid-template-columns: auto minmax(160px, 1fr) auto;
+  align-items: center;
+}
+
+.dns-host-summary-main {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.dns-host-summary-main strong,
+.dns-host-summary-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dns-host-summary-main strong {
+  font-size: 12px;
+}
+
+.dns-host-summary-main small {
+  color: var(--muted);
+}
+
+@media (max-width: 620px) {
+  .dns-editor-modal {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .dns-editor-modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dns-editor-modal-footer .confirm-actions {
+    justify-content: stretch;
+  }
+
+  .dns-editor-modal-footer .confirm-actions button {
+    flex: 1 1 auto;
+  }
+
+  .dns-server-summary,
+  .dns-host-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .dns-server-summary-pills {
+    display: none;
+  }
+
+  .dns-server-summary .dns-server-actions,
+  .dns-host-summary .dns-server-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}

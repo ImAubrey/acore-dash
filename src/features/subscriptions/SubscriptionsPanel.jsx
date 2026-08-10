@@ -2,8 +2,7 @@ import React from 'react';
 import {
   EmptyState,
   HotReloadButton,
-  PanelHeader,
-  StatusText
+  PanelHeader
 } from '../common/panelPrimitives';
 import { EditIcon, TrashIcon } from '../connections/actionIcons';
 
@@ -38,17 +37,8 @@ export function SubscriptionsPanel(props) {
     <section className="panel subscriptions" style={{ '--delay': '0.14s' }}>
       <PanelHeader
         title="Subscriptions"
-        description="Edit the top-level subscription block (`subscription`) and persist changes to config."
         actions={(
           <>
-          {configSubscriptionStatus ? (
-            <div className="header-status">
-              <StatusText
-                text={configSubscriptionStatus}
-                danger={isFailedStatusText(configSubscriptionStatus)}
-              />
-            </div>
-          ) : null}
           <button className="ghost small" onClick={saveSubscriptionBlock}>
             Save
           </button>

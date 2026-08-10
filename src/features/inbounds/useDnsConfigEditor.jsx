@@ -9,6 +9,7 @@ import {
 
 export function useDnsConfigEditor({
   apiBase,
+  notify,
   configMainPath,
   configDnsPath,
   setConfigDnsPath,
@@ -25,7 +26,7 @@ export function useDnsConfigEditor({
   isFailedStatusText
 }) {
   const loadDnsConfig = async (base = apiBase) => {
-    setConfigDnsStatus('Loading DNS config...');
+    setConfigDnsStatus('');
     try {
       const preferredPath = String(configDnsPath || configMainPath || '').trim();
       const endpoint = preferredPath
@@ -40,13 +41,13 @@ export function useDnsConfigEditor({
       setConfigDnsDirty(false);
       const hasDns = hasOwn(main, 'dns') || hasOwn(main, 'DNS');
       if (!hasDns) {
-        setConfigDnsStatus('DNS section not found; saving will create it.');
-      } else {
-        setConfigDnsStatus('');
+        notify?.({ channel: 'dns-config', message: 'DNS section was not found; saving will create it.', tone: 'info' });
       }
+      setConfigDnsStatus('');
       return resp;
     } catch (err) {
-      setConfigDnsStatus(`Config load failed: ${err.message}`);
+      setConfigDnsStatus('');
+      notify?.({ channel: 'dns-config', message: `DNS config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
@@ -70,7 +71,7 @@ export function useDnsConfigEditor({
       delete nextMain.DNS;
     }
     setConfigDnsSaving(true);
-    setConfigDnsStatus('Saving...');
+    notify?.({ channel: 'dns-config', message: 'Saving DNS config...', tone: 'progress' });
     try {
       const resp = await fetchJson(`${apiBase}/config/main`, {
         method: 'POST',
@@ -86,9 +87,11 @@ export function useDnsConfigEditor({
       setConfigDnsRootLoaded(nextMain);
       setConfigDnsText(formatJson(parsed));
       setConfigDnsDirty(false);
-      setConfigDnsStatus('Saved to config. Hot reload or restart core to apply.');
+      setConfigDnsStatus('');
+      notify?.({ channel: 'dns-config', message: 'DNS config saved. Hot reload or restart core to apply.', tone: 'success' });
     } catch (err) {
-      setConfigDnsStatus(`Save failed: ${err.message}`);
+      setConfigDnsStatus('');
+      notify?.({ channel: 'dns-config', message: `DNS config save failed: ${err.message}`, tone: 'error' });
     } finally {
       setConfigDnsSaving(false);
     }
@@ -97,7 +100,8 @@ export function useDnsConfigEditor({
   const resetDnsEditor = () => {
     setConfigDnsText(formatJson(toDnsEditorSection(configDnsRootLoaded)));
     setConfigDnsDirty(false);
-    setConfigDnsStatus('DNS editor reset to loaded config.');
+    setConfigDnsStatus('');
+    notify?.({ channel: 'dns-config', message: 'DNS editor reset to the loaded config.', tone: 'info' });
   };
 
   const formatDnsEditor = () => {

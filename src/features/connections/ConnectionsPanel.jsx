@@ -1,5 +1,6 @@
 import React from 'react';
 import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
+import { ScrollArea } from '../common/ScrollArea';
 import { CloseIcon, InfoIcon } from './actionIcons';
 import {
   getConnectionRateKey,
@@ -488,7 +489,13 @@ export function ConnectionsPanel({
                   </span>
                 </div>
                 {isExpanded && (
-                  <div className="detail-wrap" style={detailGridStyleForMode}>
+                  <ScrollArea
+                    className="detail-wrap"
+                    contentClassName="detail-wrap-content"
+                    axis="horizontal"
+                    ariaLabel="Connection details"
+                    style={detailGridStyleForMode}
+                  >
                     <div className="detail-row header">
                       {renderedDetailColumns.map((column) => (
                         <button
@@ -550,7 +557,7 @@ export function ConnectionsPanel({
                         Showing first {MAX_RENDER_DETAILS_PER_GROUP} details in this group.
                       </div>
                     ) : null}
-                  </div>
+                  </ScrollArea>
                 )}
               </React.Fragment>
             );

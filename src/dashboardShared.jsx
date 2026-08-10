@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
-const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || '';
+const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : '');
 const API_BASE_STORAGE_KEY = 'acore_ui_api_base';
 const ACCESS_KEY_STORAGE_KEY = 'acore_ui_access_key';
 const CONNECTION_REFRESH_STORAGE_KEY = 'acore_ui_connection_refresh';
@@ -374,6 +374,11 @@ const appendAccessKeyParam = (url, key) => {
 const getSubscriptionUrlDisplay = (rawUrl) => {
   const value = String(rawUrl || '').trim();
   if (!value) return '';
+  // Encoded URLs can contain the entire endpoint and credentials. They are editable
+  // through the masked subscription form, but should never be echoed on list cards.
+  if (/^(?:base64|b64)(?::|:\/\/)/i.test(value)) {
+    return 'Encoded subscription source';
+  }
 
   const readHostname = (candidate) => {
     try {
@@ -439,48 +444,39 @@ const getI18nText = (lang, key) => {
 const PAGES = {
   dashboard: {
     label: 'Dashboard',
-    title: 'Operational heartbeat',
-    description: 'Throughput, destinations, and outbound mix at a glance.'
+    title: 'Operational heartbeat'
   },
   connections: {
     label: 'Connections',
-    title: 'Live connection intelligence',
-    description: 'Grouped by source IP and destination host/IP with real-time traffic totals.'
+    title: 'Live connection intelligence'
   },
   nodes: {
     label: 'Nodes',
-    title: 'Outbound steering',
-    description: 'Clash-style policy groups with live outbound health.'
+    title: 'Outbound steering'
   },
   rules: {
     label: 'Rules',
-    title: 'Routing rule browser',
-    description: 'Inspect router rules and load balancer policies over HTTP.'
+    title: 'Routing rule browser'
   },
   firewall: {
     label: 'Firewall',
-    title: 'Firewall rule browser',
-    description: 'Inspect and edit top-level firewall rules with routing-style match fields.'
+    title: 'Firewall rule browser'
   },
   subscriptions: {
     label: 'Subscriptions',
-    title: 'Subscription updates',
-    description: 'Edit the subscription block and schedule outbound/database refresh.'
+    title: 'Subscription updates'
   },
   inbounds: {
     label: 'Inbounds',
-    title: 'Inbound configuration',
-    description: 'Edit the top-level inbounds list and persist it to config.'
+    title: 'Inbound configuration'
   },
   logs: {
     label: 'Logs',
-    title: 'Streaming logs',
-    description: 'Tail Acore logs from the configured log file.'
+    title: 'Streaming logs'
   },
   settings: {
     label: 'Settings',
-    title: 'Acore control plane',
-    description: 'Configure metrics entry point and control actions.'
+    title: 'Acore control plane'
   }
 };
 
@@ -643,6 +639,7 @@ const RULE_TEMPLATE = {
   sourcePort: '53,443,1000-2000',
   localPort: '53,443,1000-2000',
   network: 'tcp',
+  ttl: '1-255',
   sourceIP: ['10.0.0.1'],
   localIP: ['192.168.0.25'],
   user: ['love@acore.com'],
@@ -681,6 +678,29 @@ const FIREWALL_RULE_TEMPLATE = {
   protocol: ['http'],
   ruleTag: 'fw-rule',
   action: 'block'
+};
+
+const FIREWALL_TRIGGER_RULE_TEMPLATE = {
+  sourceIP: ['172.19.0.111'],
+  network: 'icmp',
+  ttl: '1-64',
+  ruleTag: 'icmp-burst-trigger',
+  action: 'trigger',
+  trigger: {
+    mode: 'activeConnections',
+    // The backend fires when count > maxConnections, so 9 means the 10th
+    // matching connection activates the rule.
+    maxConnections: 9,
+    sustainSeconds: 10,
+    blockSeconds: 60,
+    dynamicRule: {
+      sourceIP: ['172.19.0.111'],
+      network: 'icmp',
+      ttl: '1-64',
+      ruleTag: 'icmp-blackhole-echo',
+      outboundTag: 'icmp-echo'
+    }
+  }
 };
 
 const MAIN_EDITOR_ALLOWED_KEYS = ['Observatory', 'log', 'metrics', 'stats'];
@@ -1148,13 +1168,15 @@ const FIREWALL_ACTION_LABELS = {
   2: 'block',
   3: 'limit',
   4: 'speed',
+  5: 'trigger',
   mark: 'mark',
   allow: 'allow',
   block: 'block',
   limit: 'limit',
-  speed: 'speed'
+  speed: 'speed',
+  trigger: 'trigger'
 };
-const FIREWALL_ACTION_TONES = new Set(['mark', 'allow', 'block', 'limit', 'speed']);
+const FIREWALL_ACTION_TONES = new Set(['mark', 'allow', 'block', 'limit', 'speed', 'trigger']);
 const FIREWALL_LIMIT_KEY_LABELS = {
   0: 'srcIp',
   1: 'dstIp',
@@ -2363,6 +2385,7 @@ export {
   OUTBOUND_TEMPLATE,
   INBOUND_TEMPLATE,
   FIREWALL_RULE_TEMPLATE,
+  FIREWALL_TRIGGER_RULE_TEMPLATE,
   MAIN_EDITOR_ALLOWED_KEYS,
   SUBSCRIPTION_OUTBOUND_TEMPLATE,
   SUBSCRIPTION_DATABASE_TEMPLATE,
