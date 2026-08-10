@@ -153,7 +153,6 @@ export function SettingsPanel(props) {
     <section className="panel settings" style={{ '--delay': '0.18s' }}>
       <PanelHeader
         title="Settings"
-        description="Control actions and runtime status."
       />
       <SavedMetricsPanels
         metricsPanelHistory={metricsPanelHistory}
@@ -232,18 +231,6 @@ export function SettingsPanel(props) {
           </button>
         </div>
         <div className="settings-meta">
-          <StatusText
-            text={settingsStatus}
-            danger={isFailedStatusText(settingsStatus)}
-          />
-          {restartInfoMessage ? (
-            <span
-              className={`status${restartInfo?.ok ? '' : ' status-danger'}`}
-              title={restartInfoTitle}
-            >
-              {restartInfoMessage}
-            </span>
-          ) : null}
           {settingsPath ? <span className="status">Config: {settingsPath}</span> : null}
           {uiStatePath ? <span className="status">UI state: {uiStatePath}</span> : null}
           {startupInfo.available ? <span className="status">Startup info: ready</span> : null}
@@ -289,7 +276,7 @@ export function SettingsPanel(props) {
         <div className="rules-modal-editor config-json-editor">
           <CodeMirror
             value={configMainText}
-            height="420px"
+            minHeight="320px"
             theme={githubLight}
             extensions={[json(), lintGutter(), linter(jsonParseLinter()), EditorView.lineWrapping]}
             onChange={handleMainConfigTextChange}

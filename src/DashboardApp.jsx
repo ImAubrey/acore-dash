@@ -1,4 +1,4 @@
-import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { createNodeGroupHelpers } from './features/nodes/groupHelpers';
 import { HeroHeader } from './features/layout/HeroHeader';
 import { MainPanels } from './features/layout/MainPanels';
@@ -12,10 +12,14 @@ import { useControlActions } from './features/settings/useControlActions';
 import { useDnsQueryTool } from './features/dashboard/useDnsQueryTool';
 import { useConnectionsViewModel } from './features/connections/useConnectionsViewModel';
 import { useConnectionTelemetry } from './features/connections/useConnectionTelemetry';
+import { getConnectionSearchTerms } from './features/connections/connectionSearch';
 import { useRulesModalCrud } from './features/rules/useRulesModalCrud';
 import { useLogsStream } from './features/logs/useLogsStream';
 import { createDetailCellRenderer } from './features/connections/detailCellRenderer';
 import { LocalEditActionsProvider } from './features/common/panelPrimitives';
+import { ScrollArea } from './features/common/ScrollArea';
+import { ToastViewport } from './features/common/ToastViewport';
+import { dismissToast, toast, toastReducer } from './features/common/toast';
 import {
   API_BASE_STORAGE_KEY,
   ROUTING_DRAFT_NOTICE,
@@ -159,6 +163,7 @@ import {
 
 const MAX_CLOSED_CONNECTIONS = 500;
 const EMPTY_OUTBOUND_STATS = new Map();
+const EMPTY_INBOUND_STATS = new Map();
 
 const getPositiveNumber = (value, fallback = 0) => {
   const num = Number(value);
@@ -173,6 +178,13 @@ const getOptionalPositiveNumber = (value) => {
 const getOutboundStatsTag = (item, fallback = '') => String(
   item?.metadata?.outboundTag
   || item?.outboundTag
+  || fallback
+  || ''
+).trim();
+
+const getInboundStatsTag = (item, fallback = '') => String(
+  item?.metadata?.inboundTag
+  || item?.inboundTag
   || fallback
   || ''
 ).trim();
@@ -203,6 +215,8 @@ const addOutboundTrafficStat = (stats, tag, patch) => {
   current.uploadRate += patch.uploadRate || 0;
   current.downloadRate += patch.downloadRate || 0;
 };
+
+const addInboundTrafficStat = addOutboundTrafficStat;
 
 const buildDetailSnapshotMap = (payload) => {
   const snapshots = new Map();
@@ -288,6 +302,9 @@ export default function App() {
   const [uiStateLoaded, setUiStateLoaded] = useState(false);
   const [uiStatePath, setUiStatePath] = useState('');
   const [status, setStatus] = useState('');
+  const [toasts, toastDispatch] = useReducer(toastReducer, []);
+  const notify = useCallback((input) => toastDispatch(toast(input)), []);
+  const dismissNotification = useCallback((id) => toastDispatch(dismissToast(id)), []);
   const [connStreamStatus, setConnStreamStatus] = useState('connecting');
   const [connStreamPaused, setConnStreamPaused] = useState(false);
   const [closingAllConnections, setClosingAllConnections] = useState(false);
@@ -307,7 +324,14 @@ export default function App() {
   const [logStreamStatus, setLogStreamStatus] = useState('idle');
   const [logsDisabled, setLogsDisabled] = useState(true);
   const [logLines, setLogLines] = useState([]);
-  const [rulesData, setRulesData] = useState({ rules: [], balancers: [], updatedAt: '' });
+  const [rulesData, setRulesData] = useState({
+    rules: [],
+    balancers: [],
+    dynamicRules: [],
+    activeTriggers: [],
+    receivedAt: 0,
+    updatedAt: ''
+  });
   const [rulesStatus, setRulesStatus] = useState('');
   const [hasRoutingDraft, setHasRoutingDraft] = useState(() => Boolean(getRoutingDraft(apiBase)));
   const [discardRoutingDraftBusy, setDiscardRoutingDraftBusy] = useState(false);
@@ -405,6 +429,7 @@ export default function App() {
   const connTotalsRef = useRef(new Map());
   const detailTotalsRef = useRef(new Map());
   const nodeOutboundTotalsRef = useRef({ sampleAt: 0, totals: new Map() });
+  const inboundTotalsRef = useRef({ sampleAt: 0, totals: new Map() });
   const connDetailSnapshotsRef = useRef(new Map());
   const rulesModalCloseTimerRef = useRef(null);
   const restartCooldownRef = useRef(null);
@@ -487,10 +512,12 @@ export default function App() {
     const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, nextRefresh);
     if (saved) {
       setSettingsStatus('Metrics settings updated.');
+      notify({ channel: 'metrics-settings', message: 'Metrics settings updated.', tone: 'success' });
       return;
     }
     const reason = String(error?.message || 'connection failed');
     setSettingsStatus(`Metrics settings updated (not saved to cookie): ${reason}`);
+    notify({ channel: 'metrics-settings', message: `Metrics settings updated, but could not save this panel: ${reason}`, tone: 'error' });
   };
 
   const applySavedMetricsPanel = async (entry) => {
@@ -506,16 +533,19 @@ export default function App() {
     const { saved, error } = await persistReachableMetricsPanel(nextBase, nextKey, nextRefresh);
     if (saved) {
       setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s)`);
+      notify({ channel: 'metrics-settings', message: `Switched metrics panel to ${base}.`, tone: 'success' });
       return;
     }
     const reason = String(error?.message || 'connection failed');
     setSettingsStatus(`Switched to: ${base} (refresh ${nextRefresh}s, not saved to cookie: ${reason})`);
+    notify({ channel: 'metrics-settings', message: `Switched metrics panel, but could not save it: ${reason}`, tone: 'error' });
   };
 
   const removeSavedMetricsPanel = (id) => {
     const next = removeMetricsPanelHistoryEntry(metricsPanelHistory, id);
     persistMetricsPanelHistory(next);
     setSettingsStatus('Saved metrics panel removed.');
+    notify({ channel: 'metrics-settings', message: 'Saved metrics panel removed.', tone: 'success' });
   };
 
   const applyConnRefreshInterval = (value, base = apiBase) => {
@@ -1136,7 +1166,7 @@ export default function App() {
   const handleTopSourceClick = (sourceIp) => {
     const query = String(sourceIp || '').trim();
     if (!query) return;
-    setConnSearchQuery(query);
+    setConnSearchQuery(`${query} `);
     setConnViewMode('source');
     setPage('connections');
     if (typeof window !== 'undefined') {
@@ -1154,12 +1184,16 @@ export default function App() {
   };
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
+  const connSearchTerms = useMemo(
+    () => getConnectionSearchTerms(normalizedConnSearchQuery),
+    [normalizedConnSearchQuery]
+  );
   const normalizedRuleSearchQuery = ruleSearchQuery.trim().toLowerCase();
   const normalizedFirewallSearchQuery = firewallSearchQuery.trim().toLowerCase();
   const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
   const highlightConnCell = useCallback(
-    (value) => highlightSearchText(value, normalizedConnSearchQuery),
-    [normalizedConnSearchQuery]
+    (value) => highlightSearchText(value, connSearchTerms),
+    [connSearchTerms]
   );
   const highlightRuleCell = useCallback(
     (value) => highlightSearchText(value, normalizedRuleSearchQuery),
@@ -1230,7 +1264,11 @@ export default function App() {
   }, [filteredConnections]);
 
   const visibleConnectionsForExpand = useMemo(
-    () => (connListMode === 'closed' ? filteredClosedConnections : filteredConnections),
+    () => (connListMode === 'blocked'
+      ? []
+      : connListMode === 'closed'
+        ? filteredClosedConnections
+        : filteredConnections),
     [connListMode, filteredClosedConnections, filteredConnections]
   );
 
@@ -1273,7 +1311,8 @@ export default function App() {
 
   const isDashboardPage = displayPage === 'dashboard';
   const isNodesPage = displayPage === 'nodes';
-  const shouldStreamConnections = isDashboardPage || isConnectionsPage || isNodesPage;
+  const isInboundsPage = displayPage === 'inbounds';
+  const shouldStreamConnections = isDashboardPage || isConnectionsPage || isNodesPage || isInboundsPage;
   const nodeOutboundStatsByTag = useMemo(() => {
     if (!isNodesPage) return EMPTY_OUTBOUND_STATS;
 
@@ -1345,6 +1384,77 @@ export default function App() {
     };
     return stats;
   }, [apiBase, connRefreshIntervalMs, connections, isNodesPage]);
+  const inboundStatsByTag = useMemo(() => {
+    if (!isInboundsPage) return EMPTY_INBOUND_STATS;
+
+    const active = Array.isArray(connections?.connections) ? connections.connections : [];
+    const now = Date.now();
+    const previousSnapshot = inboundTotalsRef.current || {};
+    const previousTotals = previousSnapshot.apiBase === apiBase && previousSnapshot.totals
+      ? previousSnapshot.totals
+      : new Map();
+    const elapsedMs = previousSnapshot.apiBase === apiBase && previousSnapshot.sampleAt
+      ? now - previousSnapshot.sampleAt
+      : 0;
+    const elapsedSeconds = elapsedMs > 0 && elapsedMs <= Math.max(connRefreshIntervalMs * 4, 4000)
+      ? elapsedMs / 1000
+      : 0;
+    const nextTotals = new Map();
+    const stats = new Map();
+
+    const addItem = (conn, item, index, fallbackTag, count) => {
+      const tag = getInboundStatsTag(item, fallbackTag);
+      if (!tag) return;
+
+      const upload = getPositiveNumber(item?.upload);
+      const download = getPositiveNumber(item?.download);
+      const key = getOutboundStatsItemKey(conn, item, index);
+      const previous = previousTotals.get(key);
+      const runtimeUploadRate = getOptionalPositiveNumber(item?.uploadRate);
+      const runtimeDownloadRate = getOptionalPositiveNumber(item?.downloadRate);
+      const uploadRate = runtimeUploadRate !== null
+        ? runtimeUploadRate
+        : previous && previous.tag === tag && elapsedSeconds > 0
+          ? Math.max(0, upload - previous.upload) / elapsedSeconds
+          : 0;
+      const downloadRate = runtimeDownloadRate !== null
+        ? runtimeDownloadRate
+        : previous && previous.tag === tag && elapsedSeconds > 0
+          ? Math.max(0, download - previous.download) / elapsedSeconds
+          : 0;
+
+      nextTotals.set(key, { tag, upload, download });
+      addInboundTrafficStat(stats, tag, {
+        connections: count,
+        uploadRate,
+        downloadRate
+      });
+    };
+
+    active.forEach((conn, connIndex) => {
+      if (!conn || typeof conn !== 'object') return;
+      const fallbackTag = getInboundStatsTag(conn);
+      const details = Array.isArray(conn.details) ? conn.details : [];
+      if (details.length > 0) {
+        details.forEach((detail, detailIndex) => {
+          if (!detail || typeof detail !== 'object') return;
+          addItem(conn, detail, detailIndex, fallbackTag, 1);
+        });
+        return;
+      }
+
+      const rawCount = Number(conn.connectionCount);
+      const count = Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 1;
+      addItem(conn, conn, connIndex, fallbackTag, count);
+    });
+
+    inboundTotalsRef.current = {
+      apiBase,
+      sampleAt: now,
+      totals: nextTotals
+    };
+    return stats;
+  }, [apiBase, connRefreshIntervalMs, connections, isInboundsPage]);
   const connStreamLabel = connStreamPaused
     ? 'paused'
     : connStreamStatus;
@@ -1378,6 +1488,7 @@ export default function App() {
     discardFirewallDraft
   } = useConfigDataLoaders({
     apiBase,
+    notify,
     configRulesPath,
     configFirewallPath,
     setOutbounds,
@@ -1437,6 +1548,7 @@ export default function App() {
     toggleSubscriptionDatabaseEnabled
   } = useSubscriptionConfig({
     apiBase,
+    notify,
     configSubscriptionPath,
     setConfigSubscriptionPath,
     configSubscriptionInbound,
@@ -1458,6 +1570,7 @@ export default function App() {
     formatMainConfigEditor
   } = useMainConfigEditor({
     apiBase,
+    notify,
     configMainPath,
     setConfigMainPath,
     configMainText,
@@ -1480,6 +1593,7 @@ export default function App() {
     formatDnsEditor
   } = useDnsConfigEditor({
     apiBase,
+    notify,
     configMainPath,
     configDnsPath,
     setConfigDnsPath,
@@ -1572,7 +1686,7 @@ export default function App() {
   useEffect(() => {
     setHasRoutingDraft(Boolean(getRoutingDraft(apiBase)));
     setHasFirewallDraft(Boolean(getFirewallDraft(apiBase)));
-    refresh();
+    refresh(apiBase, { announce: false });
     loadSettings();
     loadRestartInfo();
     loadUiState();
@@ -1714,16 +1828,27 @@ export default function App() {
   // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
 
   useEffect(() => {
-    if (displayPage !== 'rules') return;
+    const runtimeVisible = displayPage === 'rules'
+      || displayPage === 'connections';
+    if (!runtimeVisible) return;
     setRulesStatus('Loading...');
     fetchRules(apiBase)
       .then(() => setRulesStatus(''))
       .catch((err) => setRulesStatus(`Rules failed: ${err.message}`));
+    if (typeof window === 'undefined') return undefined;
+    const timer = window.setInterval(() => {
+      fetchRules(apiBase)
+        .then(() => setRulesStatus(''))
+        .catch((err) => setRulesStatus(`Rules failed: ${err.message}`));
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [displayPage, apiBase]);
+
+  useEffect(() => {
+    if (displayPage !== 'rules') return;
     loadRulesConfig(apiBase).catch(() => {});
-    if (rulesFirewallCombined) {
-      loadFirewallConfig(apiBase).catch(() => {});
-    }
-  }, [displayPage, rulesFirewallCombined, apiBase]);
+    loadFirewallConfig(apiBase).catch(() => {});
+  }, [displayPage, apiBase]);
 
   useEffect(() => {
     if (displayPage !== 'firewall') return;
@@ -1772,6 +1897,7 @@ export default function App() {
     saveRulesModal
   } = useRulesModalCrud({
     apiBase,
+    notify,
     configRules,
     setConfigRules,
     configBalancers,
@@ -1843,6 +1969,7 @@ export default function App() {
 
   const { clearGroupOverride, selectGroupTarget } = useBalancerOverrides({
     apiBase,
+    notify,
     uiStateLoaded,
     groups,
     isManualGroup,
@@ -1866,6 +1993,7 @@ export default function App() {
     triggerRestart
   } = useControlActions({
     apiBase,
+    notify,
     hotReloadBusy,
     setHotReloadBusy,
     setSettingsStatus,
@@ -2015,6 +2143,7 @@ export default function App() {
     page: displayPage,
     connListMode,
     setConnListMode,
+    rulesData,
     connSearchQuery,
     setConnSearchQuery,
     connViewMode,
@@ -2139,6 +2268,8 @@ export default function App() {
     openRulesModal,
     configInboundsPath,
     configInbounds,
+    inboundStatsByTag,
+    formatRate,
     openInfoModal,
     openDeleteConfirm,
     loadDnsConfig,
@@ -2297,6 +2428,7 @@ export default function App() {
     configSubscriptionOutbounds,
     configSubscriptionDatabases,
     configOutbounds,
+    runtimeOutbounds: outbounds,
     getRuleLabel,
     getBalancerLabel,
     getFirewallRuleLabel,
@@ -2326,21 +2458,30 @@ export default function App() {
   };
 
   return (
-    <div className={stageClassName}>
-      <LocalEditActionsProvider value={localEditActions}>
-        <HeroHeader {...heroHeaderProps} />
-        <MainPanels
-          dashboardPanelProps={dashboardPanelProps}
-          connectionsPanelProps={connectionsPanelProps}
-          nodesPanelProps={nodesPanelProps}
-          subscriptionsPanelProps={subscriptionsPanelProps}
-          inboundsPanelProps={inboundsPanelProps}
-          rulesPanelProps={rulesPanelProps}
-          logsPanelProps={logsPanelProps}
-          settingsPanelProps={settingsPanelProps}
-          appModalsProps={appModalsProps}
-        />
-      </LocalEditActionsProvider>
+    <div className="app-shell">
+      <div className="app-brand-watermark" aria-hidden="true">Acore Control</div>
+      <ScrollArea
+        className="app-shell-scroll-area"
+        viewportClassName="app-shell-scroll-viewport"
+        contentClassName={stageClassName}
+        ariaLabel="Acore control content"
+      >
+        <LocalEditActionsProvider value={localEditActions}>
+          <HeroHeader {...heroHeaderProps} />
+          <MainPanels
+            dashboardPanelProps={dashboardPanelProps}
+            connectionsPanelProps={connectionsPanelProps}
+            nodesPanelProps={nodesPanelProps}
+            subscriptionsPanelProps={subscriptionsPanelProps}
+            inboundsPanelProps={inboundsPanelProps}
+            rulesPanelProps={rulesPanelProps}
+            logsPanelProps={logsPanelProps}
+            settingsPanelProps={settingsPanelProps}
+            appModalsProps={appModalsProps}
+          />
+        </LocalEditActionsProvider>
+      </ScrollArea>
+      <ToastViewport toasts={toasts} dismiss={dismissNotification} />
     </div>
   );
 }

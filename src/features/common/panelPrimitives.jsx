@@ -1,4 +1,5 @@
 import { createContext, useContext, useRef } from 'react';
+import { ScrollArea } from './ScrollArea';
 
 const LocalEditActionsContext = createContext({
   hasLocalRoutingDraft: false,
@@ -35,7 +36,16 @@ export function PanelHeader({
         {title ? <h2>{title}</h2> : null}
         {description ? <p>{description}</p> : null}
       </div>
-      {actions ? <div className="header-actions">{actions}</div> : null}
+      {actions ? (
+        <ScrollArea
+          className="panel-header-actions-scroll"
+          contentClassName="header-actions"
+          axis="horizontal"
+          ariaLabel={`${title || 'Panel'} actions`}
+        >
+          {actions}
+        </ScrollArea>
+      ) : null}
     </div>
   );
 }

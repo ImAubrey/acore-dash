@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 import {
   EmptyState,
   HotReloadButton,
-  PanelHeader,
-  StatusText
+  PanelHeader
 } from '../common/panelPrimitives';
+import { ScrollArea } from '../common/ScrollArea';
 import {
   ChildrenIcon,
   ConnectionsIcon,
@@ -378,16 +378,18 @@ export function NodesPanel(props) {
     return createPortal(
       <div className="modal-backdrop rules-modal-backdrop" role="dialog" aria-modal="true" data-state="open">
         <div className="modal rules-modal outbound-group-modal" data-state="open">
-          <div className="modal-header">
+          <div className="modal-header modal-fixed-header">
             <div>
               <h3>{`${parentTag || 'Outbound'} children`}</h3>
               <p className="group-meta">{`${children.length} expanded outbounds`}</p>
             </div>
             <button className="ghost small" onClick={closeOutboundGroupModal}>Close</button>
           </div>
-          <div className="outbound-group-list">
-            {children.map((child, childIndex) => renderOutboundCard(child, true, childIndex))}
-          </div>
+          <ScrollArea className="modal-body-scroll" contentClassName="modal-body-content" ariaLabel="Outbound children">
+            <div className="outbound-group-list">
+              {children.map((child, childIndex) => renderOutboundCard(child, true, childIndex))}
+            </div>
+          </ScrollArea>
         </div>
       </div>,
       document.body
@@ -398,11 +400,9 @@ export function NodesPanel(props) {
     <div className="panel" style={{ '--delay': '0.12s' }}>
       <PanelHeader
         title="Nodes & Policies"
-        description="Clash-style policy groups with live outbound health."
         actions={(
           <>
           <button className="ghost" onClick={() => refresh()}>Refresh</button>
-          <StatusText text={status} />
           </>
         )}
       />
@@ -423,7 +423,7 @@ export function NodesPanel(props) {
           {mergedPolicyGroups.length === 0 ? (
             <EmptyState
               small
-              message="Set BALANCER_TAGS in Settings to render Clash-style strategies."
+              message="No policy groups configured. Add one here or configure BALANCER_TAGS in Settings."
             />
           ) : (
             <div className="nodes-grid">
@@ -441,14 +441,6 @@ export function NodesPanel(props) {
               ) : null}
             </div>
             <div className="header-actions">
-              {configOutboundsStatus ? (
-                <div className="header-status">
-                  <StatusText
-                    text={configOutboundsStatus}
-                    danger={isFailedStatusText(configOutboundsStatus)}
-                  />
-                </div>
-              ) : null}
               <button
                 className="primary small"
                 onClick={triggerDelayTest}

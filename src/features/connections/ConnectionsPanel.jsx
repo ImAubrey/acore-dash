@@ -1,5 +1,9 @@
 import React from 'react';
-import { HeaderSearchInput, PanelHeader, joinClassNames } from '../common/panelPrimitives';
+import { PanelHeader, joinClassNames } from '../common/panelPrimitives';
+import { ScrollArea } from '../common/ScrollArea';
+import { BlockedRulesView } from './BlockedRulesView';
+import { ConnectionSearchInput } from './ConnectionSearchInput';
+import { getConnectionSearchTerms, matchesConnectionSearch } from './connectionSearch';
 import { CloseIcon, InfoIcon } from './actionIcons';
 import {
   getConnectionRateKey,
@@ -140,6 +144,7 @@ export function ConnectionsPanel({
   page,
   connListMode,
   setConnListMode,
+  rulesData,
   connSearchQuery,
   setConnSearchQuery,
   connViewMode,
@@ -194,7 +199,13 @@ export function ConnectionsPanel({
   if (page !== 'connections') return null;
 
   const isClosedMode = connListMode === 'closed';
-  const visibleConnections = isClosedMode ? filteredClosedConnections : filteredConnections;
+  const isBlockedMode = connListMode === 'blocked';
+  const connectionSearchTerms = getConnectionSearchTerms(normalizedConnSearchQuery);
+  const visibleConnections = isBlockedMode
+    ? []
+    : isClosedMode
+      ? filteredClosedConnections
+      : filteredConnections;
   const overflowConnectionsCount = Math.max(visibleConnections.length - MAX_RENDER_CONNECTION_ROWS, 0);
   const renderedConnections = overflowConnectionsCount > 0
     ? visibleConnections.slice(0, MAX_RENDER_CONNECTION_ROWS)
@@ -235,9 +246,11 @@ export function ConnectionsPanel({
     if (preventManualExpandToggle) return;
     toggleExpanded(id);
   };
-  const connectionHeaderNote = isClosedMode
-    ? 'Recently closed connections. Keeps the latest 500 entries.'
-    : 'Grouped by source IP and destination host/IP. Upload: User -> Acore. Download: Acore -> User.';
+  const connectionHeaderNote = isBlockedMode
+    ? 'Firewall trigger buckets currently blocking traffic. Expired buckets disappear automatically.'
+    : isClosedMode
+      ? 'Recently closed connections. Keeps the latest 500 entries.'
+      : 'Grouped by source IP and destination host/IP. Upload: User -> Acore. Download: Acore -> User.';
 
   return (
     <div
@@ -245,6 +258,7 @@ export function ConnectionsPanel({
         'panel',
         'connections-panel',
         isClosedMode ? 'connections-panel-closed' : '',
+        isBlockedMode ? 'connections-panel-blocked' : '',
         connectionsPerfMode ? 'connections-panel-perf' : ''
       )}
       style={{ '--delay': '0.05s' }}
@@ -253,13 +267,13 @@ export function ConnectionsPanel({
         <PanelHeader
           title={(
             <span className="connections-title">
-              <span>Live Connections</span>
+              <span>Connections</span>
               <span className="connections-title-switch" role="tablist" aria-label="Connection list mode">
                 <button
                   type="button"
-                  className={`view-pill ${!isClosedMode ? 'active' : ''}`}
+                  className={`view-pill ${connListMode === 'live' ? 'active' : ''}`}
                   onClick={() => setConnListMode('live')}
-                  aria-pressed={!isClosedMode}
+                  aria-pressed={connListMode === 'live'}
                 >
                   Live
                 </button>
@@ -271,17 +285,26 @@ export function ConnectionsPanel({
                 >
                   Closed
                 </button>
+                <button
+                  type="button"
+                  className={`view-pill blocked-rules-tab ${isBlockedMode ? 'active' : ''}`}
+                  onClick={() => setConnListMode('blocked')}
+                  aria-pressed={isBlockedMode}
+                >
+                  Blocked Rules
+                  <span className="connections-tab-count">{rulesData?.activeTriggers?.length || 0}</span>
+                </button>
               </span>
             </span>
           )}
-          actions={(
+          actions={isBlockedMode ? null : (
             <>
-              <HeaderSearchInput
+              <ConnectionSearchInput
                 value={connSearchQuery}
                 setValue={setConnSearchQuery}
                 placeholder={isClosedMode
-                  ? 'Search closed connections...'
-                  : 'Search all fields, including folded details...'}
+                  ? 'Search closed connections; Space adds an AND condition'
+                  : 'Search connections; Space adds an AND condition'}
                 ariaLabel={isClosedMode ? 'Search closed connections' : 'Search all connection fields'}
               />
               <button
@@ -343,8 +366,11 @@ export function ConnectionsPanel({
           )}
         />
         <div className="connections-header-note">{connectionHeaderNote}</div>
-        {renderDetailColumnControls('connections-columns-toolbar')}
+        {!isBlockedMode ? renderDetailColumnControls('connections-columns-toolbar') : null}
       </div>
+      {isBlockedMode ? (
+        <BlockedRulesView rulesData={rulesData} />
+      ) : (
       <div className={`connections-table-wrap${connectionsPerfMode ? ' connections-table-wrap-perf' : ''}`}>
         <div className="table connections-table">
           <div className="row header">
@@ -363,8 +389,10 @@ export function ConnectionsPanel({
             const canClose = groupCloseIds.length > 0;
             const connId = getConnectionRateKey(conn);
             const isExpanded = connId ? expandedConnections.has(connId) : false;
-            const visibleDetails = normalizedConnSearchQuery
-              ? (conn.details || []).filter((detail) => toSearchText(detail).toLowerCase().includes(normalizedConnSearchQuery))
+            const visibleDetails = connectionSearchTerms.length > 0
+              ? (conn.details || []).filter((detail) => (
+                matchesConnectionSearch(toSearchText(detail), connectionSearchTerms)
+              ))
               : (conn.details || []);
             const details = conn.details || [];
             const connIsSplice = isSpliceType(conn?.metadata?.type)
@@ -488,7 +516,13 @@ export function ConnectionsPanel({
                   </span>
                 </div>
                 {isExpanded && (
-                  <div className="detail-wrap" style={detailGridStyleForMode}>
+                  <ScrollArea
+                    className="detail-wrap"
+                    contentClassName="detail-wrap-content"
+                    axis="horizontal"
+                    ariaLabel="Connection details"
+                    style={detailGridStyleForMode}
+                  >
                     <div className="detail-row header">
                       {renderedDetailColumns.map((column) => (
                         <button
@@ -550,7 +584,7 @@ export function ConnectionsPanel({
                         Showing first {MAX_RENDER_DETAILS_PER_GROUP} details in this group.
                       </div>
                     ) : null}
-                  </div>
+                  </ScrollArea>
                 )}
               </React.Fragment>
             );
@@ -571,6 +605,7 @@ export function ConnectionsPanel({
           ) : null}
         </div>
       </div>
+      )}
     </div>
   );
 }

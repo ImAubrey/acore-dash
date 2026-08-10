@@ -17,7 +17,7 @@ export function resolveTopbarLayout({
 
   return {
     collapsed,
-    centered: !collapsed
+    aligned: !collapsed
   };
 }
 
@@ -62,7 +62,7 @@ export function useTopbarLayout(resetKey) {
 
     if (
       layoutRef.current.collapsed !== nextLayout.collapsed
-      || layoutRef.current.centered !== nextLayout.centered
+      || layoutRef.current.aligned !== nextLayout.aligned
     ) {
       layoutRef.current = nextLayout;
       setLayout(nextLayout);
@@ -100,6 +100,6 @@ export function useTopbarLayout(resetKey) {
     wrapRef,
     navRef,
     collapsed: layout.collapsed,
-    centered: layout.centered
+    aligned: layout.aligned
   };
 }

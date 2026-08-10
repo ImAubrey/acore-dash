@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ScrollArea } from '../common/ScrollArea';
 
 const PROTOCOL_SPLIT_VISIBLE_ROWS = 10;
 
@@ -57,8 +58,7 @@ export function ProtocolSplitCard({
         {protocolMix.length === 0 && (
           <div className="split-empty-inline">No protocol detail yet.</div>
         )}
-        <div className="split-list-scroll">
-          <div className="split-list">
+        <ScrollArea className="split-list-scroll" contentClassName="split-list" ariaLabel="Protocol split list">
             {sortedProtocolMix.map((item, index) => (
               <div className="split-row" key={`${item.label}-${index}`}>
                 <span className="split-label">{item.label}</span>
@@ -85,8 +85,7 @@ export function ProtocolSplitCard({
                 <span className="split-value">&nbsp;</span>
               </div>
             ))}
-          </div>
-        </div>
+        </ScrollArea>
       </div>
     </section>
   );

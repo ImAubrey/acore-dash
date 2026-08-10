@@ -2,16 +2,37 @@ import { PageNav } from './PageNav';
 import { getHeroTitleClassName, useHeroLayout } from './heroLayout';
 import { formatMetricsPanelOptionLabel } from '../../dashboardShared';
 
-function HeroTitleBlock({ pageMeta }) {
+function HeroTrafficSummary({ formatRate, totalSessions, liveUploadRate, liveDownloadRate }) {
+  return (
+    <div className="hero-traffic-tip" title="Live connection summary">
+      <div className="hero-traffic-tip-item">
+        <span>Upload</span>
+        <strong>{formatRate(liveUploadRate || 0)}</strong>
+      </div>
+      <div className="hero-traffic-tip-item">
+        <span>Download</span>
+        <strong>{formatRate(liveDownloadRate || 0)}</strong>
+      </div>
+      <div className="hero-traffic-tip-item">
+        <span>Sessions</span>
+        <strong>{totalSessions}</strong>
+      </div>
+    </div>
+  );
+}
+
+function HeroTitleBlock({ pageMeta, formatRate, totalSessions, liveUploadRate, liveDownloadRate }) {
   return (
     <div className="hero-main">
-      <p className="eyebrow">Acore Control</p>
-      <div className="hero-title-row">
-        <h1 className={getHeroTitleClassName(pageMeta.title)}>
-          {pageMeta.title}
-        </h1>
-      </div>
-      <p className="subhead">{pageMeta.description}</p>
+      <h1 className={`${getHeroTitleClassName(pageMeta.title)} hero-page-title-visually-hidden`}>
+        {pageMeta.title}
+      </h1>
+      <HeroTrafficSummary
+        formatRate={formatRate}
+        totalSessions={totalSessions}
+        liveUploadRate={liveUploadRate}
+        liveDownloadRate={liveDownloadRate}
+      />
     </div>
   );
 }
@@ -48,7 +69,13 @@ export function HeroHeader({
 
   return (
     <header className={heroClassName} ref={heroRef}>
-      <HeroTitleBlock pageMeta={pageMeta} />
+      <HeroTitleBlock
+        pageMeta={pageMeta}
+        formatRate={formatRate}
+        totalSessions={totalSessions}
+        liveUploadRate={liveUploadRate}
+        liveDownloadRate={liveDownloadRate}
+      />
       <div className="hero-side">
         <div className="hero-stats">
           <div className="hero-metrics-switch">
@@ -66,20 +93,6 @@ export function HeroHeader({
                 </option>
               ))}
             </select>
-          </div>
-          <div className="hero-traffic-tip" title="Live connection summary">
-            <div className="hero-traffic-tip-item">
-              <span>Upload</span>
-              <strong>{formatRate(liveUploadRate || 0)}</strong>
-            </div>
-            <div className="hero-traffic-tip-item">
-              <span>Download</span>
-              <strong>{formatRate(liveDownloadRate || 0)}</strong>
-            </div>
-            <div className="hero-traffic-tip-item">
-              <span>Sessions</span>
-              <strong>{totalSessions}</strong>
-            </div>
           </div>
         </div>
       </div>

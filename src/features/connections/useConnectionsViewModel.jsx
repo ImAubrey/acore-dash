@@ -15,6 +15,7 @@ import {
   toSearchText,
   toRuleSearchText
 } from '../../dashboardShared';
+import { getConnectionSearchTerms, matchesConnectionSearch } from './connectionSearch';
 
 const CONNECTION_TEXT_COLLATOR = new Intl.Collator(undefined, {
   numeric: true,
@@ -43,6 +44,10 @@ export function useConnectionsViewModel({
 }) {
   const isConnectionsPage = page === 'connections';
   const isClosedMode = connListMode === 'closed';
+  const connectionSearchTerms = useMemo(
+    () => getConnectionSearchTerms(normalizedConnSearchQuery),
+    [normalizedConnSearchQuery]
+  );
 
   const toggleConnSort = (key) => {
     if (!key || key === 'default') return;
@@ -237,15 +242,19 @@ export function useConnectionsViewModel({
 
   const filteredConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
-    if (!normalizedConnSearchQuery) return sortedConnections;
-    return sortedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
-  }, [isConnectionsPage, normalizedConnSearchQuery, sortedConnections]);
+    if (connectionSearchTerms.length === 0) return sortedConnections;
+    return sortedConnections.filter((conn) => (
+      matchesConnectionSearch(toSearchText(conn), connectionSearchTerms)
+    ));
+  }, [connectionSearchTerms, isConnectionsPage, sortedConnections]);
 
   const filteredClosedConnections = useMemo(() => {
     if (!isConnectionsPage) return [];
-    if (!normalizedConnSearchQuery) return sortedClosedConnections;
-    return sortedClosedConnections.filter((conn) => toSearchText(conn).toLowerCase().includes(normalizedConnSearchQuery));
-  }, [isConnectionsPage, normalizedConnSearchQuery, sortedClosedConnections]);
+    if (connectionSearchTerms.length === 0) return sortedClosedConnections;
+    return sortedClosedConnections.filter((conn) => (
+      matchesConnectionSearch(toSearchText(conn), connectionSearchTerms)
+    ));
+  }, [connectionSearchTerms, isConnectionsPage, sortedClosedConnections]);
 
   const filteredRuleEntries = useMemo(() => {
     if (page !== 'rules') return [];
@@ -262,7 +271,7 @@ export function useConnectionsViewModel({
   }, [page, configBalancers, normalizedRuleSearchQuery]);
 
   useEffect(() => {
-    if (!isConnectionsPage || !normalizedConnSearchQuery) return;
+    if (!isConnectionsPage || connectionSearchTerms.length === 0) return;
     const visibleConnections = isClosedMode ? filteredClosedConnections : filteredConnections;
     setExpandedConnections((prev) => {
       const next = new Set(prev);
@@ -280,7 +289,7 @@ export function useConnectionsViewModel({
   }, [
     isConnectionsPage,
     isClosedMode,
-    normalizedConnSearchQuery,
+    connectionSearchTerms,
     filteredConnections,
     filteredClosedConnections,
     setExpandedConnections

@@ -10,6 +10,7 @@ import {
 
 export function useMainConfigEditor({
   apiBase,
+  notify,
   configMainPath,
   setConfigMainPath,
   configMainText,
@@ -25,7 +26,7 @@ export function useMainConfigEditor({
   isFailedStatusText
 }) {
   const loadMainConfig = async (base = apiBase) => {
-    setConfigMainStatus('Loading config...');
+    setConfigMainStatus('');
     try {
       const preferredPath = String(configMainPath || '').trim();
       const endpoint = preferredPath
@@ -39,13 +40,13 @@ export function useMainConfigEditor({
       setConfigMainPath(resp.path || '');
       setConfigMainDirty(false);
       if (resp.foundMain === false) {
-        setConfigMainStatus('Main config not found.');
-      } else {
-        setConfigMainStatus('');
+        notify?.({ channel: 'main-config', message: 'Main config was not found.', tone: 'info' });
       }
+      setConfigMainStatus('');
       return resp;
     } catch (err) {
-      setConfigMainStatus(`Config load failed: ${err.message}`);
+      setConfigMainStatus('');
+      notify?.({ channel: 'main-config', message: `Main config load failed: ${err.message}`, tone: 'error' });
       throw err;
     }
   };
@@ -96,7 +97,7 @@ export function useMainConfigEditor({
     };
     const nextMain = applyMainEditorSectionsToRoot(configMainLoaded, nextSections);
     setConfigMainSaving(true);
-    setConfigMainStatus('Saving...');
+    notify?.({ channel: 'main-config', message: 'Saving main config...', tone: 'progress' });
     try {
       const resp = await fetchJson(`${apiBase}/config/main`, {
         method: 'POST',
@@ -112,9 +113,11 @@ export function useMainConfigEditor({
       setConfigMainLoaded(nextMain);
       setConfigMainText(formatJson(toMainEditorSections(nextMain)));
       setConfigMainDirty(false);
-      setConfigMainStatus('Saved to config. Hot reload or restart core to apply.');
+      setConfigMainStatus('');
+      notify?.({ channel: 'main-config', message: 'Main config saved. Hot reload or restart core to apply.', tone: 'success' });
     } catch (err) {
-      setConfigMainStatus(`Save failed: ${err.message}`);
+      setConfigMainStatus('');
+      notify?.({ channel: 'main-config', message: `Main config save failed: ${err.message}`, tone: 'error' });
     } finally {
       setConfigMainSaving(false);
     }
@@ -123,7 +126,8 @@ export function useMainConfigEditor({
   const resetMainConfigEditor = () => {
     setConfigMainText(formatJson(toMainEditorSections(configMainLoaded)));
     setConfigMainDirty(false);
-    setConfigMainStatus('Main editor reset to loaded config.');
+    setConfigMainStatus('');
+    notify?.({ channel: 'main-config', message: 'Main editor reset to the loaded config.', tone: 'info' });
   };
 
   const formatMainConfigEditor = () => {

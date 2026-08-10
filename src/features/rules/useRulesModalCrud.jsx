@@ -21,9 +21,11 @@ import {
   normalizeRuleDestination
 } from '../../dashboardShared';
 import { moveListItemByDrop } from '../common/useSortableRuleList';
+import { validateFirewallTrigger } from './dynamicRules';
 
 export function useRulesModalCrud({
   apiBase,
+  notify,
   configRules,
   setConfigRules,
   configBalancers,
@@ -92,6 +94,10 @@ export function useRulesModalCrud({
   setDeleteConfirmLabel,
   deleteConfirmCloseTimerRef
 }) {
+  const announce = (target, message, tone = 'success') => {
+    notify?.({ channel: `config-${target}`, message, tone });
+  };
+
   const setConfigStatus = (target, message) => {
     if (target === 'firewallRule') {
       setConfigFirewallStatus(message);
@@ -176,7 +182,14 @@ export function useRulesModalCrud({
     return `${index + 1}. ${getFirewallRuleTitle(rule, index, { numberedFallback: false })}`;
   };
 
-  const openRulesModal = (target, mode, index = -1, afterIndex = -1, item = null) => {
+  const openRulesModal = (
+    target,
+    mode,
+    index = -1,
+    afterIndex = -1,
+    item = null,
+    templateOverride = null
+  ) => {
     const normalizedAfter = Number.isFinite(Number(afterIndex)) ? Number(afterIndex) : -1;
     const template = target === 'rule'
       ? RULE_TEMPLATE
@@ -198,7 +211,12 @@ export function useRulesModalCrud({
     setRulesModalMode(mode);
     setRulesModalIndex(mode === 'edit' ? index : -1);
     setRulesModalInsertAfter(mode === 'edit' ? index : normalizedAfter);
-    setRulesModalText(formatJson(mode === 'edit' ? (item || {}) : template));
+    const insertTemplate = templateOverride
+      && typeof templateOverride === 'object'
+      && !Array.isArray(templateOverride)
+      ? templateOverride
+      : template;
+    setRulesModalText(formatJson(mode === 'edit' ? (item || {}) : insertTemplate));
     setRulesModalStatus('');
     setRulesModalOpen(true);
   };
@@ -220,6 +238,7 @@ export function useRulesModalCrud({
               : (Array.isArray(configOutbounds) ? configOutbounds : []);
     if (index < 0 || index >= items.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
+      announce(target, `Delete failed: ${target} index out of range.`, 'error');
       return;
     }
     const label = target === 'rule'
@@ -271,6 +290,7 @@ export function useRulesModalCrud({
               : (Array.isArray(configOutbounds) ? [...configOutbounds] : []);
     if (index < 0 || index >= nextItems.length) {
       setConfigStatus(target, `Delete failed: ${target} index out of range.`);
+      announce(target, `Delete failed: ${target} index out of range.`, 'error');
       return;
     }
     nextItems.splice(index, 1);
@@ -289,9 +309,10 @@ export function useRulesModalCrud({
         setConfigFirewall(nextFirewall);
         stageFirewallDraft(nextFirewall);
       }
+      announce(target, `${target === 'firewallRule' ? 'Firewall rule' : target === 'rule' ? 'Rule' : 'Balancer'} deleted locally. Hot reload core to apply.`);
       return;
     }
-    setConfigStatus(target, 'Deleting...');
+    announce(target, 'Deleting config entry...', 'progress');
     try {
       if (target === 'subscription' || target === 'subscriptionDatabase') {
         const nextOutbounds = target === 'subscription'
@@ -315,6 +336,7 @@ export function useRulesModalCrud({
         }
         const label = target === 'subscriptionDatabase' ? 'subscription database' : 'subscription outbound';
         setConfigSubscriptionStatus(`${label} deleted. Hot reload core to apply.`);
+        announce(target, `${label} deleted. Hot reload core to apply.`);
         return;
       }
       const endpoint = target === 'outbound'
@@ -353,11 +375,13 @@ export function useRulesModalCrud({
         setConfigOutbounds(nextItems);
       }
       setConfigStatus(target, `${target} deleted. Hot reload core to apply.`);
+      announce(target, `${target} deleted. Hot reload core to apply.`);
       if (target === 'rule' || target === 'balancer') {
         fetchRules(apiBase).catch(() => {});
       }
     } catch (err) {
       setConfigStatus(target, `Delete failed: ${err.message}`);
+      announce(target, `Delete failed: ${err.message}`, 'error');
     }
   };
 
@@ -761,13 +785,18 @@ export function useRulesModalCrud({
       }
       if (typeof actionRaw === 'number') {
         if (!(actionRaw in FIREWALL_ACTION_LABELS)) {
-          setRulesModalStatus('action must be mark, allow, block, limit, or speed.');
+          setRulesModalStatus('action must be mark, allow, block, limit, speed, or trigger.');
           return;
         }
         parsed.action = FIREWALL_ACTION_LABELS[actionRaw];
       }
       if (typeof parsed.action === 'string') {
         parsed.action = parsed.action.trim();
+      }
+      const triggerValidationError = validateFirewallTrigger(parsed);
+      if (triggerValidationError) {
+        setRulesModalStatus(triggerValidationError);
+        return;
       }
       const limitRaw = parsed.limit;
       if (
@@ -836,11 +865,13 @@ export function useRulesModalCrud({
         stageFirewallDraft(nextFirewall);
       }
       setRulesModalStatus('Saved locally.');
+      announce(target, `${target === 'firewallRule' ? 'Firewall rule' : target === 'rule' ? 'Rule' : 'Balancer'} saved locally. Hot reload core to apply.`);
       closeRulesModal({ force: true });
       setRulesModalSaving(false);
       return;
     }
     setRulesModalStatus('Saving...');
+    announce(target, 'Saving config entry...', 'progress');
     try {
       if (target === 'subscription' || target === 'subscriptionDatabase') {
         const nextOutbounds = target === 'subscription'
@@ -922,9 +953,11 @@ export function useRulesModalCrud({
       }
       setConfigStatus(target, 'Saved to config. Hot reload core to apply.');
       setRulesModalStatus('Saved');
+      announce(target, 'Saved to config. Hot reload core to apply.');
       closeRulesModal({ force: true });
     } catch (err) {
       setRulesModalStatus(`Save failed: ${err.message}`);
+      announce(target, `Save failed: ${err.message}`, 'error');
     } finally {
       setRulesModalSaving(false);
     }

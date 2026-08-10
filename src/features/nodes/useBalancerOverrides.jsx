@@ -3,6 +3,7 @@ import { fetchJson } from '../../dashboardShared';
 
 export function useBalancerOverrides({
   apiBase,
+  notify,
   uiStateLoaded,
   groups,
   isManualGroup,
@@ -18,10 +19,12 @@ export function useBalancerOverrides({
     const targetTag = String(target || '').trim();
     if (!balancerTag || (!allowEmpty && !targetTag)) {
       setStatus('Balancer tag and target are required.');
+      notify?.({ channel: 'balancer-override', message: 'Balancer tag and target are required.', tone: 'error' });
       return;
     }
     const targetLabel = targetTag ? targetTag : 'auto';
     setStatus(`Applying override ${balancerTag} -> ${targetLabel}...`);
+    notify?.({ channel: 'balancer-override', message: `Applying override ${balancerTag} -> ${targetLabel}...`, tone: 'progress' });
     try {
       await fetchJson(`${apiBase}/balancer/override`, {
         method: 'POST',
@@ -29,9 +32,11 @@ export function useBalancerOverrides({
         body: JSON.stringify({ balancerTag, target: targetTag })
       });
       setStatus(targetTag ? 'Override applied' : 'Override cleared');
+      notify?.({ channel: 'balancer-override', message: targetTag ? 'Override applied.' : 'Override cleared.', tone: 'success' });
       fetchNodes(apiBase).catch(() => {});
     } catch (err) {
       setStatus(`Override failed: ${err.message}`);
+      notify?.({ channel: 'balancer-override', message: `Override failed: ${err.message}`, tone: 'error' });
     }
   };
 

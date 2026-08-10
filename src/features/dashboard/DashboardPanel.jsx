@@ -70,7 +70,6 @@ export function DashboardPanel({
       <section className="panel span-12" style={{ '--delay': '0.05s' }}>
         <PanelHeader
           title="Operations snapshot"
-          description="Instant readouts from live sessions and outbound topology."
           actions={(
             <button
               className={`pill live-pill-fixed ${connStreamLabel}`}
