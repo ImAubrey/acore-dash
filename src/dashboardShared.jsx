@@ -1279,25 +1279,41 @@ const getFirewallRuleTitle = (rule, index, options = {}) => {
 
 const highlightSearchText = (value, queryLower) => {
   const text = value === null || value === undefined ? '' : String(value);
-  if (!text || !queryLower) return text;
+  const queries = (Array.isArray(queryLower) ? queryLower : [queryLower])
+    .map((query) => String(query || '').trim().toLowerCase())
+    .filter((query, index, items) => query && items.indexOf(query) === index);
+  if (!text || queries.length === 0) return text;
   const haystack = text.toLowerCase();
-  let matchIndex = haystack.indexOf(queryLower);
-  if (matchIndex < 0) return text;
   const parts = [];
   let cursor = 0;
-  while (matchIndex >= 0) {
+  while (cursor < text.length) {
+    let matchIndex = -1;
+    let matchedQuery = '';
+    queries.forEach((query) => {
+      const candidateIndex = haystack.indexOf(query, cursor);
+      if (candidateIndex < 0) return;
+      if (
+        matchIndex < 0
+        || candidateIndex < matchIndex
+        || (candidateIndex === matchIndex && query.length > matchedQuery.length)
+      ) {
+        matchIndex = candidateIndex;
+        matchedQuery = query;
+      }
+    });
+    if (matchIndex < 0) break;
     if (matchIndex > cursor) {
       parts.push(text.slice(cursor, matchIndex));
     }
-    const end = matchIndex + queryLower.length;
+    const end = matchIndex + matchedQuery.length;
     parts.push(
       <mark className="search-hit" key={`${matchIndex}-${end}-${parts.length}`}>
         {text.slice(matchIndex, end)}
       </mark>
     );
     cursor = end;
-    matchIndex = haystack.indexOf(queryLower, cursor);
   }
+  if (parts.length === 0) return text;
   if (cursor < text.length) {
     parts.push(text.slice(cursor));
   }

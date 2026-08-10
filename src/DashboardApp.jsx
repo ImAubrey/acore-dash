@@ -12,6 +12,7 @@ import { useControlActions } from './features/settings/useControlActions';
 import { useDnsQueryTool } from './features/dashboard/useDnsQueryTool';
 import { useConnectionsViewModel } from './features/connections/useConnectionsViewModel';
 import { useConnectionTelemetry } from './features/connections/useConnectionTelemetry';
+import { getConnectionSearchTerms } from './features/connections/connectionSearch';
 import { useRulesModalCrud } from './features/rules/useRulesModalCrud';
 import { useLogsStream } from './features/logs/useLogsStream';
 import { createDetailCellRenderer } from './features/connections/detailCellRenderer';
@@ -327,6 +328,7 @@ export default function App() {
     rules: [],
     balancers: [],
     dynamicRules: [],
+    activeTriggers: [],
     receivedAt: 0,
     updatedAt: ''
   });
@@ -1164,7 +1166,7 @@ export default function App() {
   const handleTopSourceClick = (sourceIp) => {
     const query = String(sourceIp || '').trim();
     if (!query) return;
-    setConnSearchQuery(query);
+    setConnSearchQuery(`${query} `);
     setConnViewMode('source');
     setPage('connections');
     if (typeof window !== 'undefined') {
@@ -1182,12 +1184,16 @@ export default function App() {
   };
 
   const normalizedConnSearchQuery = connSearchQuery.trim().toLowerCase();
+  const connSearchTerms = useMemo(
+    () => getConnectionSearchTerms(normalizedConnSearchQuery),
+    [normalizedConnSearchQuery]
+  );
   const normalizedRuleSearchQuery = ruleSearchQuery.trim().toLowerCase();
   const normalizedFirewallSearchQuery = firewallSearchQuery.trim().toLowerCase();
   const normalizedLogSearchQuery = logSearchQuery.trim().toLowerCase();
   const highlightConnCell = useCallback(
-    (value) => highlightSearchText(value, normalizedConnSearchQuery),
-    [normalizedConnSearchQuery]
+    (value) => highlightSearchText(value, connSearchTerms),
+    [connSearchTerms]
   );
   const highlightRuleCell = useCallback(
     (value) => highlightSearchText(value, normalizedRuleSearchQuery),
@@ -1258,7 +1264,11 @@ export default function App() {
   }, [filteredConnections]);
 
   const visibleConnectionsForExpand = useMemo(
-    () => (connListMode === 'closed' ? filteredClosedConnections : filteredConnections),
+    () => (connListMode === 'blocked'
+      ? []
+      : connListMode === 'closed'
+        ? filteredClosedConnections
+        : filteredConnections),
     [connListMode, filteredClosedConnections, filteredConnections]
   );
 
@@ -1818,13 +1828,13 @@ export default function App() {
   // Intentionally no "FLIP" / reorder animations for connection rows. Changes apply instantly.
 
   useEffect(() => {
-    if (displayPage !== 'rules') return;
+    const runtimeVisible = displayPage === 'rules'
+      || displayPage === 'connections';
+    if (!runtimeVisible) return;
     setRulesStatus('Loading...');
     fetchRules(apiBase)
       .then(() => setRulesStatus(''))
       .catch((err) => setRulesStatus(`Rules failed: ${err.message}`));
-    loadRulesConfig(apiBase).catch(() => {});
-    loadFirewallConfig(apiBase).catch(() => {});
     if (typeof window === 'undefined') return undefined;
     const timer = window.setInterval(() => {
       fetchRules(apiBase)
@@ -1832,6 +1842,12 @@ export default function App() {
         .catch((err) => setRulesStatus(`Rules failed: ${err.message}`));
     }, 2000);
     return () => window.clearInterval(timer);
+  }, [displayPage, apiBase]);
+
+  useEffect(() => {
+    if (displayPage !== 'rules') return;
+    loadRulesConfig(apiBase).catch(() => {});
+    loadFirewallConfig(apiBase).catch(() => {});
   }, [displayPage, apiBase]);
 
   useEffect(() => {
@@ -2127,6 +2143,7 @@ export default function App() {
     page: displayPage,
     connListMode,
     setConnListMode,
+    rulesData,
     connSearchQuery,
     setConnSearchQuery,
     connViewMode,

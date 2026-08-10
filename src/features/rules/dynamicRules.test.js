@@ -2,10 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatTriggerDuration,
+  formatActiveTriggerBucket,
   getConfiguredDynamicRuleTriggers,
   getFirewallTriggerDetail,
   getRemainingTtl,
   normalizeDynamicRules,
+  normalizeActiveTriggers,
   validateFirewallTrigger
 } from './dynamicRules.js';
 
@@ -46,6 +48,26 @@ test('normalizes the runtime /rules dynamicRules snapshot', () => {
   assert.equal(result[0].target, 'blackhole');
 });
 
+test('normalizes and formats active firewall trigger buckets', () => {
+  const result = normalizeActiveTriggers([{
+    ruleId: '0000000000001234',
+    ruleTag: 'udp-srcip-dstport-burst',
+    key: 'srcIpDstPort',
+    sourceIp: '192.168.69.92',
+    destinationPort: 8030,
+    mode: 'newConnections',
+    count: 11,
+    max: 10,
+    blockedUntil: '2026-08-10T00:30:00Z'
+  }]);
+
+  assert.equal(result.length, 1);
+  assert.equal(result[0].triggerKey, 'srcIpDstPort');
+  assert.equal(result[0].count, 11);
+  assert.equal(formatActiveTriggerBucket(result[0]), 'src=192.168.69.92 · dport=8030');
+  assert.equal(formatActiveTriggerBucket({ triggerKey: 'ruleWide' }), 'Whole rule');
+});
+
 test('formats a live and expired remaining TTL', () => {
   assert.deepEqual(
     getRemainingTtl('2026-08-10T00:01:05Z', Date.parse('2026-08-10T00:00:00Z')),
@@ -81,6 +103,13 @@ test('validates nested dynamicRule and backend duration fields', () => {
   const legacyTrigger = validTriggerRule();
   delete legacyTrigger.trigger.dynamicRule;
   assert.equal(validateFirewallTrigger(legacyTrigger), '');
+
+  const keyedTrigger = validTriggerRule();
+  keyedTrigger.trigger.key = 'srcIpDstPort';
+  assert.match(validateFirewallTrigger(keyedTrigger), /only supports key=ruleWide/);
+
+  delete keyedTrigger.trigger.dynamicRule;
+  assert.equal(validateFirewallTrigger(keyedTrigger), '');
 
   const bothDurations = validTriggerRule();
   bothDurations.trigger.blockMinutes = 1;

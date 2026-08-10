@@ -19,6 +19,12 @@ const toPositiveInteger = (value) => {
 
 const pluralize = (value, unit) => `${value} ${unit}${value === 1 ? '' : 's'}`;
 
+const TRIGGER_KEYS = new Set([
+  'rulewide', 'srcip', 'srcport', 'srcipsrcport', 'dstip', 'srcipdstip', 'srcportdstip',
+  'srcipsrcportdstip', 'dstport', 'srcipdstport', 'srcportdstport', 'srcipsrcportdstport',
+  'dstipdstport', 'srcipdstipdstport', 'srcportdstipdstport', 'srcipsrcportdstipdstport'
+]);
+
 export const getDynamicRuleTarget = (value) => {
   const item = isRecord(value) ? value : {};
   const rule = isRecord(item.rule) ? item.rule : item;
@@ -51,6 +57,41 @@ export const normalizeDynamicRules = (value) => {
       raw: item.raw ?? item
     };
   });
+};
+
+export const normalizeActiveTriggers = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).map((item, index) => ({
+    ...item,
+    key: firstText(item.ruleId, item.ruleTag) || `active-trigger:${index}`,
+    ruleTag: firstText(item.ruleTag),
+    triggerKey: firstText(item.key) || 'ruleWide',
+    sourceIp: firstText(item.sourceIp, item.sourceIP),
+    sourcePort: Number(item.sourcePort) || 0,
+    destinationIp: firstText(item.destinationIp, item.destinationIP),
+    destinationPort: Number(item.destinationPort) || 0,
+    mode: firstText(item.mode) || 'activeConnections',
+    count: Number(item.count) || 0,
+    max: Number(item.max) || 0,
+    activatedAt: firstText(item.activatedAt),
+    blockedUntil: firstText(item.blockedUntil),
+    raw: item
+  }));
+};
+
+export const formatActiveTriggerBucket = (item) => {
+  const current = isRecord(item) ? item : {};
+  if ((firstText(current.triggerKey, current.key) || 'ruleWide') === 'ruleWide') return 'Whole rule';
+  const sourceIp = firstText(current.sourceIp, current.sourceIP);
+  const destinationIp = firstText(current.destinationIp, current.destinationIP);
+  const sourcePort = Number(current.sourcePort) || 0;
+  const destinationPort = Number(current.destinationPort) || 0;
+  return [
+    sourceIp ? `src=${sourceIp}` : '',
+    sourcePort ? `sport=${sourcePort}` : '',
+    destinationIp ? `dst=${destinationIp}` : '',
+    destinationPort ? `dport=${destinationPort}` : ''
+  ].filter(Boolean).join(' · ') || '-';
 };
 
 export const getRemainingTtl = (expiresAt, now = Date.now()) => {
@@ -103,8 +144,10 @@ export const getFirewallTriggerDetail = (rule) => {
   const sustain = formatTriggerDuration(trigger, 'sustain');
   const ttl = formatTriggerDuration(trigger, 'block');
   const target = getDynamicRuleTarget(dynamicRule);
+  const key = firstText(trigger.key) || 'ruleWide';
   return [
     threshold === null ? '' : `${threshold + 1}+ connections`,
+    `by ${key}`,
     sustain ? `for ${sustain}` : '',
     target ? `→ ${target}` : '',
     ttl ? `TTL ${ttl}` : ''
@@ -160,6 +203,11 @@ export const validateFirewallTrigger = (rule) => {
   }
 
   const trigger = rule.trigger;
+  const key = firstText(trigger.key) || 'ruleWide';
+  const normalizedKey = key.replace(/[_\-\s]/g, '').toLowerCase();
+  if (!TRIGGER_KEYS.has(normalizedKey)) {
+    return `unsupported trigger.key: ${key}.`;
+  }
   if (toPositiveInteger(trigger.maxConnections) === null) {
     return 'trigger.maxConnections must be a positive integer.';
   }
@@ -195,6 +243,9 @@ export const validateFirewallTrigger = (rule) => {
 
   const hasDynamicRule = trigger.dynamicRule !== undefined && trigger.dynamicRule !== null;
   if (!hasDynamicRule) return '';
+  if (normalizedKey !== 'rulewide') {
+    return 'trigger.dynamicRule only supports key=ruleWide.';
+  }
   if (!isRecord(trigger.dynamicRule)) {
     return 'trigger.dynamicRule must be a routing rule object.';
   }

@@ -139,11 +139,12 @@ export function useConfigDataLoaders({
   };
 
   const fetchRules = async (base = apiBase) => {
-    const data = await fetchJson(`${base}/rules`);
+    const data = await fetchJson(`${base}/rules/runtime`);
     setRulesData({
       rules: Array.isArray(data?.rules) ? data.rules : [],
       balancers: Array.isArray(data?.balancers) ? data.balancers : [],
       dynamicRules: Array.isArray(data?.dynamicRules) ? data.dynamicRules : [],
+      activeTriggers: Array.isArray(data?.activeTriggers) ? data.activeTriggers : [],
       receivedAt: Date.now(),
       updatedAt: data?.updatedAt || ''
     });

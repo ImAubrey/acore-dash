@@ -37,6 +37,24 @@ const ARRAY_MATCH_FIELDS = new Set([
   'source', 'sourceIP', 'ip', 'domain', 'localIP', 'protocol', 'alpn',
   'process', 'inboundTag', 'user', 'requireRuleTag'
 ]);
+const TRIGGER_KEY_OPTIONS = [
+  { value: 'ruleWide', label: 'Whole rule (legacy)' },
+  { value: 'srcIp', label: 'Source IP' },
+  { value: 'srcPort', label: 'Source port' },
+  { value: 'srcIpSrcPort', label: 'Source IP + source port' },
+  { value: 'dstIp', label: 'Destination IP' },
+  { value: 'srcIpDstIp', label: 'Source IP + destination IP' },
+  { value: 'srcPortDstIp', label: 'Source port + destination IP' },
+  { value: 'srcIpSrcPortDstIp', label: 'Source IP + source port + destination IP' },
+  { value: 'dstPort', label: 'Destination port' },
+  { value: 'srcIpDstPort', label: 'Source IP + destination port' },
+  { value: 'srcPortDstPort', label: 'Source port + destination port' },
+  { value: 'srcIpSrcPortDstPort', label: 'Source IP + source port + destination port' },
+  { value: 'dstIpDstPort', label: 'Destination IP + destination port' },
+  { value: 'srcIpDstIpDstPort', label: 'Source IP + destination IP + destination port' },
+  { value: 'srcPortDstIpDstPort', label: 'Source port + destination IP + destination port' },
+  { value: 'srcIpSrcPortDstIpDstPort', label: 'Full four-tuple' }
+];
 
 function TextField({ label, value, onChange, disabled, placeholder = '' }) {
   return (
@@ -325,6 +343,7 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
       {action === 'trigger' ? (
         <div className="rule-visual-trigger">
           <div className="rule-visual-fields">
+            <SelectField label="Bucket key" value={valueToText(trigger.key || 'ruleWide')} disabled={disabled} onChange={(item) => updateNested('trigger', 'key', item === 'ruleWide' ? undefined : item)} options={TRIGGER_KEY_OPTIONS} />
             <SelectField label="Mode" value={valueToText(trigger.mode || 'activeConnections')} disabled={disabled} onChange={(item) => updateNested('trigger', 'mode', item)} options={[
               { value: 'activeConnections', label: 'Active connections' },
               { value: 'newConnections', label: 'New connections in a window' }
@@ -338,7 +357,7 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
             <input
               type="checkbox"
               checked={hasDynamicRule}
-              disabled={disabled}
+              disabled={disabled || Boolean(trigger.key && trigger.key !== 'ruleWide')}
               onChange={(event) => updateNested('trigger', 'dynamicRule', event.target.checked ? { ruleTag: '', outboundTag: '' } : undefined)}
             />
             Activate a higher-priority dynamic routing rule
