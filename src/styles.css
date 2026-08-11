@@ -120,6 +120,20 @@ html,
   -ms-overflow-style: none;
 }
 
+/*
+ * Contain overscroll only on the axis owned by this ScrollArea. A horizontal
+ * detail scroller must still pass vertical wheel/touch movement to the page.
+ */
+.js-scroll-area--horizontal > .js-scroll-area__viewport {
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+}
+
+.js-scroll-area--vertical > .js-scroll-area__viewport {
+  overscroll-behavior-x: auto;
+  overscroll-behavior-y: contain;
+}
+
 .js-scroll-area__viewport::-webkit-scrollbar {
   display: none;
 }

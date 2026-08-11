@@ -67,3 +67,14 @@ test('custom scrollbar keeps a full-size hit box around a thin centered thumb', 
   assert.match(globalStyles, /\.js-scroll-area__track--horizontal \.js-scroll-area__thumb::before/);
   assert.doesNotMatch(globalStyles, /\.js-scroll-area__thumb\s*\{[^}]*min-(?:width|height):\s*24px/s);
 });
+
+test('single-axis scroll areas preserve page scroll chaining on the other axis', () => {
+  assert.match(
+    globalStyles,
+    /\.js-scroll-area--horizontal\s*>\s*\.js-scroll-area__viewport\s*\{[^}]*overscroll-behavior-x:\s*contain;[^}]*overscroll-behavior-y:\s*auto;/s
+  );
+  assert.match(
+    globalStyles,
+    /\.js-scroll-area--vertical\s*>\s*\.js-scroll-area__viewport\s*\{[^}]*overscroll-behavior-x:\s*auto;[^}]*overscroll-behavior-y:\s*contain;/s
+  );
+});
