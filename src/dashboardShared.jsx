@@ -11,6 +11,7 @@ const ACCESS_KEY_HEADER = 'X-Access-Key';
 const ACCESS_KEY_QUERY = 'access_key';
 const ROUTING_DRAFT_STORAGE_KEY = 'acore_ui_routing_draft';
 const FIREWALL_DRAFT_STORAGE_KEY = 'acore_ui_firewall_draft';
+const EDITOR_MODE_STORAGE_PREFIX = 'acore_ui_editor_mode_';
 const ROUTING_DRAFT_NOTICE =
   'Unsaved rule edits are stored in your browser. Click Hot reload core to upload.';
 const FIREWALL_DRAFT_NOTICE =
@@ -480,6 +481,33 @@ const PAGES = {
   }
 };
 
+const getEditorModePreference = (editor, fallback = 'advanced', allowed = ['visual', 'advanced']) => {
+  const safeFallback = allowed.includes(fallback) ? fallback : allowed[0];
+  if (typeof window === 'undefined') return safeFallback;
+  const editorKey = String(editor || '').trim();
+  if (!editorKey) return safeFallback;
+  const key = `${EDITOR_MODE_STORAGE_PREFIX}${editorKey}`;
+  try {
+    const stored = window.localStorage.getItem(key);
+    return allowed.includes(stored) ? stored : safeFallback;
+  } catch (_err) {
+    return safeFallback;
+  }
+};
+
+const setEditorModePreference = (editor, mode) => {
+  if (typeof window === 'undefined') return mode;
+  const editorKey = String(editor || '').trim();
+  if (!editorKey) return mode;
+  const key = `${EDITOR_MODE_STORAGE_PREFIX}${editorKey}`;
+  try {
+    window.localStorage.setItem(key, String(mode || ''));
+  } catch (_err) {
+    // Ignore storage failures (for example private browsing restrictions).
+  }
+  return mode;
+};
+
 const getPageFromHash = () => {
   if (typeof window === 'undefined') return 'connections';
   const raw = window.location.hash.replace(/^#\/?/, '');
@@ -691,7 +719,7 @@ const FIREWALL_TRIGGER_RULE_TEMPLATE = {
     // The backend fires when count > maxConnections, so 9 means the 10th
     // matching connection activates the rule.
     maxConnections: 9,
-    sustainSeconds: 10,
+    sustain: '10s',
     blockSeconds: 60,
     dynamicRule: {
       sourceIP: ['172.19.0.111'],
@@ -2331,6 +2359,7 @@ export {
   ACCESS_KEY_QUERY,
   ROUTING_DRAFT_STORAGE_KEY,
   FIREWALL_DRAFT_STORAGE_KEY,
+  EDITOR_MODE_STORAGE_PREFIX,
   ROUTING_DRAFT_NOTICE,
   FIREWALL_DRAFT_NOTICE,
   UI_STATE_SAVE_DELAY_MS,
@@ -2346,6 +2375,8 @@ export {
   parseFirewallDraft,
   getFirewallDraft,
   saveFirewallDraft,
+  getEditorModePreference,
+  setEditorModePreference,
   normalizeApiBase,
   getServerStorageId,
   getStoredServerAccessKey,

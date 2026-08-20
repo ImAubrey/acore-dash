@@ -3314,12 +3314,29 @@ select {
   justify-content: flex-end;
 }
 
+.routing-rules-actions {
+  flex: 1 1 260px;
+}
+
+.routing-rules-search {
+  min-width: min(100%, 170px);
+  width: min(100%, 220px);
+  flex: 0 1 220px;
+}
+
+.rules-editor-actions button {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
 .firewall-rules-card-embedded .group-header {
   flex-wrap: wrap;
 }
 
 .firewall-card-actions {
   min-width: 0;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .firewall-rules-card-embedded .connections-search {
@@ -3522,6 +3539,68 @@ select {
 
 .firewall-rule-title {
   flex-wrap: nowrap;
+}
+
+.firewall-rule-enable-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 24px;
+  flex: 0 0 32px;
+  cursor: pointer;
+}
+
+.firewall-rule-enable-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.firewall-rule-enable-slider {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 30px;
+  height: 18px;
+  flex: 0 0 30px;
+  padding: 2px;
+  box-sizing: border-box;
+  border: 1px solid rgba(28, 43, 42, 0.2);
+  border-radius: 999px;
+  background: rgba(28, 43, 42, 0.16);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.firewall-rule-enable-slider-thumb {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(28, 43, 42, 0.26);
+  transform: translateX(0);
+  transition: transform 120ms ease;
+}
+
+.firewall-rule-enable-toggle input:checked + .firewall-rule-enable-slider {
+  border-color: rgba(47, 154, 160, 0.68);
+  background: var(--accent-4);
+}
+
+.firewall-rule-enable-toggle input:checked + .firewall-rule-enable-slider .firewall-rule-enable-slider-thumb {
+  transform: translateX(12px);
+}
+
+.firewall-rule-enable-toggle input:focus-visible + .firewall-rule-enable-slider {
+  outline: 2px solid var(--accent-4);
+  outline-offset: 2px;
 }
 
 .firewall-rule-title h4 {
@@ -5856,6 +5935,109 @@ select.pill {
   background: rgba(255, 255, 255, 0.9);
   color: var(--ink);
   font: 12px/1.35 var(--mono);
+}
+
+.rule-visual-optional-field {
+  position: relative;
+  min-width: 0;
+}
+
+.rule-visual-optional-field > .rule-visual-field {
+  height: 100%;
+  padding-right: 30px;
+}
+
+.rule-visual-remove-field {
+  position: absolute;
+  top: 23px;
+  right: 0;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(199, 72, 59, 0.1);
+  color: #9f352c;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.rule-visual-remove-field:hover:not(:disabled) {
+  background: rgba(199, 72, 59, 0.18);
+}
+
+.rule-visual-add-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  align-self: end;
+}
+
+.rule-visual-add-field select {
+  min-width: 190px;
+  border-style: dashed;
+  border-color: rgba(47, 115, 212, 0.42);
+  background: rgba(239, 246, 255, 0.72);
+  color: #315f9f;
+  cursor: pointer;
+}
+
+.rule-visual-add-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px dashed rgba(47, 115, 212, 0.48);
+  border-radius: 8px;
+  background: rgba(239, 246, 255, 0.72);
+  color: #315f9f;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.rule-visual-add-button:hover:not(:disabled) {
+  border-style: solid;
+  background: rgba(47, 115, 212, 0.12);
+}
+
+.rule-visual-choice-field {
+  min-width: 0;
+}
+
+.rule-visual-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px;
+  border: 1px solid rgba(28, 43, 42, 0.16);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.rule-visual-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid rgba(47, 115, 212, 0.18);
+  border-radius: 999px;
+  background: rgba(239, 246, 255, 0.72);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rule-visual-choice input {
+  width: auto;
+  min-height: auto;
+  accent-color: var(--accent-4);
 }
 
 .rule-visual-array-trigger {

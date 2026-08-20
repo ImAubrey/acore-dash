@@ -25,6 +25,25 @@ const TRIGGER_KEYS = new Set([
   'dstipdstport', 'srcipdstipdstport', 'srcportdstipdstport', 'srcipsrcportdstipdstport'
 ]);
 
+const COMPACT_TRIGGER_KEYS = new Map([
+  ['rulewide', 'all'],
+  ['srcip', 'srcIP'],
+  ['srcport', 'sport'],
+  ['srcipsrcport', 'srcIP+sport'],
+  ['dstip', 'dstIP'],
+  ['srcipdstip', 'srcIP+dstIP'],
+  ['srcportdstip', 'sport+dstIP'],
+  ['srcipsrcportdstip', 'srcIP+sport+dstIP'],
+  ['dstport', 'dport'],
+  ['srcipdstport', 'srcIP+dport'],
+  ['srcportdstport', 'sport+dport'],
+  ['srcipsrcportdstport', 'srcIP+sport+dport'],
+  ['dstipdstport', 'dstIP+dport'],
+  ['srcipdstipdstport', 'srcIP+dstIP+dport'],
+  ['srcportdstipdstport', 'sport+dstIP+dport'],
+  ['srcipsrcportdstipdstport', 'srcIP+sport+dstIP+dport']
+]);
+
 export const getDynamicRuleTarget = (value) => {
   const item = isRecord(value) ? value : {};
   const rule = isRecord(item.rule) ? item.rule : item;
@@ -136,21 +155,38 @@ export const formatTriggerDuration = (trigger, prefix = 'block') => {
   return '';
 };
 
+const formatCompactTriggerDuration = (trigger, prefix) => {
+  const current = isRecord(trigger) ? trigger : {};
+  if (prefix === 'sustain') {
+    const sustain = firstText(current.sustain);
+    if (sustain) return sustain;
+  }
+  const seconds = toPositiveInteger(current[`${prefix}Seconds`]);
+  if (seconds !== null) return `${seconds}s`;
+  const minutes = toPositiveInteger(current[`${prefix}Minutes`]);
+  return minutes === null ? '' : `${minutes}m`;
+};
+
+const formatCompactTriggerKey = (value) => {
+  const key = firstText(value) || 'ruleWide';
+  return COMPACT_TRIGGER_KEYS.get(key.replace(/[_\-\s]/g, '').toLowerCase()) || key;
+};
+
 export const getFirewallTriggerDetail = (rule) => {
   const current = isRecord(rule) ? rule : {};
   const trigger = isRecord(current.trigger) ? current.trigger : {};
   const dynamicRule = isRecord(trigger.dynamicRule) ? trigger.dynamicRule : {};
   const threshold = toPositiveInteger(trigger.maxConnections);
-  const sustain = formatTriggerDuration(trigger, 'sustain');
-  const ttl = formatTriggerDuration(trigger, 'block');
+  const sustain = formatCompactTriggerDuration(trigger, 'sustain');
+  const ttl = formatCompactTriggerDuration(trigger, 'block');
   const target = getDynamicRuleTarget(dynamicRule);
-  const key = firstText(trigger.key) || 'ruleWide';
+  const key = formatCompactTriggerKey(trigger.key);
   return [
-    threshold === null ? '' : `${threshold + 1}+ connections`,
-    `by ${key}`,
-    sustain ? `for ${sustain}` : '',
+    threshold === null ? '' : `>${threshold} conn`,
+    key,
+    sustain ? `hold ${sustain}` : '',
     target ? `→ ${target}` : '',
-    ttl ? `TTL ${ttl}` : ''
+    ttl ? `ban ${ttl}` : ''
   ].filter(Boolean).join(' · ');
 };
 
@@ -220,10 +256,25 @@ export const validateFirewallTrigger = (rule) => {
     return 'trigger.windowSeconds is only valid when mode=newConnections.';
   }
 
-  const durationPairs = [
-    ['sustainSeconds', 'sustainMinutes', false],
-    ['blockSeconds', 'blockMinutes', true]
-  ];
+  const sustain = firstText(trigger.sustain);
+  const legacySustainKeys = ['sustainSeconds', 'sustainMinutes'];
+  const presentLegacySustainKeys = legacySustainKeys.filter((key) => (
+    trigger[key] !== undefined && trigger[key] !== null && trigger[key] !== ''
+  ));
+  if (sustain && presentLegacySustainKeys.length) {
+    return `trigger.sustain cannot be combined with legacy trigger.${presentLegacySustainKeys[0]}.`;
+  }
+  if (presentLegacySustainKeys.length > 1) {
+    return 'legacy trigger sustain fields cannot be combined.';
+  }
+  if (sustain && !/^[1-9][0-9]*(?:ms|s|m|h|d)$/.test(sustain)) {
+    return 'trigger.sustain must be a positive duration such as 2ms, 2s, 2m, 2h, or 2d.';
+  }
+  if (presentLegacySustainKeys.length && toPositiveInteger(trigger[presentLegacySustainKeys[0]]) === null) {
+    return `trigger.${presentLegacySustainKeys[0]} must be a positive integer.`;
+  }
+
+  const durationPairs = [['blockSeconds', 'blockMinutes', true]];
   for (const [secondsKey, minutesKey, required] of durationPairs) {
     const secondsPresent = trigger[secondsKey] !== undefined && trigger[secondsKey] !== null && trigger[secondsKey] !== '';
     const minutesPresent = trigger[minutesKey] !== undefined && trigger[minutesKey] !== null && trigger[minutesKey] !== '';

@@ -1890,6 +1890,7 @@ export default function App() {
     openDeleteConfirm,
     reorderRoutingRules,
     reorderFirewallRules,
+    toggleFirewallRuleEnabled,
     closeDeleteConfirm,
     confirmDelete,
     closeRulesModal,
@@ -2307,6 +2308,7 @@ export default function App() {
     discardFirewallDraftBusy,
     discardFirewallDraft: discardLocalFirewallDraft,
     reorderFirewallRules,
+    toggleFirewallRuleEnabled,
     highlightFirewallCell
   };
 

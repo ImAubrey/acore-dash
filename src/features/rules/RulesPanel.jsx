@@ -103,23 +103,7 @@ export function RulesPanel({
       </button>
       </>
     )
-    : (
-      <>
-      <HeaderSearchInput
-        value={ruleSearchQuery}
-        setValue={setRuleSearchQuery}
-        placeholder="Search routing rules..."
-        ariaLabel="Search routing rules"
-      />
-      <HotReloadButton
-        busy={hotReloadBusy}
-        onClick={triggerHotReloadFromRules}
-      />
-      <button className="primary small" onClick={() => openRulesModal('rule', 'insert')}>
-        Add rule
-      </button>
-      </>
-    );
+    : null;
 
   if (!showRules && !showFirewall) {
     return null;
@@ -148,7 +132,21 @@ export function RulesPanel({
                 <p className="group-meta mono">Config: {configRulesPath}</p>
               ) : null}
             </div>
-            <div className="rules-editor-actions">
+            <div className="rules-editor-actions routing-rules-actions">
+              <HeaderSearchInput
+                value={ruleSearchQuery}
+                setValue={setRuleSearchQuery}
+                placeholder="Search routing rules..."
+                ariaLabel="Search routing rules"
+                className="connections-search routing-rules-search"
+              />
+              <HotReloadButton
+                busy={hotReloadBusy}
+                onClick={triggerHotReloadFromRules}
+              />
+              <button className="primary small" onClick={() => openRulesModal('rule', 'insert')}>
+                Add rule
+              </button>
               <button className="ghost small" onClick={() => loadRulesConfig(apiBase)}>
                 Reload config
               </button>

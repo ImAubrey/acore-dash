@@ -35,6 +35,7 @@ export function FirewallRulesCard({
   discardFirewallDraftBusy,
   discardFirewallDraft,
   reorderFirewallRules,
+  toggleFirewallRuleEnabled,
   highlightFirewallCell
 }) {
   const {
@@ -88,9 +89,6 @@ export function FirewallRulesCard({
                 onUndoDraft={discardFirewallDraft}
                 undoDraftTitle="Discard unsaved firewall draft edits"
               />
-              <button className="ghost small" onClick={() => loadFirewallConfig(apiBase)}>
-                Reload
-              </button>
               <button className="primary small" onClick={() => openRulesModal('firewallRule', 'insert')}>
                 Add firewall
               </button>
@@ -149,6 +147,17 @@ export function FirewallRulesCard({
                       >
                         {index + 1}
                       </span>
+                      <label className="firewall-rule-enable-toggle" title={rule?.enable === false ? 'Enable firewall rule' : 'Disable firewall rule'}>
+                        <input
+                          type="checkbox"
+                          checked={rule?.enable !== false}
+                          aria-label={`${rule?.enable === false ? 'Enable' : 'Disable'} firewall rule ${index + 1}`}
+                          onChange={(event) => toggleFirewallRuleEnabled?.(index, event.target.checked)}
+                        />
+                        <span className="firewall-rule-enable-slider" aria-hidden="true">
+                          <span className="firewall-rule-enable-slider-thumb" />
+                        </span>
+                      </label>
                       {orderChange ? (
                         <span className="rule-index-change" title="Unsaved order change">
                           {orderChange}

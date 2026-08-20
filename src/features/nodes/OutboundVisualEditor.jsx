@@ -28,6 +28,7 @@ import {
   updateOutboundField,
   validateBlackholeResponseArray
 } from './outboundVisualHelpers';
+import { getEditorModePreference, setEditorModePreference } from '../../dashboardShared';
 
 const ADVANCED_EXTENSIONS = [
   json(),
@@ -677,7 +678,7 @@ const HeadersEditor = ({ outbound, commit, disabled }) => {
 };
 
 export function OutboundVisualEditor({ value, onChange, disabled = false }) {
-  const [mode, setMode] = useState('visual');
+  const [mode, setMode] = useState(() => getEditorModePreference('outbound', 'advanced'));
   const parsed = useMemo(() => parseOutboundValue(value), [value]);
   const outbound = parsed.outbound;
   const protocol = toProtocol(outbound?.protocol);
@@ -691,7 +692,10 @@ export function OutboundVisualEditor({ value, onChange, disabled = false }) {
   const protocolGroups = endpointArrayPath ? [] : getProtocolGroups(protocol);
 
   useEffect(() => {
-    if (parsed.error) setMode('advanced');
+    if (parsed.error) {
+      setEditorModePreference('outbound', 'advanced');
+      setMode('advanced');
+    }
   }, [parsed.error]);
 
   const commit = useCallback((nextOutbound) => {
@@ -829,7 +833,7 @@ export function OutboundVisualEditor({ value, onChange, disabled = false }) {
           type="button"
           aria-pressed={mode === 'visual'}
           disabled={Boolean(parsed.error)}
-          onClick={() => setMode('visual')}
+          onClick={() => { setEditorModePreference('outbound', 'visual'); setMode('visual'); }}
         >
           Visual
         </button>
@@ -837,7 +841,7 @@ export function OutboundVisualEditor({ value, onChange, disabled = false }) {
           className={mode === 'advanced' ? 'primary small' : 'ghost small'}
           type="button"
           aria-pressed={mode === 'advanced'}
-          onClick={() => setMode('advanced')}
+          onClick={() => { setEditorModePreference('outbound', 'advanced'); setMode('advanced'); }}
         >
           Advanced JSON
         </button>

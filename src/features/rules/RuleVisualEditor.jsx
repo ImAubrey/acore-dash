@@ -7,7 +7,6 @@ import { EditorView } from '@codemirror/view';
 import { githubLight } from '@uiw/codemirror-theme-github';
 import {
   FIREWALL_ACTIONS,
-  RULE_MATCH_FIELDS,
   attrsToVisualText,
   asRuleRecord,
   formatRuleEditorJson,
@@ -31,12 +30,44 @@ import {
 } from './ruleVisualEditor';
 import { ScrollArea } from '../common/ScrollArea';
 import { TrashIcon } from '../connections/actionIcons';
+import { getEditorModePreference, setEditorModePreference } from '../../dashboardShared';
 
 const JSON_EDITOR_EXTENSIONS = [json(), lintGutter(), linter(jsonParseLinter()), EditorView.lineWrapping];
-const ARRAY_MATCH_FIELDS = new Set([
-  'source', 'sourceIP', 'ip', 'domain', 'localIP', 'protocol', 'alpn',
-  'process', 'inboundTag', 'user', 'requireRuleTag'
-]);
+const NETWORK_OPTIONS = [
+  { value: 'tcp', label: 'TCP' },
+  { value: 'udp', label: 'UDP' },
+  { value: 'icmp', label: 'ICMP' },
+  { value: 'tcp,udp', label: 'TCP + UDP' },
+  { value: 'tcp,icmp', label: 'TCP + ICMP' },
+  { value: 'udp,icmp', label: 'UDP + ICMP' },
+  { value: 'tcp,udp,icmp', label: 'TCP + UDP + ICMP' }
+];
+const PROTOCOL_OPTIONS = [
+  'http', 'http1', 'http2', 'tls', 'quic', 'dns', 'dot', 'ech', 'ssh',
+  'socks4', 'socks5', 'rdp', 'mqtt', 'postgres', 'bittorrent', 'stun',
+  'turn', 'wireguard', 'zerotier', 'ntp', 'ikev2', 'dtls', 'trojan',
+  'utp', 'mtproto', 'fakedns', 'alpn', 'alpn:h2', 'flow:trojan-tls-in-tls',
+  'flow:shadowsocks'
+].map((value) => ({ value, label: value }));
+const MATCH_FIELD_DEFINITIONS = [
+  { key: 'source', label: 'Source (alias)', kind: 'array' },
+  { key: 'sourceIP', label: 'Source IP', kind: 'array' },
+  { key: 'ip', label: 'Destination IP', kind: 'array' },
+  { key: 'domain', label: 'Domain', kind: 'array' },
+  { key: 'network', label: 'Network', kind: 'select', options: NETWORK_OPTIONS },
+  { key: 'ttl', label: 'TTL / Hop Limit', kind: 'text', placeholder: '64 or 1-64' },
+  { key: 'port', label: 'Port', kind: 'text', placeholder: '53,443,1000-2000' },
+  { key: 'sourcePort', label: 'Source port', kind: 'text', placeholder: '53,443,1000-2000' },
+  { key: 'localIP', label: 'Local IP', kind: 'array' },
+  { key: 'localPort', label: 'Local port', kind: 'text', placeholder: '53,443,1000-2000' },
+  { key: 'vlessRoute', label: 'VLESS route match', kind: 'text', placeholder: '1-128' },
+  { key: 'protocol', label: 'Protocol', kind: 'choices', options: PROTOCOL_OPTIONS },
+  { key: 'inboundTag', label: 'Inbound tag', kind: 'array' },
+  { key: 'user', label: 'User', kind: 'array' },
+  { key: 'process', label: 'Process', kind: 'array' },
+  { key: 'requireRuleTag', label: 'Required rule tag', kind: 'array' },
+  { key: 'attrs', label: 'HTTP attributes', kind: 'attrs' }
+];
 const TRIGGER_KEY_OPTIONS = [
   { value: 'ruleWide', label: 'Whole rule (legacy)' },
   { value: 'srcIp', label: 'Source IP' },
@@ -239,39 +270,131 @@ function SelectField({ label, value, onChange, disabled, options }) {
   );
 }
 
+function ChoiceListField({ label, value, onChange, disabled, options }) {
+  const selected = normalizeRuleListValue(value);
+  const known = new Set(options.map((option) => option.value));
+  const allOptions = [
+    ...options,
+    ...selected
+      .filter((item) => !known.has(item))
+      .map((item) => ({ value: item, label: `${item} (custom)` }))
+  ];
+  return (
+    <div className="rule-visual-field rule-visual-choice-field">
+      <span>{label}</span>
+      <div className="rule-visual-choice-list">
+        {allOptions.map((option) => (
+          <label className="rule-visual-choice" key={option.value}>
+            <input
+              type="checkbox"
+              checked={selected.includes(option.value)}
+              disabled={disabled}
+              onChange={(event) => {
+                const next = event.target.checked
+                  ? [...selected, option.value]
+                  : selected.filter((item) => item !== option.value);
+                onChange(next);
+              }}
+            />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function isVisualFieldSet(value, key) {
+  if (!Object.prototype.hasOwnProperty.call(value, key)) return false;
+  if (key === 'attrs') return isRecord(value[key]) && Object.keys(value[key]).length > 0;
+  if (Array.isArray(value[key])) return normalizeRuleListValue(value[key]).length > 0;
+  return value[key] !== undefined && value[key] !== null && String(value[key]).trim() !== '';
+}
+
 function MatchFields({ value, onChange, disabled }) {
+  const [addedFields, setAddedFields] = useState(() => new Set());
+  const [addOpen, setAddOpen] = useState(false);
+  const activeDefinitions = MATCH_FIELD_DEFINITIONS.filter(
+    (definition) => isVisualFieldSet(value, definition.key) || addedFields.has(definition.key)
+  );
+  const availableDefinitions = MATCH_FIELD_DEFINITIONS.filter(
+    (definition) => !activeDefinitions.some((active) => active.key === definition.key)
+  );
+  const updateField = (definition, nextValue) => {
+    const hasValue = definition.kind === 'attrs'
+      ? isRecord(nextValue) && Object.keys(nextValue).length > 0
+      : Array.isArray(nextValue)
+        ? nextValue.length > 0
+        : nextValue !== undefined && nextValue !== null && String(nextValue).trim() !== '';
+    setAddedFields((current) => {
+      const next = new Set(current);
+      if (hasValue) next.delete(definition.key);
+      else next.add(definition.key);
+      return next;
+    });
+    onChange(patchRuleValue(value, definition.key, hasValue ? nextValue : undefined));
+  };
+  const removeField = (definition) => {
+    setAddedFields((current) => {
+      const next = new Set(current);
+      next.delete(definition.key);
+      return next;
+    });
+    onChange(patchRuleValue(value, definition.key, undefined));
+  };
+  const addField = (key) => {
+    const definition = MATCH_FIELD_DEFINITIONS.find((item) => item.key === key);
+    if (!definition) return;
+    setAddedFields((current) => new Set([...current, key]));
+    setAddOpen(false);
+    if (definition.kind === 'select') onChange(patchRuleValue(value, key, definition.options[0].value));
+    else if (definition.kind === 'choices') onChange(patchRuleValue(value, key, [definition.options[0].value]));
+  };
+
   return (
     <div className="rule-visual-fields rule-visual-match-fields">
-      {RULE_MATCH_FIELDS.map(([key, label]) => (
-        ARRAY_MATCH_FIELDS.has(key) ? (
-          <ArrayListField
-            key={key}
-            label={label}
-            value={value[key]}
+      {activeDefinitions.map((definition) => {
+        const field = definition.key;
+        const remove = () => removeField(definition);
+        return (
+          <div className="rule-visual-optional-field" key={field}>
+            {definition.kind === 'array' ? (
+              <ArrayListField label={definition.label} value={value[field]} disabled={disabled} onChange={(items) => updateField(definition, items)} />
+            ) : definition.kind === 'select' ? (
+              <SelectField label={definition.label} value={valueToText(value[field])} disabled={disabled} onChange={(item) => updateField(definition, item)} options={definition.options} />
+            ) : definition.kind === 'choices' ? (
+              <ChoiceListField label={definition.label} value={value[field]} disabled={disabled} onChange={(items) => updateField(definition, items)} options={definition.options} />
+            ) : definition.kind === 'attrs' ? (
+              <label className="rule-visual-field rule-visual-attrs-field">
+                <span>{definition.label}</span>
+                <textarea value={attrsToVisualText(value.attrs)} placeholder={':method=GET\nja4=threat:malware'} disabled={disabled} rows={3} onChange={(event) => updateField(definition, visualTextToAttrs(event.target.value))} />
+                <small>One key=value pair per line.</small>
+              </label>
+            ) : (
+              <TextField label={definition.label} value={valueToText(value[field])} placeholder={definition.placeholder} disabled={disabled} onChange={(text) => updateField(definition, text)} />
+            )}
+            <button type="button" className="rule-visual-remove-field" aria-label={`Remove ${definition.label}`} title={`Remove ${definition.label}`} disabled={disabled} onClick={remove}>×</button>
+          </div>
+        );
+      })}
+      {availableDefinitions.length ? (
+        <div className="rule-visual-add-field">
+          <button
+            type="button"
+            className="rule-visual-add-button"
+            aria-label="Add match field"
+            title="Add match field"
             disabled={disabled}
-            onChange={(items) => onChange(patchRuleValue(value, key, items.length ? items : undefined))}
-          />
-        ) : (
-          <TextField
-            key={key}
-            label={label}
-            value={valueToText(value[key])}
-            disabled={disabled}
-            onChange={(text) => onChange(patchRuleText(value, key, text))}
-          />
-        )
-      ))}
-      <label className="rule-visual-field rule-visual-attrs-field">
-        <span>HTTP attributes</span>
-        <textarea
-          value={attrsToVisualText(value.attrs)}
-          placeholder={':method=GET\nja4=threat:malware'}
-          disabled={disabled}
-          rows={3}
-          onChange={(event) => onChange(patchRuleValue(value, 'attrs', visualTextToAttrs(event.target.value)))}
-        />
-        <small>One key=value pair per line.</small>
-      </label>
+            onClick={() => setAddOpen((current) => !current)}
+          >+</button>
+          {addOpen ? (
+            <select autoFocus aria-label="Choose match field" disabled={disabled} value="" onChange={(event) => addField(event.target.value)}>
+              <option value="">Choose a match type</option>
+              {availableDefinitions.map((definition) => <option key={definition.key} value={definition.key}>{definition.label}</option>)}
+            </select>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -290,6 +413,18 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
     if (nextValue !== undefined) next = patchRuleNested(next, 'trigger', counterpart, undefined);
     onChange(next);
   };
+  const legacySustain = trigger.sustainSeconds !== undefined
+    ? `${trigger.sustainSeconds}s`
+    : trigger.sustainMinutes !== undefined
+      ? `${trigger.sustainMinutes}m`
+      : '';
+  const updateSustain = (nextValue) => {
+    let next = patchRuleNested(value, 'trigger', 'sustain', nextValue || undefined);
+    for (const legacyField of ['sustainSeconds', 'sustainMinutes']) {
+      next = patchRuleNested(next, 'trigger', legacyField, undefined);
+    }
+    onChange(next);
+  };
 
   return (
     <section className="rule-visual-section">
@@ -301,8 +436,7 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
       </label>
       {action === 'limit' ? (
         <div className="rule-visual-fields">
-          <SelectField label="Count by" value={valueToText(limit.key ?? limit.countBy)} disabled={disabled} onChange={(item) => updateNested('limit', 'key', item)} options={[
-            { value: '', label: 'Select a bucket' },
+          <SelectField label="Count by" value={valueToText(limit.key ?? limit.countBy ?? 'srcIp')} disabled={disabled} onChange={(item) => updateNested('limit', 'key', item)} options={[
             { value: 'srcIp', label: 'Source IP' },
             { value: 'dstIp', label: 'Destination IP' },
             { value: 'srcDstIp', label: 'Source + destination IP' },
@@ -327,8 +461,7 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
       ) : null}
       {action === 'speed' ? (
         <div className="rule-visual-fields">
-          <SelectField label="Count by" value={valueToText(speed.key ?? speed.countBy)} disabled={disabled} onChange={(item) => updateNested('speed', 'key', item)} options={[
-            { value: '', label: 'Select a bucket' },
+          <SelectField label="Count by" value={valueToText(speed.key ?? speed.countBy ?? 'srcIp')} disabled={disabled} onChange={(item) => updateNested('speed', 'key', item)} options={[
             { value: 'srcIp', label: 'Source IP' },
             { value: 'dstIp', label: 'Destination IP' },
             { value: 'srcDstIp', label: 'Source + destination IP' },
@@ -350,7 +483,7 @@ function FirewallOptions({ value, onChange, disabled, onValidationChange }) {
             ]} />
             <NumberField label="Max connections" value={trigger.maxConnections} disabled={disabled} min={1} onChange={(item) => updateNested('trigger', 'maxConnections', item)} />
             {trigger.mode === 'newConnections' ? <NumberField label="Window seconds" value={trigger.windowSeconds} disabled={disabled} min={1} onChange={(item) => updateNested('trigger', 'windowSeconds', item)} /> : null}
-            <DurationField label="Sustain duration" value={trigger} secondsField="sustainSeconds" minutesField="sustainMinutes" disabled={disabled} onChange={updateTriggerDuration} />
+            <TextField label="Sustain duration" value={valueToText(trigger.sustain) || legacySustain} placeholder="2ms, 2s, 2m, 2h, or 2d" disabled={disabled} onChange={updateSustain} />
             <DurationField label="Lifetime / block duration" value={trigger} secondsField="blockSeconds" minutesField="blockMinutes" disabled={disabled} required onChange={updateTriggerDuration} />
           </div>
           <label className="rule-visual-check">
@@ -530,7 +663,7 @@ function BalancerOptions({ value, onChange, disabled, selectorOptions = [] }) {
  */
 export function RuleVisualEditor({ target, value, onChange, onValidationChange, selectorOptions = [], disabled = false }) {
   const rule = asRuleRecord(value);
-  const [mode, setMode] = useState('visual');
+  const [mode, setMode] = useState(() => getEditorModePreference('rule', 'advanced'));
   const [advancedText, setAdvancedText] = useState(() => formatRuleEditorJson(rule));
   const [advancedError, setAdvancedError] = useState('');
   const isFirewall = target === 'firewallRule' || target === 'firewall';
@@ -561,8 +694,8 @@ export function RuleVisualEditor({ target, value, onChange, onValidationChange, 
           <small>{modeDescription}</small>
         </div>
         <div className="rule-visual-mode-switch" role="group" aria-label="Rule editor mode">
-          <button type="button" className={mode === 'visual' ? 'active' : ''} onClick={() => { setAdvancedError(''); onValidationChange?.(''); setMode('visual'); }} disabled={disabled}>Visual</button>
-          <button type="button" className={mode === 'advanced' ? 'active' : ''} onClick={() => { const error = validateRuleEditorValue(rule, target); setAdvancedText(formatRuleEditorJson(rule)); setAdvancedError(error); onValidationChange?.(error); setMode('advanced'); }} disabled={disabled}>Advanced JSON</button>
+          <button type="button" className={mode === 'visual' ? 'active' : ''} onClick={() => { setAdvancedError(''); onValidationChange?.(''); setEditorModePreference('rule', 'visual'); setMode('visual'); }} disabled={disabled}>Visual</button>
+          <button type="button" className={mode === 'advanced' ? 'active' : ''} onClick={() => { const error = validateRuleEditorValue(rule, target); setAdvancedText(formatRuleEditorJson(rule)); setAdvancedError(error); onValidationChange?.(error); setEditorModePreference('rule', 'advanced'); setMode('advanced'); }} disabled={disabled}>Advanced JSON</button>
         </div>
       </div>
       {mode === 'advanced' ? (
@@ -590,7 +723,17 @@ export function RuleVisualEditor({ target, value, onChange, onValidationChange, 
         <div className="rule-visual-body">
           {isBalancer ? <BalancerOptions value={rule} onChange={update} disabled={disabled} selectorOptions={selectorOptions} /> : <>
             <section className="rule-visual-section">
-              <TextField label="Rule type" value={valueToText(rule.type)} placeholder="field" disabled={disabled} onChange={(text) => update(patchRuleText(rule, 'type', text))} />
+              {isFirewall ? (
+                <label className="rule-visual-check">
+                  <input
+                    type="checkbox"
+                    checked={rule.enable !== false}
+                    disabled={disabled}
+                    onChange={(event) => update(patchRuleValue(rule, 'enable', event.target.checked ? undefined : false))}
+                  />
+                  Enable this firewall rule
+                </label>
+              ) : null}
               <TextField label="Rule tag" value={valueToText(rule.ruleTag)} disabled={disabled} onChange={(text) => update(patchRuleText(rule, 'ruleTag', text))} />
               <MatchFields value={rule} onChange={update} disabled={disabled} />
             </section>

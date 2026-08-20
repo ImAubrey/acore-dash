@@ -433,6 +433,26 @@ export function useRulesModalCrud({
     stageFirewallDraft(nextFirewall);
   };
 
+  const toggleFirewallRuleEnabled = (index, enabled) => {
+    const firewallRules = getFirewallRuleList(configFirewall);
+    if (!Number.isInteger(index) || index < 0 || index >= firewallRules.length) {
+      setConfigFirewallStatus('Toggle failed: firewall rule index out of range.');
+      return;
+    }
+    const nextRules = [...firewallRules];
+    const current = nextRules[index] && typeof nextRules[index] === 'object' ? nextRules[index] : {};
+    const nextRule = { ...current };
+    if (enabled) delete nextRule.enable;
+    else nextRule.enable = false;
+    nextRules[index] = nextRule;
+    const nextFirewall = normalizeFirewallConfig({
+      ...(configFirewall && typeof configFirewall === 'object' ? configFirewall : {}),
+      rules: nextRules
+    });
+    setConfigFirewall(nextFirewall);
+    stageFirewallDraft(nextFirewall);
+  };
+
   const closeRulesModal = (options = {}) => {
     const { force = false } = options;
     if (rulesModalSaving && !force) return;
@@ -975,6 +995,7 @@ export function useRulesModalCrud({
     openDeleteConfirm,
     reorderRoutingRules,
     reorderFirewallRules,
+    toggleFirewallRuleEnabled,
     closeDeleteConfirm,
     confirmDelete,
     closeRulesModal,

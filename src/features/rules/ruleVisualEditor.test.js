@@ -60,6 +60,14 @@ test('blank optional visual values are removed without disturbing unknown fields
   assert.equal(valueToText(['a', 'b']), 'a, b');
 });
 
+test('firewall enable uses an optional false-only configuration field', () => {
+  const disabled = patchRuleValue({ ruleTag: 'block-example', action: 'block' }, 'enable', false);
+  assert.equal(disabled.enable, false);
+  const enabled = patchRuleValue(disabled, 'enable', undefined);
+  assert.equal('enable' in enabled, false);
+  assert.equal(enabled.ruleTag, 'block-example');
+});
+
 test('nested firewall patches preserve sibling and top-level fields', () => {
   const original = {
     action: 'trigger',

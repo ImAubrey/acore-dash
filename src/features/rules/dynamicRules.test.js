@@ -19,7 +19,7 @@ const validTriggerRule = () => ({
   trigger: {
     mode: 'activeConnections',
     maxConnections: 9,
-    sustainSeconds: 10,
+    sustain: '10s',
     blockSeconds: 60,
     dynamicRule: {
       sourceIP: ['172.19.0.111'],
@@ -93,8 +93,7 @@ test('extracts configured firewall trigger declarations', () => {
   assert.equal(entries[0].index, 1);
   assert.equal(entries[0].source, '172.19.0.111');
   assert.equal(entries[0].target, 'icmp-echo');
-  assert.match(entries[0].detail, /10\+ connections/);
-  assert.match(entries[0].detail, /TTL 60 seconds/);
+  assert.equal(entries[0].detail, '>9 conn · all · hold 10s · → icmp-echo · ban 60s');
 });
 
 test('validates nested dynamicRule and backend duration fields', () => {
@@ -115,6 +114,14 @@ test('validates nested dynamicRule and backend duration fields', () => {
   bothDurations.trigger.blockMinutes = 1;
   assert.match(validateFirewallTrigger(bothDurations), /cannot both be set/);
 
+  const mixedSustain = validTriggerRule();
+  mixedSustain.trigger.sustainSeconds = 2;
+  assert.match(validateFirewallTrigger(mixedSustain), /cannot be combined/);
+
+  const invalidSustain = validTriggerRule();
+  invalidSustain.trigger.sustain = '2 seconds';
+  assert.match(validateFirewallTrigger(invalidSustain), /positive duration/);
+
   const missingTarget = validTriggerRule();
   delete missingTarget.trigger.dynamicRule.outboundTag;
   assert.match(validateFirewallTrigger(missingTarget), /outboundTag or balancerTag/);
@@ -124,8 +131,28 @@ test('validates nested dynamicRule and backend duration fields', () => {
   assert.match(validateFirewallTrigger(newConnections), /windowSeconds/);
 });
 
-test('supports second and minute duration alternatives', () => {
+test('supports sustain duration strings and legacy alternatives', () => {
   assert.equal(formatTriggerDuration({ blockSeconds: 1 }), '1 second');
   assert.equal(formatTriggerDuration({ blockMinutes: 2 }), '2 minutes');
   assert.match(getFirewallTriggerDetail(validTriggerRule()), /→ icmp-echo/);
+
+  const compactRule = validTriggerRule();
+  compactRule.trigger.key = 'srcIpDstPort';
+  compactRule.trigger.maxConnections = 10;
+  compactRule.trigger.sustain = '2h';
+  compactRule.trigger.blockSeconds = undefined;
+  compactRule.trigger.blockMinutes = 30;
+  delete compactRule.trigger.dynamicRule;
+  assert.equal(
+    getFirewallTriggerDetail(compactRule),
+    '>10 conn · srcIP+dport · hold 2h · ban 30m'
+  );
+
+  compactRule.trigger.sustain = undefined;
+  compactRule.trigger.sustainMinutes = 2;
+  assert.match(getFirewallTriggerDetail(compactRule), /hold 2m/);
+
+  compactRule.trigger.sustainMinutes = undefined;
+  compactRule.trigger.sustainMinitues = 2;
+  assert.equal(getFirewallTriggerDetail(compactRule), '>10 conn · srcIP+dport · ban 30m');
 });

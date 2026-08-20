@@ -25,6 +25,7 @@ import {
   upsertDnsServer,
   validateDnsEditorConfig
 } from './dnsEditor';
+import { getEditorModePreference, setEditorModePreference } from '../../dashboardShared';
 
 const QUERY_STRATEGIES = [
   ['', 'Default (UseIP)'],
@@ -215,7 +216,7 @@ export function DnsEditorCard({
   setConfigDnsStatus,
   isFailedStatusText
 }) {
-  const [section, setSection] = useState('servers');
+  const [section, setSection] = useState(() => getEditorModePreference('dns', 'advanced', ['servers', 'hosts', 'global', 'advanced']));
   const [modal, setModal] = useState(null);
   const [modalStatus, setModalStatus] = useState('');
   const parsed = useMemo(() => parseDnsEditorText(configDnsText), [configDnsText]);
@@ -225,6 +226,18 @@ export function DnsEditorCard({
   const hosts = config?.hosts && typeof config.hosts === 'object' && !Array.isArray(config.hosts)
     ? config.hosts
     : {};
+
+  const selectSection = (nextSection) => {
+    setEditorModePreference('dns', nextSection);
+    setSection(nextSection);
+  };
+
+  useEffect(() => {
+    if (parsed.error && section !== 'advanced') {
+      setEditorModePreference('dns', 'advanced');
+      setSection('advanced');
+    }
+  }, [parsed.error, section]);
 
   const commitConfig = (nextConfig, message = '') => {
     setConfigDnsText(formatDnsEditorConfig(nextConfig));
@@ -723,7 +736,7 @@ export function DnsEditorCard({
             type="button"
             role="tab"
             aria-selected={section === key}
-            onClick={() => setSection(key)}
+            onClick={() => selectSection(key)}
             key={key}
           >
             {label}{count === null ? '' : ` (${count})`}
@@ -734,14 +747,14 @@ export function DnsEditorCard({
         <div className="dns-editor-error">
           <strong>DNS configuration needs attention</strong>
           <span>{validationError}</span>
-          <button className="ghost small" type="button" onClick={() => setSection('servers')}>Review rules</button>
+          <button className="ghost small" type="button" onClick={() => selectSection('servers')}>Review rules</button>
         </div>
       ) : null}
       {parsed.error && section !== 'advanced' ? (
         <div className="dns-editor-error">
           <strong>Visual editor paused</strong>
           <span>{parsed.error}</span>
-          <button className="ghost small" type="button" onClick={() => setSection('advanced')}>Open Advanced JSON</button>
+          <button className="ghost small" type="button" onClick={() => selectSection('advanced')}>Open Advanced JSON</button>
         </div>
       ) : section === 'global' ? renderGlobalSettings()
         : section === 'hosts' ? renderHosts()

@@ -12,6 +12,7 @@ import {
   parseSubscriptionValue,
   updateSubscriptionField
 } from './subscriptionVisualHelpers';
+import { getEditorModePreference, setEditorModePreference } from '../../dashboardShared';
 
 const ADVANCED_EXTENSIONS = [json(), lintGutter(), linter(jsonParseLinter()), EditorView.lineWrapping];
 
@@ -53,14 +54,19 @@ function SelectField({ label, field, entry, options, commit, disabled }) {
 }
 
 export function SubscriptionVisualEditor({ target, value, onChange, disabled = false }) {
-  const [mode, setMode] = useState('visual');
+  const [mode, setMode] = useState(() => getEditorModePreference('subscription', 'advanced'));
   const parsed = useMemo(() => parseSubscriptionValue(value), [value]);
   const entry = parsed.entry;
   const isDatabase = target === 'subscriptionDatabase';
   const observatory = entry?.observatory;
   const observatoryObject = observatory && typeof observatory === 'object' ? observatory : null;
   const observatoryEnabled = observatory === true || Boolean(observatoryObject && observatoryObject.enabled !== false);
-  useEffect(() => { if (parsed.error) setMode('advanced'); }, [parsed.error]);
+  useEffect(() => {
+    if (parsed.error) {
+      setEditorModePreference('subscription', 'advanced');
+      setMode('advanced');
+    }
+  }, [parsed.error]);
   const commit = useCallback((next) => {
     if (!disabled && typeof onChange === 'function') onChange(formatSubscriptionValue(next));
   }, [disabled, onChange]);
@@ -95,8 +101,8 @@ export function SubscriptionVisualEditor({ target, value, onChange, disabled = f
   );
   return <div className="outbound-visual-editor subscription-visual-editor">
     <div className="outbound-editor-mode-switch" role="group" aria-label="Subscription editor mode">
-      <button className={mode === 'visual' ? 'primary small' : 'ghost small'} type="button" aria-pressed={mode === 'visual'} disabled={Boolean(parsed.error)} onClick={() => setMode('visual')}>Visual</button>
-      <button className={mode === 'advanced' ? 'primary small' : 'ghost small'} type="button" aria-pressed={mode === 'advanced'} onClick={() => setMode('advanced')}>Advanced JSON</button>
+      <button className={mode === 'visual' ? 'primary small' : 'ghost small'} type="button" aria-pressed={mode === 'visual'} disabled={Boolean(parsed.error)} onClick={() => { setEditorModePreference('subscription', 'visual'); setMode('visual'); }}>Visual</button>
+      <button className={mode === 'advanced' ? 'primary small' : 'ghost small'} type="button" aria-pressed={mode === 'advanced'} onClick={() => { setEditorModePreference('subscription', 'advanced'); setMode('advanced'); }}>Advanced JSON</button>
     </div>
     {mode === 'visual' ? visual : <div className="outbound-advanced-editor"><CodeMirror value={typeof value === 'string' ? value : parsed.text} minHeight="320px" theme={githubLight} extensions={ADVANCED_EXTENSIONS} editable={!disabled} onChange={(next) => !disabled && onChange?.(next)} aria-label="Advanced subscription JSON" />{parsed.error ? <div className="status status-danger" role="alert">{parsed.error}</div> : null}</div>}
   </div>;

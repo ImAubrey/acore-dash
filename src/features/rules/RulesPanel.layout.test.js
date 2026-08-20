@@ -34,6 +34,22 @@ test('uses a stacked right column and a two-column combined layout', async () =>
   );
 });
 
+test('places the routing search within the Routing rules section', async () => {
+  const source = await readFile(rulesPanelPath, 'utf8');
+  const headerStart = source.indexOf('<PanelHeader');
+  const routingStart = source.indexOf('<h3>Routing rules</h3>');
+  const searchStart = source.indexOf('placeholder="Search routing rules..."');
+  const routingActionsStart = source.indexOf('className="rules-editor-actions routing-rules-actions"');
+  const hotReloadStart = source.indexOf('<HotReloadButton', routingActionsStart);
+  const addRuleStart = source.indexOf('>\n                Add rule\n', routingActionsStart);
+
+  assert.ok(searchStart > routingStart, 'routing search follows the Routing rules heading');
+  assert.ok(searchStart > headerStart, 'routing search is not part of the page header actions');
+  assert.ok(hotReloadStart > routingActionsStart, 'routing hot reload is in the Routing rules actions');
+  assert.ok(addRuleStart > routingActionsStart, 'routing add rule is in the Routing rules actions');
+  assert.match(source, /className="rules-editor-actions routing-rules-actions"/);
+});
+
 test('polls the lightweight rules runtime endpoint', async () => {
   const source = await readFile(configLoadersPath, 'utf8');
 
