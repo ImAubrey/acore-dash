@@ -22,5 +22,5 @@ export const getConnectionCategory = (connection) => {
     ? `Categories: ${categories.join(', ')}`
     : CATEGORY_STATES[status][1];
   const domain = typeof metadata.geositeDomain === 'string' ? metadata.geositeDomain : '';
-  return { status, label, title: domain ? `${description}\nDomain: ${domain}` : description };
+  return { status, label, categories, title: domain ? `${description}\nDomain: ${domain}` : description };
 };

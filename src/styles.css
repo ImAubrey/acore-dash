@@ -2402,12 +2402,18 @@ html,
 }
 
 .connection-category-cell {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.45;
   color: var(--muted);
+}
+
+.connection-category-item {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .connection-category-cell.classified {

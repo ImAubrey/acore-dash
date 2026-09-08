@@ -12,6 +12,7 @@ test('shows every matched category and the domain used for classification', () =
   assert.deepEqual(getConnectionCategory(connection), {
     status: 'classified',
     label: 'google · category-search-engines · geolocation-!cn',
+    categories: ['google', 'category-search-engines', 'geolocation-!cn'],
     title: 'Categories: google, category-search-engines, geolocation-!cn\nDomain: www.google.com'
   });
   assert.equal(matchesConnectionSearch(JSON.stringify(connection), 'GOOGLE category-search-engines'), true);

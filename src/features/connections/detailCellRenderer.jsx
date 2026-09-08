@@ -193,7 +193,11 @@ export function createDetailCellRenderer({
         const category = getConnectionCategory(detail);
         return (
           <span className={`connection-category-cell ${category.status}`} title={category.title}>
-            {highlightConnCell(category.label)}
+            {category.status === 'classified'
+              ? category.categories.map((name) => (
+                <span key={name} className="connection-category-item">{highlightConnCell(name)}</span>
+              ))
+              : highlightConnCell(category.label)}
           </span>
         );
       }
