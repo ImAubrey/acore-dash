@@ -41,7 +41,7 @@ test('places the routing search within the Routing rules section', async () => {
   const searchStart = source.indexOf('placeholder="Search routing rules..."');
   const routingActionsStart = source.indexOf('className="rules-editor-actions routing-rules-actions"');
   const hotReloadStart = source.indexOf('<HotReloadButton', routingActionsStart);
-  const addRuleStart = source.indexOf('>\n                Add rule\n', routingActionsStart);
+  const addRuleStart = source.indexOf("onClick={() => openRulesModal('rule', 'insert')}", routingActionsStart);
 
   assert.ok(searchStart > routingStart, 'routing search follows the Routing rules heading');
   assert.ok(searchStart > headerStart, 'routing search is not part of the page header actions');

@@ -2401,6 +2401,19 @@ html,
   text-overflow: ellipsis;
 }
 
+.connection-category-cell {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.connection-category-cell.classified {
+  color: var(--accent-2);
+}
+
 .protocol-cell {
   display: flex;
   align-items: center;

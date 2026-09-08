@@ -1,5 +1,6 @@
 import React from 'react';
 import { CloseIcon, InfoIcon } from './actionIcons';
+import { getConnectionCategory } from './connectionCategory';
 import {
   AutoFoldText,
   SPLICE_LABEL,
@@ -185,6 +186,14 @@ export function createDetailCellRenderer({
           <span className="protocol-cell">
             <span>{highlightConnCell(protocolDisplay)}</span>
             {hasSplice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
+          </span>
+        );
+      }
+      case 'category': {
+        const category = getConnectionCategory(detail);
+        return (
+          <span className={`connection-category-cell ${category.status}`} title={category.title}>
+            {highlightConnCell(category.label)}
           </span>
         );
       }
