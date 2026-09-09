@@ -810,7 +810,8 @@ export default function App() {
         const typeParts = typeRawParts.map((part) => part.toLowerCase());
         const hasTLS = typeParts.includes('tls');
         const hasQUIC = typeParts.includes('quic');
-        const hasHTTP = typeParts.includes('http');
+        const hasHTTP2 = typeParts.includes('http2');
+        const hasHTTP = hasHTTP2 || typeParts.includes('http1') || typeParts.includes('http');
         const networkDisplay = networkLower === 'tcp'
           ? 'TCP'
           : networkLower === 'udp'
@@ -823,6 +824,9 @@ export default function App() {
         if (hasQUIC) {
           tokens.push('QUIC');
         }
+        if (hasHTTP) {
+          tokens.push('HTTP');
+        }
         const alpnLower = rawAlpn.toLowerCase();
         const alpnDisplay = rawAlpn
           ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
@@ -832,9 +836,9 @@ export default function App() {
               : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
                 ? 'H3'
                 : rawAlpn)
-          : (hasHTTP
-            ? 'H1'
-            : '');
+          : (hasHTTP2
+            ? 'H2'
+            : (hasHTTP ? 'H1' : ''));
         if (alpnDisplay) {
           tokens.push(alpnDisplay);
         }

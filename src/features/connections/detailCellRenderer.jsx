@@ -144,7 +144,8 @@ export function createDetailCellRenderer({
         const hasSplice = typeParts.includes(SPLICE_LABEL);
         const hasTLS = typeParts.includes('tls');
         const hasQUIC = typeParts.includes('quic');
-        const hasHTTP = typeParts.includes('http');
+        const hasHTTP2 = typeParts.includes('http2');
+        const hasHTTP = hasHTTP2 || typeParts.includes('http1') || typeParts.includes('http');
         const networkLower = network.toLowerCase();
         const networkDisplay = networkLower === 'tcp'
           ? 'TCP'
@@ -158,6 +159,9 @@ export function createDetailCellRenderer({
         if (hasQUIC) {
           tokens.push('QUIC');
         }
+        if (hasHTTP) {
+          tokens.push('HTTP');
+        }
         const alpnDisplay = rawAlpn
           ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
             ? 'H1'
@@ -166,9 +170,9 @@ export function createDetailCellRenderer({
               : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
                 ? 'H3'
                 : rawAlpn)
-          : (hasHTTP
-            ? 'H1'
-            : '');
+          : (hasHTTP2
+            ? 'H2'
+            : (hasHTTP ? 'H1' : ''));
         if (alpnDisplay) {
           tokens.push(alpnDisplay);
         }
