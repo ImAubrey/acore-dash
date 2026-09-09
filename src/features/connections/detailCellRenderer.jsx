@@ -1,9 +1,9 @@
 import React from 'react';
 import { CloseIcon, InfoIcon } from './actionIcons';
 import { getConnectionCategory } from './connectionCategory';
+import { getConnectionProtocolView } from './connectionProtocol';
 import {
   AutoFoldText,
-  SPLICE_LABEL,
   formatRateOrSplice,
   formatTime,
   getDetailDestinationLabel,
@@ -124,6 +124,8 @@ export function createDetailCellRenderer({
         return highlightConnCell(detail.metadata?.user || '-');
       case 'inbound':
         return highlightConnCell(detail.metadata?.inboundTag || '-');
+      case 'inboundName':
+        return highlightConnCell(detail.metadata?.inboundName || '-');
       case 'outbound':
         return highlightConnCell(detail.metadata?.outboundTag || '-');
       case 'rule':
@@ -135,61 +137,11 @@ export function createDetailCellRenderer({
           || '-'
         );
       case 'protocol': {
-        const network = String(detail.metadata?.network || '-').trim() || '-';
-        const type = String(detail.metadata?.type || '-').trim() || '-';
-        const rawAlpn = String(detail.metadata?.alpn || '').trim();
-        const alpnLower = rawAlpn.toLowerCase();
-        const typeRawParts = type === '-' ? [] : type.split('+').map((part) => part.trim()).filter(Boolean);
-        const typeParts = typeRawParts.map((part) => part.toLowerCase());
-        const hasSplice = typeParts.includes(SPLICE_LABEL);
-        const hasTLS = typeParts.includes('tls');
-        const hasQUIC = typeParts.includes('quic');
-        const hasHTTP2 = typeParts.includes('http2');
-        const hasHTTP = hasHTTP2 || typeParts.includes('http1') || typeParts.includes('http');
-        const networkLower = network.toLowerCase();
-        const networkDisplay = networkLower === 'tcp'
-          ? 'TCP'
-          : networkLower === 'udp'
-            ? 'UDP'
-            : network;
-        const tokens = [networkDisplay];
-        if (hasTLS) {
-          tokens.push('TLS');
-        }
-        if (hasQUIC) {
-          tokens.push('QUIC');
-        }
-        if (hasHTTP) {
-          tokens.push('HTTP');
-        }
-        const alpnDisplay = rawAlpn
-          ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
-            ? 'H1'
-            : (alpnLower === 'h2' || alpnLower.startsWith('h2-'))
-              ? 'H2'
-              : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
-                ? 'H3'
-                : rawAlpn)
-          : (hasHTTP2
-            ? 'H2'
-            : (hasHTTP ? 'H1' : ''));
-        if (alpnDisplay) {
-          tokens.push(alpnDisplay);
-        }
-        const extraTypeParts = typeRawParts.filter((part, index) => {
-          const lower = typeParts[index];
-          if (!lower) return false;
-          if (lower === SPLICE_LABEL) return false;
-          if (lower === 'tls' || lower === 'quic' || lower === 'http' || lower === 'http1' || lower === 'http2') return false;
-          if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
-          return true;
-        });
-        extraTypeParts.forEach((part) => tokens.push(part));
-        const protocolDisplay = tokens.join(' · ');
+        const { label, splice } = getConnectionProtocolView(detail.metadata);
         return (
           <span className="protocol-cell">
-            <span>{highlightConnCell(protocolDisplay)}</span>
-            {hasSplice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
+            <span>{highlightConnCell(label)}</span>
+            {splice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
           </span>
         );
       }

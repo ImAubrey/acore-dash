@@ -13,6 +13,7 @@ import { useDnsQueryTool } from './features/dashboard/useDnsQueryTool';
 import { useConnectionsViewModel } from './features/connections/useConnectionsViewModel';
 import { useConnectionTelemetry } from './features/connections/useConnectionTelemetry';
 import { getConnectionSearchTerms } from './features/connections/connectionSearch';
+import { getConnectionProtocolView } from './features/connections/connectionProtocol';
 import { useRulesModalCrud } from './features/rules/useRulesModalCrud';
 import { useLogsStream } from './features/logs/useLogsStream';
 import { createDetailCellRenderer } from './features/connections/detailCellRenderer';
@@ -802,55 +803,7 @@ export default function App() {
     const map = new Map();
     activeConnections.forEach((conn) => {
       (conn.details || []).forEach((detail) => {
-        const network = String(detail.metadata?.network || '').trim();
-        const type = String(detail.metadata?.type || '').trim();
-        const rawAlpn = String(detail.metadata?.alpn || '').trim();
-        const networkLower = network.toLowerCase();
-        const typeRawParts = type.split('+').map((part) => part.trim()).filter(Boolean);
-        const typeParts = typeRawParts.map((part) => part.toLowerCase());
-        const hasTLS = typeParts.includes('tls');
-        const hasQUIC = typeParts.includes('quic');
-        const hasHTTP2 = typeParts.includes('http2');
-        const hasHTTP = hasHTTP2 || typeParts.includes('http1') || typeParts.includes('http');
-        const networkDisplay = networkLower === 'tcp'
-          ? 'TCP'
-          : networkLower === 'udp'
-            ? 'UDP'
-            : (network || 'unknown');
-        const tokens = [networkDisplay];
-        if (hasTLS) {
-          tokens.push('TLS');
-        }
-        if (hasQUIC) {
-          tokens.push('QUIC');
-        }
-        if (hasHTTP) {
-          tokens.push('HTTP');
-        }
-        const alpnLower = rawAlpn.toLowerCase();
-        const alpnDisplay = rawAlpn
-          ? (alpnLower === 'http/1.1' || alpnLower === 'http/1.0'
-            ? 'H1'
-            : (alpnLower === 'h2' || alpnLower.startsWith('h2-'))
-              ? 'H2'
-              : (alpnLower === 'h3' || alpnLower.startsWith('h3-'))
-                ? 'H3'
-                : rawAlpn)
-          : (hasHTTP2
-            ? 'H2'
-            : (hasHTTP ? 'H1' : ''));
-        if (alpnDisplay) {
-          tokens.push(alpnDisplay);
-        }
-        const extraTypeParts = typeRawParts.filter((part, index) => {
-          const lower = typeParts[index];
-          if (!lower) return false;
-          if (lower === 'tls' || lower === 'quic' || lower === 'http' || lower === 'http1' || lower === 'http2') return false;
-          if ((lower === 'tcp' || lower === 'udp') && lower === networkLower) return false;
-          return true;
-        });
-        extraTypeParts.forEach((part) => tokens.push(part));
-        const label = tokens.join(' · ') || 'unknown';
+        const { label } = getConnectionProtocolView(detail.metadata);
         map.set(label, (map.get(label) || 0) + 1);
       });
     });

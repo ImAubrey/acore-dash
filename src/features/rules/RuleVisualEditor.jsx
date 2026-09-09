@@ -48,7 +48,10 @@ const PROTOCOL_OPTIONS = [
   'turn', 'wireguard', 'zerotier', 'ntp', 'ikev2', 'dtls', 'trojan',
   'utp', 'mtproto', 'fakedns', 'alpn', 'alpn:h2', 'flow:trojan-tls-in-tls',
   'flow:shadowsocks'
-].map((value) => ({ value, label: value }));
+].map((value) => ({ value, label: value })).concat([
+  { value: 'unknown', label: 'unknown (Empty protocol at evaluation)' },
+  { value: '!unknown', label: '!unknown (Non-empty protocol)' }
+]);
 const MATCH_FIELD_DEFINITIONS = [
   { key: 'source', label: 'Source (alias)', kind: 'array' },
   { key: 'sourceIP', label: 'Source IP', kind: 'array' },

@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { SPLICE_LABEL, getConnectionProtocol, mergeConnectionProtocol } from './features/connections/connectionProtocol';
 
 const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : '');
 const API_BASE_STORAGE_KEY = 'acore_ui_api_base';
@@ -540,7 +541,6 @@ const formatBytes = (num) => {
 };
 
 const formatRate = (num) => `${formatBytes(num)}/s`;
-const SPLICE_LABEL = 'splice';
 const SPLICE_DISPLAY_LABEL = 'SPLICE';
 const isSpliceType = (value) => typeof value === 'string' && value.toLowerCase().includes('splice');
 const formatRateOrSplice = (value, isSplice, hasRateSample = false) => {
@@ -1755,6 +1755,11 @@ const buildConnectionsView = (list, mode) => {
         group.metadata.domainSource,
         detail?.metadata?.domainSource
       );
+      group.metadata.type = mergeConnectionProtocol(group.metadata.type, getConnectionProtocol(detail.metadata));
+      const inboundName = detail.metadata?.inboundName;
+      if (inboundName) {
+        group.metadata.inboundName = mergeConnectionProtocol(group.metadata.inboundName, inboundName);
+      }
 
       group.upload += detail.upload || 0;
       group.download += detail.download || 0;
@@ -2018,9 +2023,10 @@ const DETAIL_COLUMNS = [
   { key: 'acoreSrc', label: 'Acore Src', width: 'minmax(0, 1.8fr)', cellClassName: 'mono' },
   { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
+  { key: 'inboundName', label: 'Inbound Type', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
-  { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
+  { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono', hint: 'Current protocol; unknown means the protocol is empty, not that all detectors completed.' },
   { key: 'category', label: 'Category', width: 'minmax(0, 1.5fr)', hint: 'GeoSite and destination GeoIP categories (ip:); hover for domain and IP' },
   { key: 'firewallFlow', label: 'Firewall Flow', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   { key: 'ja4', label: 'JA4 DB', width: 'minmax(0, 1fr)', cellClassName: 'mono', hint: 'JA4 database label' },
