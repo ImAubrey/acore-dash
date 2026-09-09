@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { SPLICE_LABEL, getConnectionProtocol, mergeConnectionProtocol } from './features/connections/connectionProtocol';
+import { SPLICE_LABEL, ECH_HINT, getConnectionECH, getConnectionECHLabel, getConnectionProtocol, mergeConnectionECH, mergeConnectionProtocol } from './features/connections/connectionProtocol';
 
 const DEFAULT_API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? '/api' : '');
 const API_BASE_STORAGE_KEY = 'acore_ui_api_base';
@@ -1124,6 +1124,10 @@ const collectSearchTokens = (value, out, seen) => {
     value.forEach((item) => collectSearchTokens(item, out, seen));
     return;
   }
+  if (value.metadata) {
+    const echLabel = getConnectionECHLabel(value.metadata);
+    if (echLabel) out.push(echLabel);
+  }
   Object.values(value).forEach((item) => collectSearchTokens(item, out, seen));
 };
 
@@ -1756,6 +1760,10 @@ const buildConnectionsView = (list, mode) => {
         detail?.metadata?.domainSource
       );
       group.metadata.type = mergeConnectionProtocol(group.metadata.type, getConnectionProtocol(detail.metadata));
+      group.metadata.ech = mergeConnectionECH(group.metadata.ech, getConnectionECH(detail.metadata));
+      if (detail.metadata?.tlsOuterSNI) {
+        group.metadata.tlsOuterSNI = mergeLabel(group.metadata.tlsOuterSNI, detail.metadata.tlsOuterSNI);
+      }
       const inboundName = detail.metadata?.inboundName;
       if (inboundName) {
         group.metadata.inboundName = mergeConnectionProtocol(group.metadata.inboundName, inboundName);
@@ -2024,6 +2032,7 @@ const DETAIL_COLUMNS = [
   { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
   { key: 'inboundName', label: 'Inbound Type', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
+  { key: 'tlsOuterSNI', label: 'Outer SNI', width: 'minmax(0, 1.8fr)', cellClassName: 'mono', hint: ECH_HINT },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono', hint: 'Current protocol; unknown means the protocol is empty, not that all detectors completed.' },

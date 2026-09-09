@@ -49,6 +49,27 @@ test('real connection cells, regrouping and search use the same protocol identit
     const closed = { ...connection, closedAt: '2026-09-09T05:44:34Z' };
     assert.equal(renderToStaticMarkup(renderCell('protocol', closed, detail)), html);
     assert.equal(metadata.type, 'unknown');
+
+    const withECH = { id: 'ech', metadata: { ...known.metadata, ech: 'present', tlsOuterSNI: 'outer.example' } };
+    assert.ok(DETAIL_COLUMNS.some((column) => column.key === 'tlsOuterSNI'));
+    assert.equal(matchesConnectionSearch(toSearchText(withECH), 'tls ech'), true);
+    assert.equal(matchesConnectionSearch(toSearchText(known), 'ech'), false);
+    for (const closedAt of [undefined, '2026-09-09T10:00:00Z']) {
+      const echGroup = { details: [known, withECH], closedAt };
+      const protocolHtml = renderToStaticMarkup(renderCell('protocol', echGroup, withECH));
+      assert.match(protocolHtml, /TLS · ECH\?/);
+      assert.match(protocolHtml, /may be GREASE/);
+      assert.doesNotMatch(protocolHtml, /outer\.example/);
+      assert.match(renderToStaticMarkup(renderCell('tlsOuterSNI', echGroup, withECH)), /outer\.example/);
+      for (const mode of ['source', 'destination']) {
+        const [mixed] = buildConnectionsView([echGroup], mode);
+        assert.equal(mixed.metadata.type, 'tls');
+        assert.equal(mixed.metadata.ech, 'mixed');
+        assert.equal(mixed.metadata.tlsOuterSNI, 'outer.example');
+        assert.equal(matchesConnectionSearch(toSearchText(mixed), 'tls ech'), true);
+        assert.notEqual(mixed.metadata.host, 'outer.example');
+      }
+    }
   } finally {
     await server.close();
   }

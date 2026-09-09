@@ -1,7 +1,7 @@
 import React from 'react';
 import { CloseIcon, InfoIcon } from './actionIcons';
 import { getConnectionCategory } from './connectionCategory';
-import { getConnectionProtocolView } from './connectionProtocol';
+import { ECH_HINT, getConnectionECH, getConnectionProtocolView } from './connectionProtocol';
 import {
   AutoFoldText,
   formatRateOrSplice,
@@ -126,6 +126,8 @@ export function createDetailCellRenderer({
         return highlightConnCell(detail.metadata?.inboundTag || '-');
       case 'inboundName':
         return highlightConnCell(detail.metadata?.inboundName || '-');
+      case 'tlsOuterSNI':
+        return <span title={ECH_HINT}>{highlightConnCell(detail.metadata?.tlsOuterSNI || '-')}</span>;
       case 'outbound':
         return highlightConnCell(detail.metadata?.outboundTag || '-');
       case 'rule':
@@ -139,7 +141,7 @@ export function createDetailCellRenderer({
       case 'protocol': {
         const { label, splice } = getConnectionProtocolView(detail.metadata);
         return (
-          <span className="protocol-cell">
+          <span className="protocol-cell" title={getConnectionECH(detail.metadata) ? ECH_HINT : undefined}>
             <span>{highlightConnCell(label)}</span>
             {splice ? <span className="splice-badge" title="splice mode active">SPLICE</span> : null}
           </span>

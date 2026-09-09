@@ -43,12 +43,15 @@ const NETWORK_OPTIONS = [
   { value: 'tcp,udp,icmp', label: 'TCP + UDP + ICMP' }
 ];
 const PROTOCOL_OPTIONS = [
-  'http', 'http1', 'http2', 'tls', 'quic', 'dns', 'dot', 'ech', 'ssh',
+  'http', 'http1', 'http2', 'tls', 'quic', 'dns', 'dot', 'ssh',
   'socks4', 'socks5', 'rdp', 'mqtt', 'postgres', 'bittorrent', 'stun',
   'turn', 'wireguard', 'zerotier', 'ntp', 'ikev2', 'dtls', 'trojan',
   'utp', 'mtproto', 'fakedns', 'alpn', 'alpn:h2', 'flow:trojan-tls-in-tls',
   'flow:shadowsocks'
 ].map((value) => ({ value, label: value })).concat([
+  { value: 'ech:present', label: 'ech:present (ECH extension; may be GREASE)' },
+  { value: '!ech:present', label: '!ech:present (No observed valid ECH extension)' },
+  { value: 'ech', label: 'ech (Legacy alias for ech:present; unconfirmed)' },
   { value: 'unknown', label: 'unknown (Empty protocol at evaluation)' },
   { value: '!unknown', label: '!unknown (Non-empty protocol)' }
 ]);
