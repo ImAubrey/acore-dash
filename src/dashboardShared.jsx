@@ -2021,7 +2021,7 @@ const DETAIL_COLUMNS = [
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
-  { key: 'category', label: 'Category', width: 'minmax(0, 1.5fr)', hint: 'GeoSite categories; hover to see all matches and the domain' },
+  { key: 'category', label: 'Category', width: 'minmax(0, 1.5fr)', hint: 'GeoSite and destination GeoIP categories (ip:); hover for domain and IP' },
   { key: 'firewallFlow', label: 'Firewall Flow', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
   { key: 'ja4', label: 'JA4 DB', width: 'minmax(0, 1fr)', cellClassName: 'mono', hint: 'JA4 database label' },
   {

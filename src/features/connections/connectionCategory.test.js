@@ -41,3 +41,45 @@ test('ignores malformed category values and keeps ended-flow metadata usable', (
   assert.equal(getConnectionCategory(connection).label, 'steam');
   assert.equal(getConnectionCategory({ metadata: { geositeCategories: 'steam' } }).label, 'Unavailable');
 });
+
+test('unified categories show IP prefixes beside domain categories and support search', () => {
+  const connection = { metadata: {
+    categories: ['google', 'ip:cloudflare', 'ip:us'], categoryStatus: 'classified',
+    geositeCategories: ['google'], geoipCategories: ['cloudflare', 'us'],
+    geositeDomain: 'www.google.com', destinationIP: '203.0.113.1'
+  } };
+  assert.deepEqual(getConnectionCategory(connection), {
+    status: 'classified', label: 'google · ip:cloudflare · ip:us',
+    categories: ['google', 'ip:cloudflare', 'ip:us'],
+    title: 'Categories: google, ip:cloudflare, ip:us\nDomain: www.google.com\nDestination IP: 203.0.113.1'
+  });
+  assert.equal(matchesConnectionSearch(JSON.stringify(connection), 'GOOGLE IP:US'), true);
+  assert.equal(matchesConnectionSearch(JSON.stringify(connection), 'ip:cn'), false);
+});
+
+test('IP-only ended flows are classified without a domain', () => {
+  const connection = { closedAt: '2026-09-09T04:00:00Z', metadata: {
+    categories: ['ip:us'], categoryStatus: 'classified',
+    geositeCategories: [], geositeStatus: 'unknown', destinationIP: '203.0.113.1'
+  } };
+  assert.equal(getConnectionCategory(connection).label, 'ip:us');
+  assert.equal(getConnectionCategory(connection).title, 'Categories: ip:us\nDestination IP: 203.0.113.1');
+});
+
+test('unified mixed groups hide individual categories and do not reuse legacy values', () => {
+  assert.equal(getConnectionCategory({ metadata: {
+    categories: [], categoryStatus: 'mixed', geositeCategories: ['google'], geoipCategories: ['us']
+  } }).label, 'Mixed');
+  assert.deepEqual(getConnectionCategory({ metadata: {
+    categories: [], categoryStatus: 'unknown', geositeCategories: ['stale']
+  } }).categories, []);
+});
+
+test('separate IP fields can coexist with legacy GeoSite metadata without duplicate entries', () => {
+  assert.deepEqual(getConnectionCategory({ metadata: {
+    geositeCategories: ['google'], geoipCategories: ['us', null, 'us'], geositeStatus: 'unmatched'
+  } }).categories, ['google', 'ip:us']);
+  assert.deepEqual(getConnectionCategory({ metadata: {
+    categories: [null, 2, '', 'ip:us', 'ip:us']
+  } }).categories, ['ip:us']);
+});
