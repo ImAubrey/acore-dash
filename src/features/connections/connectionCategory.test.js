@@ -44,8 +44,7 @@ test('ignores malformed category values and keeps ended-flow metadata usable', (
 
 test('unified categories show IP prefixes beside domain categories and support search', () => {
   const connection = { metadata: {
-    categories: ['google', 'ip:cloudflare', 'ip:us'], categoryStatus: 'classified',
-    geositeCategories: ['google'], geoipCategories: ['cloudflare', 'us'],
+    categories: ['google', 'ip:cloudflare', 'ip:us'],
     geositeDomain: 'www.google.com', destinationIP: '203.0.113.1'
   } };
   assert.deepEqual(getConnectionCategory(connection), {
@@ -59,20 +58,23 @@ test('unified categories show IP prefixes beside domain categories and support s
 
 test('IP-only ended flows are classified without a domain', () => {
   const connection = { closedAt: '2026-09-09T04:00:00Z', metadata: {
-    categories: ['ip:us'], categoryStatus: 'classified',
-    geositeCategories: [], geositeStatus: 'unknown', destinationIP: '203.0.113.1'
+    categories: ['ip:us'], destinationIP: '203.0.113.1'
   } };
   assert.equal(getConnectionCategory(connection).label, 'ip:us');
   assert.equal(getConnectionCategory(connection).title, 'Categories: ip:us\nDestination IP: 203.0.113.1');
 });
 
-test('unified mixed groups hide individual categories and do not reuse legacy values', () => {
+test('empty unified categories hide stale legacy fields without requiring a status', () => {
   assert.equal(getConnectionCategory({ metadata: {
     categories: [], categoryStatus: 'mixed', geositeCategories: ['google'], geoipCategories: ['us']
-  } }).label, 'Mixed');
+  } }).label, '-');
   assert.deepEqual(getConnectionCategory({ metadata: {
     categories: [], categoryStatus: 'unknown', geositeCategories: ['stale']
   } }).categories, []);
+  assert.equal(getConnectionCategory({ metadata: { categories: [] } }).label, '-');
+  assert.equal(getConnectionCategory({ metadata: {
+    categories: ['ip:sg'], categoryStatus: 'mixed', geositeStatus: 'unknown', geoipStatus: 'unknown'
+  } }).label, 'ip:sg');
 });
 
 test('separate IP fields can coexist with legacy GeoSite metadata without duplicate entries', () => {

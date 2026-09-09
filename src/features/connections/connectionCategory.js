@@ -1,4 +1,5 @@
 const CATEGORY_STATES = {
+  empty: ['-', 'No categories available.'],
   unknown: ['Unknown', 'No usable domain or IP classification data is available.'],
   unmatched: ['Unmatched', 'No category matched the classified domain or IP.'],
   mixed: ['Mixed', 'Connections in this group have different classifications.'],
@@ -16,15 +17,17 @@ export const getConnectionCategory = (connection) => {
     ...categoryNames(metadata.geositeCategories),
     ...categoryNames(metadata.geoipCategories).map((category) => `ip:${category}`)
   ])];
-  const reportedStatus = metadata.categoryStatus || metadata.geositeStatus || metadata.geoipStatus;
+  const reportedStatus = metadata.geositeStatus || metadata.geoipStatus;
   const hasCategoryData = unified || Array.isArray(metadata.geositeCategories) || Array.isArray(metadata.geoipCategories);
-  const status = reportedStatus === 'mixed' || (!unified && metadata.geoipStatus === 'mixed')
-    ? 'mixed'
-    : categories.length > 0
-      ? 'classified'
-      : Object.hasOwn(CATEGORY_STATES, reportedStatus)
-        ? reportedStatus
-        : hasCategoryData ? 'unknown' : 'unavailable';
+  const status = unified
+    ? categories.length > 0 ? 'classified' : 'empty'
+    : reportedStatus === 'mixed' || metadata.geoipStatus === 'mixed'
+      ? 'mixed'
+      : categories.length > 0
+        ? 'classified'
+        : Object.hasOwn(CATEGORY_STATES, reportedStatus)
+          ? reportedStatus
+          : hasCategoryData ? 'unknown' : 'unavailable';
   const label = status === 'classified' ? categories.join(' · ') : CATEGORY_STATES[status][0];
   const description = status === 'classified'
     ? `Categories: ${categories.join(', ')}`
