@@ -126,8 +126,6 @@ export function createDetailCellRenderer({
         return highlightConnCell(detail.metadata?.inboundTag || '-');
       case 'inboundName':
         return highlightConnCell(detail.metadata?.inboundName || '-');
-      case 'tlsOuterSNI':
-        return <span title={ECH_HINT}>{highlightConnCell(detail.metadata?.tlsOuterSNI || '-')}</span>;
       case 'outbound':
         return highlightConnCell(detail.metadata?.outboundTag || '-');
       case 'rule':

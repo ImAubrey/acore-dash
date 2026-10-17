@@ -1,5 +1,5 @@
 export const SPLICE_LABEL = 'splice';
-export const ECH_HINT = 'ECH extension observed; may be GREASE. ECH acceptance is not confirmed. Outer SNI is not the inner destination.';
+export const ECH_HINT = 'ECH extension observed; may be GREASE. ECH acceptance is not confirmed.';
 
 export const getConnectionECH = (metadata) => {
   if (metadata?.ech === 'present' || metadata?.ech === 'mixed' || metadata?.ech === 'legacy') return metadata.ech;

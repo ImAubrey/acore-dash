@@ -2032,7 +2032,6 @@ const DETAIL_COLUMNS = [
   { key: 'user', label: 'User', width: 'minmax(0, 0.9fr)' },
   { key: 'inbound', label: 'Inbound', width: 'minmax(0, 0.9fr)' },
   { key: 'inboundName', label: 'Inbound Type', width: 'minmax(0, 1.2fr)', cellClassName: 'mono' },
-  { key: 'tlsOuterSNI', label: 'Outer SNI', width: 'minmax(0, 1.8fr)', cellClassName: 'mono', hint: ECH_HINT },
   { key: 'outbound', label: 'Outbound', width: 'minmax(0, 0.9fr)' },
   { key: 'rule', label: 'Rule', width: 'minmax(0, 1fr)', cellClassName: 'mono' },
   { key: 'protocol', label: 'Protocol', width: 'minmax(0, 1.2fr)', cellClassName: 'mono', hint: 'Current protocol; unknown means the protocol is empty, not that all detectors completed.' },

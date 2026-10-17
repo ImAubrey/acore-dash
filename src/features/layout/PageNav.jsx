@@ -181,7 +181,7 @@ export function PageNav({ page, pages }) {
           'aria-label': 'Topbar',
           'aria-hidden': collapsed && !menuOpen ? true : undefined
         }}
-        axis="horizontal"
+        axis={collapsed ? 'vertical' : 'horizontal'}
         ariaLabel="Page navigation"
       >
         {Object.entries(pages).map(([key, value]) => (

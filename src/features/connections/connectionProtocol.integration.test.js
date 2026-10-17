@@ -51,7 +51,7 @@ test('real connection cells, regrouping and search use the same protocol identit
     assert.equal(metadata.type, 'unknown');
 
     const withECH = { id: 'ech', metadata: { ...known.metadata, ech: 'present', tlsOuterSNI: 'outer.example' } };
-    assert.ok(DETAIL_COLUMNS.some((column) => column.key === 'tlsOuterSNI'));
+    assert.ok(DETAIL_COLUMNS.every((column) => column.key !== 'tlsOuterSNI'));
     assert.equal(matchesConnectionSearch(toSearchText(withECH), 'tls ech'), true);
     assert.equal(matchesConnectionSearch(toSearchText(known), 'ech'), false);
     for (const closedAt of [undefined, '2026-09-09T10:00:00Z']) {
@@ -60,7 +60,6 @@ test('real connection cells, regrouping and search use the same protocol identit
       assert.match(protocolHtml, /TLS · ECH\?/);
       assert.match(protocolHtml, /may be GREASE/);
       assert.doesNotMatch(protocolHtml, /outer\.example/);
-      assert.match(renderToStaticMarkup(renderCell('tlsOuterSNI', echGroup, withECH)), /outer\.example/);
       for (const mode of ['source', 'destination']) {
         const [mixed] = buildConnectionsView([echGroup], mode);
         assert.equal(mixed.metadata.type, 'tls');
