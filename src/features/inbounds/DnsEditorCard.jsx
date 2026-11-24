@@ -14,7 +14,6 @@ import {
   dnsServerSummary,
   dnsTextToList,
   formatDnsEditorConfig,
-  getDnsFallbackServers,
   normalizeDnsHostTargets,
   normalizeDnsServer,
   parseDnsEditorText,
@@ -269,7 +268,6 @@ export function DnsEditorCard({
   const validationError = parsed.error || validateDnsEditorConfig(config);
   const servers = Array.isArray(config?.servers) ? config.servers : [];
   const summaries = servers.map((server, index) => dnsServerSummary(server, index, config?.clientIp));
-  const { indexes: fallbackIndexes, usesFirstServer } = getDnsFallbackServers(config);
   const hosts = config?.hosts && typeof config.hosts === 'object' && !Array.isArray(config.hosts)
     ? config.hosts
     : {};
@@ -565,29 +563,6 @@ export function DnsEditorCard({
           })}
         </div>
       )}
-      {fallbackIndexes.length > 0 ? (
-        <section className="dns-fallback-preview" aria-label="Fallback with no domain match">
-          <div className="dns-fallback-heading">
-            <h5>When no domain rule matches</h5>
-            <span className="group-meta">
-              {usesFirstServer ? 'First eligible server' : config?.enableParallelQuery ? 'Parallel queries' : 'Query order'}
-            </span>
-          </div>
-          <ol className="dns-fallback-list">
-            {fallbackIndexes.map((index) => {
-              const summary = summaries[index];
-              return (
-                <li key={index}>
-                  <button className="dns-fallback-server" type="button" title={`Edit ${summary.title}`} onClick={() => openServerModal(index)} disabled={configDnsSaving}>
-                    <span className="mono">{summary.endpoint}</span>
-                    {summary.ecs ? <span className="dns-ecs">{summary.inheritsEcs ? 'Global ECS' : 'ECS'} <code className="mono">{summary.ecs}</code></span> : null}
-                  </button>
-                </li>
-              );
-            })}
-          </ol>
-        </section>
-      ) : null}
     </div>
   );
 

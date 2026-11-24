@@ -268,20 +268,3 @@ export const dnsServerSummary = (server, index = 0, defaultClientIp = '') => {
     inheritsEcs: !clientIp && Boolean(String(defaultClientIp ?? '').trim())
   };
 };
-
-export const getDnsFallbackServers = (config) => {
-  const servers = Array.isArray(config?.servers) ? config.servers : [];
-  const indexes = [];
-  if (config?.disableFallback !== true) {
-    for (const [index, rawServer] of servers.entries()) {
-      const server = normalizeDnsServer(rawServer);
-      if (server.skipFallback === true) continue;
-      indexes.push(index);
-      if (server.finalQuery === true) break;
-    }
-  }
-
-  // The core still uses the first eligible server if no candidate was selected.
-  const usesFirstServer = indexes.length === 0 && servers.length > 0;
-  return { indexes: usesFirstServer ? [0] : indexes, usesFirstServer };
-};

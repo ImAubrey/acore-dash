@@ -6,7 +6,6 @@ import {
   dnsServerSummary,
   dnsTextToList,
   formatDnsEditorConfig,
-  getDnsFallbackServers,
   moveDnsServer,
   normalizeDnsHostTargets,
   parseDnsEditorText,
@@ -20,45 +19,19 @@ import {
   validateDnsEditorConfig
 } from './dnsEditor.js';
 
-test('an upstream with domain rules keeps its ECS when selected through fallback', () => {
-  const config = {
-    disableFallbackIfMatch: true,
-    clientIp: '203.0.113.10',
-    servers: [
-      { address: 'https://1.0.0.1/dns-query', domains: ['geosite:geolocation-cn'], skipFallback: true },
-      { address: 'https://8.8.8.8/dns-query', domains: ['geosite:geolocation-cn'], clientIp: '198.51.100.12' },
-      'https://1.0.0.1/dns-query'
-    ]
-  };
-
-  assert.deepEqual(getDnsFallbackServers(config), { indexes: [1, 2], usesFirstServer: false });
-  const reordered = moveDnsServer(config, 2, -1);
-  assert.deepEqual(
-    getDnsFallbackServers(reordered).indexes.map((index) => dnsServerSummary(reordered.servers[index], index).endpoint),
-    ['https://1.0.0.1/dns-query', 'https://8.8.8.8/dns-query']
-  );
-  const google = dnsServerSummary(config.servers[1], 1, config.clientIp);
+test('DNS cards show per-server and inherited ECS values', () => {
+  const defaultEcs = '203.0.113.10';
+  const google = dnsServerSummary({
+    address: 'https://8.8.8.8/dns-query',
+    domains: ['geosite:geolocation-cn'],
+    clientIp: '198.51.100.12'
+  }, 0, defaultEcs);
   assert.deepEqual(google.domains, ['geosite:geolocation-cn']);
   assert.equal(google.ecs, '198.51.100.12');
   assert.equal(google.inheritsEcs, false);
-  const cloudflare = dnsServerSummary(config.servers[2], 2, config.clientIp);
-  assert.equal(cloudflare.ecs, '203.0.113.10');
+  const cloudflare = dnsServerSummary('https://1.0.0.1/dns-query', 1, defaultEcs);
+  assert.equal(cloudflare.ecs, defaultEcs);
   assert.equal(cloudflare.inheritsEcs, true);
-});
-
-test('the fallback preview stops at finalQuery and follows the first-server safeguard', () => {
-  const config = {
-    servers: [
-      { address: '1.0.0.1', skipFallback: true },
-      { address: '8.8.8.8', finalQuery: true },
-      '1.1.1.1'
-    ]
-  };
-
-  assert.deepEqual(getDnsFallbackServers(config), { indexes: [1], usesFirstServer: false });
-  assert.deepEqual(getDnsFallbackServers({ ...config, disableFallback: true }), { indexes: [0], usesFirstServer: true });
-  assert.deepEqual(getDnsFallbackServers({ servers: [config.servers[0]] }), { indexes: [0], usesFirstServer: true });
-  assert.deepEqual(getDnsFallbackServers({ servers: [] }), { indexes: [], usesFirstServer: false });
 });
 
 test('parses only DNS objects and formats them deterministically', () => {
