@@ -9,6 +9,7 @@ import { ZEBRA_ROW_BACKGROUNDS } from '../../dashboardShared';
 import { ConnectionSearchInput } from '../connections/ConnectionSearchInput';
 import { HistoryPopover } from './HistoryPopover';
 import { HistoryGroupPreview } from './HistoryGroupPreview';
+import { HistoryFacetPicker } from './HistoryFacetPicker';
 import { historyRequest, queryWindow } from './historyApi';
 import {
   hasHistoryFacet,
@@ -182,27 +183,38 @@ export function HistoryList({
     }, 10000);
     return () => clearInterval(timer);
   }, [auto, live]);
+  const pendingSearch = draft.search.trim();
+  const pendingSource = draft.sourceIp.trim();
+  const pendingDomain = draft.domain.trim();
   useEffect(() => {
-    if (!grouping || multiSelect || draft.search === options.search)
-      return undefined;
+    const changed = grouping
+      ? pendingSearch !== activeSearch
+      : pendingSource !== options.sourceIp || pendingDomain !== options.domain;
+    if (!changed) return undefined;
+    const filters = grouping
+      ? { search: pendingSearch, sourceIp: '', domain: '' }
+      : { sourceIp: pendingSource, domain: pendingDomain };
     const timer = window.setTimeout(() => {
-      setData(null);
+      setBusy(true);
       setState((current) =>
-        session(
-          {
-            ...current.options,
-            search: draft.search,
-            sourceIp: '',
-            domain: '',
-          },
-          current.bounds,
-        ),
+        session({ ...current.options, ...filters }, current.bounds),
       );
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [draft.search, options.search, grouping, multiSelect]);
+  }, [
+    grouping,
+    pendingSearch,
+    pendingSource,
+    pendingDomain,
+    activeSearch,
+    options.sourceIp,
+    options.domain,
+  ]);
 
-  function apply(next, keepWindow = false, preserveDraft = false) {
+  function apply(
+    next,
+    { keepWindow = false, preserveDraft = false, retainRows = false } = {},
+  ) {
     try {
       const s = session(next, keepWindow ? bounds : null);
       setError('');
@@ -211,18 +223,31 @@ export function HistoryList({
           ? { ...current, view: next.view, sort: next.sort, order: next.order }
           : next,
       );
-      setData(null);
+      if (!retainRows) setData(null);
+      setBusy(true);
       setState(s);
     } catch (e) {
       setError(e.message);
     }
   }
+
+  function commitSearch(search) {
+    setDraft((current) => ({ ...current, search, sourceIp: '', domain: '' }));
+    setError('');
+    if (search.trim() === activeSearch && !options.sourceIp && !options.domain)
+      return;
+    setBusy(true);
+    setState((current) =>
+      session(
+        { ...current.options, search: search.trim(), sourceIp: '', domain: '' },
+        current.bounds,
+      ),
+    );
+  }
+
   function filter(key, value) {
     if (multiSelect) {
-      setDraft((current) => ({
-        ...current,
-        search: toggleHistoryFacet(current.search, key, value),
-      }));
+      commitSearch(toggleHistoryFacet(draft.search, key, value));
       return;
     }
     apply(
@@ -234,9 +259,25 @@ export function HistoryList({
         view: 'pairs',
         [key]: value,
       },
-      true,
+      { keepWindow: true },
     );
   }
+
+  function changeWindow(range, from, to) {
+    const next = { ...draft, range, from, to };
+    if (range === 'custom' && (!from || !to)) {
+      setDraft(next);
+      return;
+    }
+    // A completed time change uses the currently displayed search as well.
+    const filters =
+      grouping && pendingSearch !== activeSearch
+        ? { sourceIp: '', domain: '' }
+        : { sourceIp: next.sourceIp.trim(), domain: next.domain.trim() };
+    setDraft(next);
+    apply({ ...next, ...filters }, { retainRows: true });
+  }
+
   function orderBy(sort) {
     apply(
       {
@@ -245,8 +286,7 @@ export function HistoryList({
         order:
           options.sort === sort && options.order === 'desc' ? 'asc' : 'desc',
       },
-      true,
-      multiSelect,
+      { keepWindow: true, preserveDraft: multiSelect, retainRows: true },
     );
   }
   function heading(label, sort) {
@@ -288,8 +328,7 @@ export function HistoryList({
         sort: view === 'domains' || view === 'sources' ? 'connections' : 'time',
         order: 'desc',
       },
-      true,
-      multiSelect,
+      { keepWindow: true, preserveDraft: multiSelect },
     );
   }
 
@@ -342,13 +381,19 @@ export function HistoryList({
             onOpen={() => {
               close();
               if (!multiSelect) {
-                apply({ ...options, view: 'pairs', [field]: label }, true);
+                apply(
+                  { ...options, view: 'pairs', [field]: label },
+                  { keepWindow: true },
+                );
                 return;
               }
               const search = hasHistoryFacet(draft.search, field, label)
                 ? draft.search
                 : toggleHistoryFacet(draft.search, field, label);
-              apply({ ...options, search, view: 'pairs' }, true);
+              apply(
+                { ...options, search, view: 'pairs' },
+                { keepWindow: true },
+              );
             }}
           />
         )}
@@ -450,7 +495,9 @@ export function HistoryList({
           <button
             className="ghost small"
             type="button"
-            onClick={() => apply(options, false, multiSelect)}
+            onClick={() =>
+              apply(options, { preserveDraft: multiSelect, retainRows: true })
+            }
           >
             {t('刷新列表', 'Refresh list')}
           </button>
@@ -460,23 +507,19 @@ export function HistoryList({
         className="history-form history-filters"
         onSubmit={(e) => {
           e.preventDefault();
-          const changed = grouping && draft.search !== options.search;
-          apply({
-            ...draft,
-            search:
-              multiSelect && draft.search.trim()
-                ? draft.search.trim() + ' '
-                : draft.search,
-            sourceIp: changed ? '' : draft.sourceIp.trim(),
-            domain: changed ? '' : draft.domain.trim(),
-          });
+          if (grouping) commitSearch(draft.search);
+          else
+            apply(
+              { ...options, sourceIp: pendingSource, domain: pendingDomain },
+              { keepWindow: true, retainRows: true },
+            );
         }}
       >
         {grouping ? (
           <div className="history-keywords">
             <ConnectionSearchInput
               compact
-              submitOnEnter={multiSelect}
+              commitValue={commitSearch}
               value={draft.search}
               setValue={(search) => setDraft({ ...draft, search })}
               ariaLabel={t('搜索访问记录', 'Search access history')}
@@ -520,7 +563,7 @@ export function HistoryList({
           {t('时间范围', 'Time range')}
           <select
             value={draft.range}
-            onChange={(e) => setDraft({ ...draft, range: e.target.value })}
+            onChange={(e) => changeWindow(e.target.value, draft.from, draft.to)}
           >
             <option value="1">{t('最近 1 小时', 'Last hour')}</option>
             <option value="24">{t('最近 24 小时', 'Last 24 hours')}</option>
@@ -539,29 +582,59 @@ export function HistoryList({
                 step="0.001"
                 required
                 value={draft[k]}
-                onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                onChange={(e) =>
+                  changeWindow(
+                    draft.range,
+                    k === 'from' ? e.target.value : draft.from,
+                    k === 'to' ? e.target.value : draft.to,
+                  )
+                }
               />
             </label>
           ))}
         <div className="history-filter-actions">
-          <button className="primary small" type="submit">
-            {multiSelect ? t('应用筛选', 'Apply filters') : t('筛选', 'Filter')}
-          </button>
+          <button
+            type="submit"
+            hidden
+            aria-label={t('立即筛选', 'Filter now')}
+          />
+          {multiSelect && (
+            <HistoryPopover
+              className="ghost small"
+              label={t('添加筛选', 'Add filter')}
+            >
+              {() => (
+                <HistoryFacetPicker
+                  request={{ url, key: accessKey, cluster, token }}
+                  bounds={bounds}
+                  search={draft.search}
+                  onSelect={filter}
+                  t={t}
+                />
+              )}
+            </HistoryPopover>
+          )}
           {(options.sourceIp ||
             options.domain ||
+            draft.sourceIp ||
+            draft.domain ||
             draft.search ||
             options.search ||
+            draft.range !== '24' ||
             options.range !== '24') && (
             <button
               type="button"
               className="ghost small"
               onClick={() =>
-                apply({
-                  ...defaults,
-                  view: options.view,
-                  sort: options.sort,
-                  order: options.order,
-                })
+                apply(
+                  {
+                    ...defaults,
+                    view: options.view,
+                    sort: options.sort,
+                    order: options.order,
+                  },
+                  { retainRows: true },
+                )
               }
             >
               {t('清除筛选', 'Clear filters')}

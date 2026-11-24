@@ -10,14 +10,14 @@ export function ConnectionSearchInput({
   placeholder,
   ariaLabel = 'Search all connection fields',
   compact = false,
-  submitOnEnter = false
+  commitValue = setValue
 }) {
   const inputRef = useRef(null);
   const { tokens, draft } = splitConnectionSearchValue(value);
   const hasValue = tokens.length > 0 || Boolean(draft);
 
   const updateValue = (nextTokens, nextDraft = '') => {
-    setValue(serializeConnectionSearchValue(nextTokens, nextDraft));
+    commitValue(serializeConnectionSearchValue(nextTokens, nextDraft));
   };
 
   const handleInputChange = (event) => {
@@ -29,7 +29,7 @@ export function ConnectionSearchInput({
   };
 
   const handleInputKeyDown = (event) => {
-    if (!submitOnEnter && event.key === 'Enter' && draft.trim()) {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing && draft.trim()) {
       event.preventDefault();
       updateValue([...tokens, draft], '');
       return;
@@ -46,7 +46,7 @@ export function ConnectionSearchInput({
   };
 
   const clearSearch = () => {
-    setValue('');
+    commitValue('');
     inputRef.current?.focus();
   };
 

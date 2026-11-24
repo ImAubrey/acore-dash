@@ -66,11 +66,11 @@ export function HistoryGroupPreview({
           {t('没有匹配的明细', 'No matching details')}
         </span>
       )}
-      <button type="button" className="ghost small" onClick={onOpen}>
-        {multiSelect
-          ? t('应用并查看明细', 'Apply and view details')
-          : t('查看全部明细', 'View all details')}
-      </button>
+      {onOpen && (
+        <button type="button" className="ghost small" onClick={onOpen}>
+          {t('查看全部明细', 'View all details')}
+        </button>
+      )}
     </>
   );
 }
