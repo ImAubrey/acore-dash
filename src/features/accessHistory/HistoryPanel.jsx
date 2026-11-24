@@ -294,6 +294,7 @@ export function HistoryPanel({
           token={token}
           initial={initial}
           browse={!!status.browse}
+          grouping={!!status.grouping}
           zh={zh}
           explain={explain}
         />

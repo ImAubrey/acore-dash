@@ -8,7 +8,8 @@ export function ConnectionSearchInput({
   value,
   setValue,
   placeholder,
-  ariaLabel = 'Search all connection fields'
+  ariaLabel = 'Search all connection fields',
+  compact = false
 }) {
   const inputRef = useRef(null);
   const { tokens, draft } = splitConnectionSearchValue(value);
@@ -48,37 +49,43 @@ export function ConnectionSearchInput({
     inputRef.current?.focus();
   };
 
+  const fields = (
+    <>
+      {tokens.map((token, index) => (
+      <button
+        type="button"
+        className="connection-search-token"
+        key={`${token}:${index}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          removeToken(index);
+        }}
+        aria-label={`Remove search condition ${token}`}
+        title={`Remove condition: ${token}`}
+      >
+        <span>{token}</span>
+        <span className="connection-search-token-remove" aria-hidden="true">×</span>
+      </button>
+    ))}
+    <input
+      ref={inputRef}
+      type="text"
+      value={draft}
+      onChange={handleInputChange}
+      onKeyDown={handleInputKeyDown}
+      placeholder={tokens.length > 0 ? 'Add condition…' : placeholder}
+      aria-label={ariaLabel}
+      autoComplete="off"
+    />
+    </>
+  );
+
   return (
     <div
-      className="connections-search connection-token-search"
+      className={`connections-search connection-token-search${compact ? ' is-compact' : ''}`}
       onClick={() => inputRef.current?.focus()}
     >
-      {tokens.map((token, index) => (
-        <button
-          type="button"
-          className="connection-search-token"
-          key={`${token}:${index}`}
-          onClick={(event) => {
-            event.stopPropagation();
-            removeToken(index);
-          }}
-          aria-label={`Remove search condition ${token}`}
-          title={`Remove condition: ${token}`}
-        >
-          <span>{token}</span>
-          <span className="connection-search-token-remove" aria-hidden="true">×</span>
-        </button>
-      ))}
-      <input
-        ref={inputRef}
-        type="text"
-        value={draft}
-        onChange={handleInputChange}
-        onKeyDown={handleInputKeyDown}
-        placeholder={tokens.length > 0 ? 'Add condition…' : placeholder}
-        aria-label={ariaLabel}
-        autoComplete="off"
-      />
+      {compact ? <div className="connection-search-track">{fields}</div> : fields}
       {hasValue ? (
         <button
           type="button"

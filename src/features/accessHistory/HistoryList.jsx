@@ -6,11 +6,15 @@ import {
 } from '../common/panelPrimitives';
 import { ScrollArea } from '../common/ScrollArea';
 import { ZEBRA_ROW_BACKGROUNDS } from '../../dashboardShared';
+import { ConnectionSearchInput } from '../connections/ConnectionSearchInput';
+import { HistoryPopover } from './HistoryPopover';
+import { HistoryGroupPreview } from './HistoryGroupPreview';
 import { historyRequest, queryWindow } from './historyApi';
 
 const defaults = {
   sourceIp: '',
   domain: '',
+  search: '',
   range: '24',
   from: '',
   to: '',
@@ -59,6 +63,7 @@ export function HistoryList({
   token,
   initial,
   browse,
+  grouping,
   zh,
   explain,
 }) {
@@ -67,7 +72,10 @@ export function HistoryList({
   const [state, setState] = useState(() =>
     session({
       ...defaults,
-      ...(initial?.direction && { [initial.direction]: initial.value }),
+      ...(initial?.direction && {
+        [initial.direction]: initial.value,
+        search: initial.value + ' ',
+      }),
     }),
   );
   const [draft, setDraft] = useState(state.options);
@@ -77,7 +85,21 @@ export function HistoryList({
   const [auto, setAuto] = useState(true);
   const loading = useRef(false);
   const { options, bounds, cursors, page } = state;
-  const grouped = options.view === 'pairs' || !browse;
+  const byDomain = options.view === 'domains';
+  const bySource = options.view === 'sources';
+  const grouped = options.view !== 'events' || !browse;
+  const modes = [
+    ['events', t('访问明细', 'Access log')],
+    ['pairs', t('按连接组合', 'By source and domain')],
+    ['domains', t('按域名', 'By domain')],
+    ['sources', t('按来源 IP', 'By source IP')],
+  ];
+  const activeSearch = options.search.trim();
+  const additionalSearch = Boolean(
+    activeSearch &&
+      activeSearch !== options.sourceIp &&
+      activeSearch !== options.domain,
+  );
   const legacyEmpty = !browse && !options.domain && !options.sourceIp;
   useEffect(() => {
     if (legacyEmpty) {
@@ -89,6 +111,7 @@ export function HistoryList({
     const body = { ...bounds, limit: 50 };
     if (options.domain) body.domain = options.domain;
     if (options.sourceIp) body.sourceIp = options.sourceIp;
+    if (grouping && additionalSearch) body.search = activeSearch;
     if (browse)
       Object.assign(body, {
         view: options.view,
@@ -122,7 +145,18 @@ export function HistoryList({
       ctrl.abort();
       loading.current = false;
     };
-  }, [state, url, accessKey, cluster, token, browse, legacyEmpty]);
+  }, [
+    state,
+    url,
+    accessKey,
+    cluster,
+    token,
+    browse,
+    grouping,
+    legacyEmpty,
+    additionalSearch,
+    activeSearch,
+  ]);
   const live =
     browse &&
     page === 0 &&
@@ -137,6 +171,25 @@ export function HistoryList({
     }, 10000);
     return () => clearInterval(timer);
   }, [auto, live]);
+  useEffect(() => {
+    if (!grouping || draft.search === options.search) return undefined;
+    const timer = window.setTimeout(() => {
+      setData(null);
+      setState((current) =>
+        session(
+          {
+            ...current.options,
+            search: draft.search,
+            sourceIp: '',
+            domain: '',
+          },
+          current.bounds,
+        ),
+      );
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [draft.search, options.search, grouping]);
+
   function apply(next, keepWindow = false) {
     try {
       const s = session(next, keepWindow ? bounds : null);
@@ -149,7 +202,17 @@ export function HistoryList({
     }
   }
   function filter(key, value) {
-    apply({ ...options, sourceIp: '', domain: '', [key]: value }, true);
+    apply(
+      {
+        ...options,
+        sourceIp: '',
+        domain: '',
+        search: value + ' ',
+        view: 'pairs',
+        [key]: value,
+      },
+      true,
+    );
   }
   function orderBy(sort) {
     apply(
@@ -193,6 +256,59 @@ export function HistoryList({
       </th>
     );
   }
+  function setMode(view) {
+    apply(
+      {
+        ...options,
+        view,
+        sort: view === 'domains' || view === 'sources' ? 'connections' : 'time',
+        order: 'desc',
+      },
+      true,
+    );
+  }
+
+  function preview(row) {
+    const label = byDomain ? row.domain : row.sourceIp;
+    if (!label) return t('域名未知', 'Unknown domain');
+    const field = byDomain ? 'domain' : 'sourceIp';
+    const query = {
+      ...bounds,
+      view: 'pairs',
+      sort: 'connections',
+      order: 'desc',
+      limit: 6,
+      ...(options.sourceIp && { sourceIp: options.sourceIp }),
+      ...(options.domain && { domain: options.domain }),
+      ...(additionalSearch && { search: activeSearch }),
+      [field]: label,
+    };
+    return (
+      <HistoryPopover
+        className="history-link"
+        label={label}
+        title={
+          byDomain
+            ? t('展开来源 IP', 'Show source IPs')
+            : t('展开访问的域名', 'Show domains')
+        }
+      >
+        {(close) => (
+          <HistoryGroupPreview
+            request={{ url, key: accessKey, cluster, token }}
+            query={query}
+            byDomain={byDomain}
+            t={t}
+            onOpen={() => {
+              close();
+              apply({ ...options, view: 'pairs', [field]: label }, true);
+            }}
+          />
+        )}
+      </HistoryPopover>
+    );
+  }
+
   function turn(to, cursor) {
     setData(null);
     setState({
@@ -204,32 +320,56 @@ export function HistoryList({
   return (
     <>
       <div className="history-list-bar">
-        {browse && (
-          <div
-            className="view-toggle history-modes"
-            role="group"
-            aria-label={t('视图', 'View')}
+        {grouping ? (
+          <HistoryPopover
+            className="ghost small history-view-trigger"
+            label={
+              <>
+                {modes.find(([view]) => view === options.view)?.[1]}{' '}
+                <span aria-hidden="true">▾</span>
+              </>
+            }
+            title={t('聚合方式', 'Group by')}
           >
-            {[
-              ['events', t('访问明细', 'Access log')],
-              ['pairs', t('合并统计', 'Grouped history')],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`view-pill ${options.view === id ? 'active' : ''}`}
-                aria-pressed={options.view === id}
-                onClick={() =>
-                  apply(
-                    { ...options, view: id, sort: 'time', order: 'desc' },
-                    true,
-                  )
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+            {(close) => (
+              <div className="history-view-options">
+                {modes.map(([view, label]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    className={`view-pill ${options.view === view ? 'active' : ''}`}
+                    aria-pressed={options.view === view}
+                    onClick={() => {
+                      close();
+                      setMode(view);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </HistoryPopover>
+        ) : (
+          browse && (
+            <div
+              className="view-toggle history-modes"
+              role="group"
+              aria-label={t('视图', 'View')}
+            >
+              {modes.slice(0, 2).map(([view, label]) => (
+                <button
+                  key={view}
+                  type="button"
+                  className={`view-pill ${options.view === view ? 'active' : ''}`}
+                  aria-pressed={options.view === view}
+                  onClick={() => setMode(view)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )
         )}
         <div className="history-live">
           {live && (
@@ -258,37 +398,57 @@ export function HistoryList({
         className="history-form history-filters"
         onSubmit={(e) => {
           e.preventDefault();
+          const changed = grouping && draft.search !== options.search;
           apply({
             ...draft,
-            sourceIp: draft.sourceIp.trim(),
-            domain: draft.domain.trim(),
+            sourceIp: changed ? '' : draft.sourceIp.trim(),
+            domain: changed ? '' : draft.domain.trim(),
           });
         }}
       >
-        <div className="history-filter-input">
-          <label htmlFor={fieldId + '-ip'}>{t('来源 IP', 'Source IP')}</label>
-          <ClearableTextInput
-            className="connections-search"
-            id={fieldId + '-ip'}
-            value={draft.sourceIp}
-            placeholder="192.0.2.8"
-            ariaLabel={t('来源 IP', 'Source IP')}
-            clearLabel={t('清除来源 IP', 'Clear source IP')}
-            setValue={(sourceIp) => setDraft({ ...draft, sourceIp })}
-          />
-        </div>
-        <div className="history-filter-input">
-          <label htmlFor={fieldId + '-domain'}>{t('域名', 'Domain')}</label>
-          <ClearableTextInput
-            className="connections-search"
-            id={fieldId + '-domain'}
-            value={draft.domain}
-            placeholder="example.com"
-            ariaLabel={t('域名', 'Domain')}
-            clearLabel={t('清除域名', 'Clear domain')}
-            setValue={(domain) => setDraft({ ...draft, domain })}
-          />
-        </div>
+        {grouping ? (
+          <div className="history-keywords">
+            <ConnectionSearchInput
+              compact
+              value={draft.search}
+              setValue={(search) => setDraft({ ...draft, search })}
+              ariaLabel={t('搜索访问记录', 'Search access history')}
+              placeholder={t(
+                '搜索域名、IP、出口、数据集，空格添加条件',
+                'Search domain, IP, outbound, dataset; Space adds a condition',
+              )}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="history-filter-input">
+              <label htmlFor={fieldId + '-ip'}>
+                {t('来源 IP', 'Source IP')}
+              </label>
+              <ClearableTextInput
+                className="connections-search"
+                id={fieldId + '-ip'}
+                value={draft.sourceIp}
+                placeholder="192.0.2.8"
+                ariaLabel={t('来源 IP', 'Source IP')}
+                clearLabel={t('清除来源 IP', 'Clear source IP')}
+                setValue={(sourceIp) => setDraft({ ...draft, sourceIp })}
+              />
+            </div>
+            <div className="history-filter-input">
+              <label htmlFor={fieldId + '-domain'}>{t('域名', 'Domain')}</label>
+              <ClearableTextInput
+                className="connections-search"
+                id={fieldId + '-domain'}
+                value={draft.domain}
+                placeholder="example.com"
+                ariaLabel={t('域名', 'Domain')}
+                clearLabel={t('清除域名', 'Clear domain')}
+                setValue={(domain) => setDraft({ ...draft, domain })}
+              />
+            </div>
+          </>
+        )}
         <label>
           {t('时间范围', 'Time range')}
           <select
@@ -320,11 +480,21 @@ export function HistoryList({
           <button className="primary small" type="submit">
             {t('筛选', 'Filter')}
           </button>
-          {(options.sourceIp || options.domain || options.range !== '24') && (
+          {(options.sourceIp ||
+            options.domain ||
+            options.search ||
+            options.range !== '24') && (
             <button
               type="button"
               className="ghost small"
-              onClick={() => apply({ ...defaults, view: options.view })}
+              onClick={() =>
+                apply({
+                  ...defaults,
+                  view: options.view,
+                  sort: options.sort,
+                  order: options.order,
+                })
+              }
             >
               {t('清除筛选', 'Clear filters')}
             </button>
@@ -378,14 +548,18 @@ export function HistoryList({
                       role="columnheader"
                       className="history-static-heading"
                     >
-                      {t('域名', 'Domain')}
+                      {bySource
+                        ? t('域名数', 'Domains')
+                        : t('域名 / 目标', 'Domain / destination')}
                     </th>
                     <th
                       scope="col"
                       role="columnheader"
                       className="history-static-heading"
                     >
-                      {t('来源 IP', 'Source IP')}
+                      {byDomain
+                        ? t('来源 IP 数', 'Source IPs')
+                        : t('来源 IP', 'Source IP')}
                     </th>
                     <th
                       scope="col"
@@ -446,7 +620,11 @@ export function HistoryList({
                         <Stamp ms={row.lastMs} />
                       </td>
                       <td className="history-domain" role="cell">
-                        {row.domain ? (
+                        {bySource ? (
+                          <span className="mono">{row.peerCount}</span>
+                        ) : byDomain ? (
+                          preview(row)
+                        ) : row.domain ? (
                           <button
                             type="button"
                             className="history-link"
@@ -459,19 +637,42 @@ export function HistoryList({
                             {t('域名未知', 'Unknown domain')}
                           </span>
                         )}
+                        {row.destinations?.length > 0 && (
+                          <div className="history-destination hint mono">
+                            {row.destinations.map(({ ip, port }) => (
+                              <span key={JSON.stringify([ip, port])}>
+                                {ip
+                                  ? (ip.includes(':') && port
+                                      ? '[' + ip + ']'
+                                      : ip) + (port ? ':' + port : '')
+                                  : t('端口', 'Port') + ' ' + port}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td
                         className="history-ip"
                         role="cell"
-                        data-label={t('来源 IP', 'Source IP')}
+                        data-label={
+                          byDomain
+                            ? t('来源 IP 数', 'Source IPs')
+                            : t('来源 IP', 'Source IP')
+                        }
                       >
-                        <button
-                          type="button"
-                          className="history-link mono"
-                          onClick={() => filter('sourceIp', row.sourceIp)}
-                        >
-                          {row.sourceIp}
-                        </button>
+                        {byDomain ? (
+                          <span className="mono">{row.peerCount}</span>
+                        ) : bySource ? (
+                          preview(row)
+                        ) : (
+                          <button
+                            type="button"
+                            className="history-link mono"
+                            onClick={() => filter('sourceIp', row.sourceIp)}
+                          >
+                            {row.sourceIp}
+                          </button>
+                        )}
                       </td>
                       <td
                         className={
