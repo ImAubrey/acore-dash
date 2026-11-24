@@ -472,10 +472,6 @@ const PAGES = {
     label: 'Inbounds',
     title: 'Inbound configuration'
   },
-  dns: {
-    label: 'DNS',
-    title: 'DNS resolution policy'
-  },
   logs: {
     label: 'Logs',
     title: 'Streaming logs'
@@ -521,7 +517,6 @@ const getPageFromHash = () => {
     || raw === 'nodes'
     || raw === 'subscriptions'
     || raw === 'inbounds'
-    || raw === 'dns'
     || raw === 'rules'
     || raw === 'firewall'
     || raw === 'logs'

@@ -10,7 +10,6 @@ const NAV_ACCENTS = {
   firewall: '#b85c3a',
   subscriptions: '#3b73d4',
   inbounds: '#3ba475',
-  dns: '#3b73d4',
   logs: '#5e85d4',
   settings: '#855fbe'
 };
@@ -99,15 +98,6 @@ const NavIcon = ({ pageKey }) => {
         <path d="M8 9h8" />
         <path d="M8 13h8" />
         <path d="M8 17h5" />
-      </svg>
-    );
-  }
-  if (pageKey === 'dns') {
-    return (
-      <svg {...common}>
-        <circle cx="12" cy="12" r="9" />
-        <ellipse cx="12" cy="12" rx="4" ry="9" />
-        <path d="M3 12h18" />
       </svg>
     );
   }

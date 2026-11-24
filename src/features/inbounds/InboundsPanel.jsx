@@ -12,6 +12,7 @@ import {
   TrashIcon,
   UploadIcon
 } from '../connections/actionIcons';
+import { DnsEditorCard } from './DnsEditorCard';
 import { CONNECTION_ACTIVITY_SCALE, getRateActivity } from '../../dashboardShared';
 
 export function InboundsPanel(props) {
@@ -29,7 +30,8 @@ export function InboundsPanel(props) {
     inboundStatsByTag,
     formatRate,
     openInfoModal,
-    openDeleteConfirm
+    openDeleteConfirm,
+    dnsEditorProps
   } = props;
 
   if (page !== 'inbounds') return null;
@@ -40,7 +42,6 @@ export function InboundsPanel(props) {
         title="Inbounds"
         actions={(
           <>
-          <a className="ghost small" href="#/dns">DNS settings</a>
           <button
             className="ghost small"
             onClick={() => {
@@ -171,6 +172,7 @@ export function InboundsPanel(props) {
             </div>
           )}
         </div>
+        <DnsEditorCard {...dnsEditorProps} openInfoModal={openInfoModal} />
       </div>
     </section>
   );

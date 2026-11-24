@@ -8,7 +8,7 @@ import { githubLight } from '@uiw/codemirror-theme-github';
 import { EmptyState, HotReloadButton, StatusText } from '../common/panelPrimitives';
 import { ScrollArea } from '../common/ScrollArea';
 import { useSortableRuleList } from '../common/useSortableRuleList';
-import { EditIcon, TrashIcon } from '../connections/actionIcons';
+import { EditIcon, InfoIcon, TrashIcon } from '../connections/actionIcons';
 import {
   dnsListToText,
   dnsServerSummary,
@@ -201,6 +201,22 @@ function QueryStrategyField({ value, onChange }) {
   );
 }
 
+function DnsEntryActions({ label, disabled, onInfo, onDelete, onEdit }) {
+  return (
+    <div className="outbound-actions">
+      <button className="action-icon-button action-icon-info" type="button" title="Info" aria-label={`Info for ${label}`} onClick={onInfo}>
+        <InfoIcon />
+      </button>
+      <button className="action-icon-button action-icon-danger" type="button" title="Delete" aria-label={`Delete ${label}`} disabled={disabled} onClick={onDelete}>
+        <TrashIcon />
+      </button>
+      <button className="action-icon-button action-icon-edit" type="button" title="Edit" aria-label={`Edit ${label}`} disabled={disabled} onClick={onEdit}>
+        <EditIcon />
+      </button>
+    </div>
+  );
+}
+
 function DnsServerDetails({ summary }) {
   const details = [
     ['Domain rules', summary.domains],
@@ -229,6 +245,7 @@ export function DnsEditorCard({
   apiBase,
   dnsConfigReady,
   hotReloadBusy,
+  openInfoModal,
   triggerHotReloadFromDns,
   loadDnsConfig,
   resetDnsEditor,
@@ -485,15 +502,69 @@ export function DnsEditorCard({
 
   const renderServers = () => (
     <div className="dns-editor-section-body">
-      <div className="dns-editor-section-title">
-        <div>
-          <h4>Upstream servers</h4>
-          <p>Matching domain rules take priority. A server can also be available for fallback.</p>
+      {servers.length === 0 ? (
+        <EmptyState small message="The core uses the system resolver when no upstreams are configured." />
+      ) : (
+        <div className="outbound-grid inbound-list-grid">
+          {servers.map((rawServer, index) => {
+            const server = normalizeDnsServer(rawServer);
+            const summary = summaries[index];
+            const canFallback = config?.disableFallback !== true && server.skipFallback !== true;
+            const selection = summary.domains.length
+              ? (canFallback ? 'Match + fallback' : 'Match only')
+              : (canFallback ? 'Fallback only' : 'No domain rule or fallback');
+            const dropPosition = getServerDropPosition(index);
+            const cardClassName = [
+              'outbound-card',
+              'dns-upstream-card',
+              'rule-item-sortable',
+              draggedServerIndex === index ? 'rule-item-dragging' : '',
+              dropPosition === 'before' ? 'rule-item-drop-before' : '',
+              dropPosition === 'after' ? 'rule-item-drop-after' : ''
+            ].filter(Boolean).join(' ');
+            return (
+              <div
+                className={cardClassName}
+                key={`dns-server-${index}`}
+                onDragOver={(event) => handleServerDragOver(event, index)}
+                onDragLeave={() => handleServerDragLeave(index)}
+                onDrop={(event) => handleServerDrop(event, index)}
+              >
+                <div className="outbound-info">
+                  <div className="outbound-title">
+                    <span
+                      className="rule-index rule-drag-handle"
+                      draggable={!configDnsSaving}
+                      title="Drag to reorder"
+                      aria-label={`Drag DNS server rule ${index + 1}`}
+                      onDragStart={(event) => handleServerDragStart(event, index)}
+                      onDragEnd={clearServerDragState}
+                    >
+                      {index + 1}
+                    </span>
+                    <h3>{summary.title}</h3>
+                  </div>
+                  <p className="group-meta mono dns-entry-value">{summary.endpoint}</p>
+                  <DnsServerDetails summary={summary} />
+                </div>
+                <div className="outbound-side">
+                  <div className="outbound-meta">
+                    <span className="meta-pill">{selection}</span>
+                    {server.finalQuery === true ? <span className="meta-pill">Final query</span> : null}
+                  </div>
+                  <DnsEntryActions
+                    label={`DNS server rule ${index + 1}`}
+                    disabled={configDnsSaving}
+                    onInfo={() => openInfoModal(`DNS server · ${summary.title}`, rawServer)}
+                    onDelete={() => mutateConfig((current) => removeDnsServer(current, index))}
+                    onEdit={() => openServerModal(index)}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <button className="primary small" type="button" onClick={() => openServerModal()} disabled={configDnsSaving || !config}>
-          Add server
-        </button>
-      </div>
+      )}
       {fallbackIndexes.length > 0 ? (
         <section className="dns-fallback-preview" aria-label="Fallback with no domain match">
           <div className="dns-fallback-heading">
@@ -515,86 +586,8 @@ export function DnsEditorCard({
               );
             })}
           </ol>
-          {usesFirstServer ? (
-            <p className="group-meta">The core uses the first eligible server when the candidate list is empty.</p>
-          ) : null}
         </section>
       ) : null}
-      {servers.length === 0 ? (
-        <EmptyState small message="The core uses the system resolver when no upstreams are configured." />
-      ) : (
-        <div className="dns-server-list">
-          {servers.map((rawServer, index) => {
-            const server = normalizeDnsServer(rawServer);
-            const summary = summaries[index];
-            const canFallback = config?.disableFallback !== true && server.skipFallback !== true;
-            const selection = summary.domains.length
-              ? (canFallback ? 'Match + fallback' : 'Match only')
-              : (canFallback ? 'Fallback only' : 'No domain rule or fallback');
-            const dropPosition = getServerDropPosition(index);
-            const cardClassName = [
-              'dns-server-card',
-              'rule-item-sortable',
-              draggedServerIndex === index ? 'rule-item-dragging' : '',
-              dropPosition === 'before' ? 'rule-item-drop-before' : '',
-              dropPosition === 'after' ? 'rule-item-drop-after' : ''
-            ].filter(Boolean).join(' ');
-            return (
-              <div
-                className={cardClassName}
-                key={`dns-server-${index}`}
-                onDragOver={(event) => handleServerDragOver(event, index)}
-                onDragLeave={() => handleServerDragLeave(index)}
-                onDrop={(event) => handleServerDrop(event, index)}
-              >
-                <div className="dns-server-summary">
-                  <span
-                    className="rule-index rule-drag-handle"
-                    draggable={!configDnsSaving}
-                    title="Drag to reorder"
-                    aria-label={`Drag DNS server rule ${index + 1}`}
-                    onDragStart={(event) => handleServerDragStart(event, index)}
-                    onDragEnd={clearServerDragState}
-                  >
-                    {index + 1}
-                  </span>
-                  <span className="dns-server-summary-main">
-                    <strong>{summary.title}</strong>
-                    <small className="mono">{summary.endpoint}</small>
-                  </span>
-                  <span className="dns-server-summary-pills">
-                    <span className={`dns-selection${canFallback ? ' dns-selection-fallback' : ''}`}>{selection}</span>
-                    {server.finalQuery === true ? <span className="dns-selection">Final query</span> : null}
-                  </span>
-                  <div className="dns-server-actions">
-                    <button
-                      className="action-icon-button action-icon-edit"
-                      type="button"
-                      title="Edit"
-                      aria-label={`Edit DNS server rule ${index + 1}`}
-                      onClick={() => openServerModal(index)}
-                      disabled={configDnsSaving}
-                    >
-                      <EditIcon />
-                    </button>
-                    <button
-                      className="action-icon-button action-icon-danger"
-                      type="button"
-                      title="Delete"
-                      aria-label={`Delete DNS server rule ${index + 1}`}
-                      disabled={configDnsSaving}
-                      onClick={() => mutateConfig((current) => removeDnsServer(current, index))}
-                    >
-                      <TrashIcon />
-                    </button>
-                  </div>
-                </div>
-                <DnsServerDetails summary={summary} />
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 
@@ -612,37 +605,27 @@ export function DnsEditorCard({
         {entries.length === 0 ? (
           <EmptyState small message="No DNS host mappings configured." />
         ) : (
-          <div className="dns-host-list">
-            {entries.map(([name, value], index) => {
-              return (
-                <div className="dns-host-row dns-host-summary" key={name}>
-                  <span className="rule-index">{index + 1}</span>
-                  <span className="dns-host-summary-main"><strong>{name}</strong><small className="mono">{normalizeDnsHostTargets(value).join(', ')}</small></span>
-                  <div className="dns-server-actions">
-                    <button
-                      className="action-icon-button action-icon-edit"
-                      type="button"
-                      title="Edit"
-                      aria-label={`Edit DNS host rule ${name}`}
-                      onClick={() => openHostModal(name)}
-                      disabled={configDnsSaving}
-                    >
-                      <EditIcon />
-                    </button>
-                    <button
-                      className="action-icon-button action-icon-danger"
-                      type="button"
-                      title="Delete"
-                      aria-label={`Delete DNS host rule ${name}`}
-                      disabled={configDnsSaving}
-                      onClick={() => mutateConfig((current) => removeDnsHost(current, name))}
-                    >
-                      <TrashIcon />
-                    </button>
+          <div className="outbound-grid inbound-list-grid">
+            {entries.map(([name, value], index) => (
+              <div className="outbound-card" key={name}>
+                <div className="outbound-info">
+                  <div className="outbound-title">
+                    <span className="rule-index">{index + 1}</span>
+                    <h3>{name}</h3>
                   </div>
+                  <p className="group-meta mono dns-entry-value">{normalizeDnsHostTargets(value).join(', ')}</p>
                 </div>
-              );
-            })}
+                <div className="outbound-side">
+                  <DnsEntryActions
+                    label={`DNS host rule ${name}`}
+                    disabled={configDnsSaving}
+                    onInfo={() => openInfoModal(`DNS host · ${name}`, { [name]: value })}
+                    onDelete={() => mutateConfig((current) => removeDnsHost(current, name))}
+                    onEdit={() => openHostModal(name)}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -766,10 +749,11 @@ export function DnsEditorCard({
 
   return (
     <>
-    <div className="group-card dns-visual-editor">
+    <section className="group-card dns-visual-editor" aria-labelledby="dns-list-heading">
       <div className="group-header">
         <div>
-          <h3>DNS configuration</h3>
+          <h3 id="dns-list-heading">DNS list</h3>
+          {dnsConfigReady ? <p className="group-meta">Total {servers.length}</p> : null}
         </div>
         <div className="rules-editor-actions">
           <button className="ghost small" type="button" onClick={() => loadDnsConfig(apiBase).catch(() => {})} disabled={configDnsSaving || hotReloadBusy}>Reload config</button>
@@ -785,6 +769,9 @@ export function DnsEditorCard({
             onClick={triggerHotReloadFromDns}
             draftVisible={false}
           />
+          {dnsConfigReady && section === 'servers' ? (
+            <button className="primary small" type="button" onClick={() => openServerModal()} disabled={configDnsSaving || !config}>Add server</button>
+          ) : null}
         </div>
       </div>
       <div className="config-editor-meta">
@@ -827,7 +814,7 @@ export function DnsEditorCard({
             : renderServers()}
       </>
       )}
-    </div>
+    </section>
     {dnsConfigReady ? renderEditorModal() : null}
     </>
   );

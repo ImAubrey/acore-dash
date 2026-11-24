@@ -1830,7 +1830,7 @@ export default function App() {
   }, [displayPage, apiBase]);
 
   useEffect(() => {
-    if (displayPage !== 'dns' || (dnsConfigReady && configDnsDirty)) return;
+    if (displayPage !== 'inbounds' || (dnsConfigReady && configDnsDirty)) return;
     loadDnsConfig(apiBase).catch(() => {});
   }, [displayPage, apiBase]);
 
@@ -2234,28 +2234,26 @@ export default function App() {
     inboundStatsByTag,
     formatRate,
     openInfoModal,
-    openDeleteConfirm
-  };
-
-  const dnsPanelProps = {
-    page: displayPage,
-    apiBase,
-    isFailedStatusText,
-    hotReloadBusy,
-    triggerHotReloadFromDns,
-    dnsConfigReady,
-    loadDnsConfig,
-    resetDnsEditor,
-    configDnsDirty,
-    formatDnsEditor,
-    configDnsSaving,
-    saveDnsConfig,
-    configDnsStatus,
-    configDnsPath,
-    configDnsText,
-    setConfigDnsText,
-    setConfigDnsDirty,
-    setConfigDnsStatus
+    openDeleteConfirm,
+    dnsEditorProps: {
+      apiBase,
+      isFailedStatusText,
+      hotReloadBusy,
+      triggerHotReloadFromDns,
+      dnsConfigReady,
+      loadDnsConfig,
+      resetDnsEditor,
+      configDnsDirty,
+      formatDnsEditor,
+      configDnsSaving,
+      saveDnsConfig,
+      configDnsStatus,
+      configDnsPath,
+      configDnsText,
+      setConfigDnsText,
+      setConfigDnsDirty,
+      setConfigDnsStatus
+    }
   };
 
   const firewallRulesProps = {
@@ -2447,7 +2445,6 @@ export default function App() {
             nodesPanelProps={nodesPanelProps}
             subscriptionsPanelProps={subscriptionsPanelProps}
             inboundsPanelProps={inboundsPanelProps}
-            dnsPanelProps={dnsPanelProps}
             rulesPanelProps={rulesPanelProps}
             logsPanelProps={logsPanelProps}
             settingsPanelProps={settingsPanelProps}
