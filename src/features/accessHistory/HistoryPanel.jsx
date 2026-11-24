@@ -1,5 +1,6 @@
+import { HistoryList } from './HistoryList';
 import React, { useEffect, useRef, useState } from 'react';
-import { collectorBase, historyRequest, queryWindow } from './historyApi';
+import { collectorBase, historyRequest } from './historyApi';
 import './history.css';
 
 const errors = {
@@ -57,31 +58,15 @@ export function HistoryPanel({
   const [scope, setScope] = useState('node');
   const [status, setStatus] = useState(null);
   const [notice, setNotice] = useState('');
-  const [direction, setDirection] = useState(initial?.direction || 'sourceIp');
-  const [value, setValue] = useState(initial?.value || '');
-  const [range, setRange] = useState('24');
-  const [from, setFrom] = useState(''),
-    [to, setTo] = useState('');
-  const [result, setResult] = useState(null),
-    [active, setActive] = useState(null);
-  const [busy, setBusy] = useState(false),
-    [generation, refresh] = useState(0);
+  const [generation, refresh] = useState(0);
   const [config, setConfig] = useState(null),
     [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
-  const pending = useRef(null),
-    saveAbort = useRef(null),
+  const saveAbort = useRef(null),
     chosenScope = useRef(false);
   const cluster = scope === 'cluster';
   const node = apiBase.replace(/\/$/, '');
-  function invalidate() {
-    pending.current?.abort();
-    pending.current = null;
-    setResult(null);
-    setActive(null);
-    setBusy(false);
-    setNotice('');
-  }
+  const sourceKey = JSON.stringify([scope, node, path, accessKey, token]);
   function base() {
     return cluster
       ? collectorBase(path, window.location.origin) + '/api/v1'
@@ -89,7 +74,7 @@ export function HistoryPanel({
   }
   useEffect(() => {
     const ctrl = new AbortController();
-    invalidate();
+    setNotice('');
     setStatus(null);
     setConfig(null);
     setDraft(null);
@@ -114,7 +99,7 @@ export function HistoryPanel({
           setScope('cluster');
           return;
         }
-        setStatus(res);
+        setStatus({ ...res, sourceKey, queryUrl: base() + '/access-history/query' });
       } catch (e) {
         if (!ctrl.signal.aborted) setNotice(explain(e.message));
       }
@@ -136,57 +121,10 @@ export function HistoryPanel({
     load();
     return () => {
       ctrl.abort();
-      pending.current?.abort();
       saveAbort.current?.abort();
     };
   }, [scope, path, token, generation, node, accessKey]);
 
-  async function run(query, cursor) {
-    pending.current?.abort();
-    const ctrl = new AbortController();
-    pending.current = ctrl;
-    setBusy(true);
-    setNotice('');
-    if (!cursor) setResult(null);
-    try {
-      const data = await historyRequest(base() + '/access-history/query', {
-        key: accessKey,
-        cluster,
-        token,
-        signal: ctrl.signal,
-        body: { ...query, ...(cursor && { cursor }) },
-      });
-      if (!ctrl.signal.aborted) {
-        setResult(data);
-        setActive(query);
-      }
-    } catch (e) {
-      if (!ctrl.signal.aborted) setNotice(explain(e.message));
-    } finally {
-      if (!ctrl.signal.aborted) setBusy(false);
-    }
-  }
-  function submit(event) {
-    event.preventDefault();
-    try {
-      run({
-        [direction]: value.trim(),
-        ...queryWindow(range, from, to),
-        limit: 50,
-      });
-    } catch (e) {
-      setNotice(explain(e.message));
-    }
-  }
-  function reverse(row) {
-    const next = direction === 'sourceIp' ? 'domain' : 'sourceIp';
-    const peer = row[next];
-    if (!peer || !active) return;
-    setDirection(next);
-    setValue(peer);
-    const { sourceIp, domain, ...window } = active;
-    run({ ...window, [next]: peer });
-  }
   async function save() {
     const ctrl = new AbortController();
     saveAbort.current = ctrl;
@@ -208,16 +146,6 @@ export function HistoryPanel({
       if (!ctrl.signal.aborted) setSaving(false);
     }
   }
-  const date = (ms) =>
-    new Date(ms).toLocaleString(undefined, {
-      fractionalSecondDigits: 3,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    });
   return (
     <section className="panel access-history">
       <header>
@@ -227,7 +155,7 @@ export function HistoryPanel({
           value={scope}
           onChange={(e) => {
             chosenScope.current = true;
-            invalidate();
+            setNotice('');
             setScope(e.target.value);
           }}
         >
@@ -236,9 +164,11 @@ export function HistoryPanel({
             {t('集群采集器', 'Cluster collector')}
           </option>
         </select>
-        <button type="button" onClick={() => refresh((n) => n + 1)}>
-          {t('刷新', 'Refresh')}
-        </button>
+        {!status?.readable && (
+          <button type="button" onClick={() => refresh((n) => n + 1)}>
+            {t('刷新', 'Refresh')}
+          </button>
+        )}
       </header>
       {(cluster || status?.flowExportEnabled) && (
         <details open={(cluster && !path) || undefined}>
@@ -309,132 +239,35 @@ export function HistoryPanel({
           {status.queueDropped}
         </p>
       )}
-      <form onSubmit={submit} onChange={() => invalidate()}>
-        <label>
-          {t('查询方向', 'Search by')}
-          <select
-            value={direction}
-            onChange={(e) => {
-              setDirection(e.target.value);
-              setValue('');
-            }}
-          >
-            <option value="sourceIp">{t('来源 IP', 'Source IP')}</option>
-            <option value="domain">{t('域名', 'Domain')}</option>
-          </select>
-        </label>
-        <label>
-          {direction === 'domain'
-            ? t('域名', 'Domain')
-            : t('来源 IP', 'Source IP')}
-          <input
-            required
-            value={value}
-            placeholder={direction === 'domain' ? 'example.com' : '192.0.2.8'}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </label>
-        <label>
-          {t('时间范围', 'Time range')}
-          <select value={range} onChange={(e) => setRange(e.target.value)}>
-            <option value="1">{t('最近 1 小时', 'Last hour')}</option>
-            <option value="24">{t('最近 24 小时', 'Last 24 hours')}</option>
-            <option value="all">
-              {t('全部保留历史', 'All retained history')}
-            </option>
-            <option value="custom">{t('自定义', 'Custom')}</option>
-          </select>
-        </label>
-        {range === 'custom' && (
-          <>
-            <label>
-              {t('起始', 'From')}
-              <input
-                required
-                type="datetime-local"
-                step="0.001"
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-              />
-            </label>
-            <label>
-              {t('结束', 'To')}
-              <input
-                required
-                type="datetime-local"
-                step="0.001"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-              />
-            </label>
-          </>
-        )}
-        <button disabled={!status?.readable || busy}>
-          {busy ? t('查询中…', 'Searching…') : t('查询', 'Search')}
-        </button>
-      </form>
-      {notice && <p role="alert">{notice}</p>}
-      {result && (
-        <>
-          {result.partialRange && (
-            <p>
-              {t(
-                '部分时间早于可查询历史。',
-                'Part of the range predates available history.',
-              )}
-            </p>
+      {notice && (
+        <p role="alert">
+          {!cluster && !node && !status
+              ? t('当前面板网址没有可用的节点接口。请在设置的 Metrics HTTP 中选择节点，填写访问密钥后再查看记录。', 'No node API is available at this dashboard address. In Settings, select the node’s Metrics HTTP endpoint and enter its access key.')
+              : notice}{' '}
+          {!cluster && (
+            <a href="#/settings">
+              {t('检查节点连接设置', 'Check node connection settings')}
+            </a>
           )}
-          {result.rows.length === 0 ? (
-            <p>{t('没有匹配的连接', 'No matching connections')}</p>
-          ) : (
-            <div className="history-results">
-              <table>
-                <thead>
-                  <tr>
-                    {[
-                      direction === 'domain'
-                        ? t('来源 IP', 'Source IP')
-                        : t('域名', 'Domain'),
-                      cluster
-                        ? t('集群观测连接数', 'Cluster observations')
-                        : t('连接数', 'Connections'),
-                      t('首次', 'First'),
-                      t('最近', 'Last'),
-                    ].map((k) => (
-                      <th key={k}>{k}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.rows.map((row) => (
-                    <tr key={JSON.stringify([row.sourceIp, row.domain])}>
-                      <td>
-                        {direction === 'domain' || row.domain ? (
-                          <button onClick={() => reverse(row)}>
-                            {direction === 'domain' ? row.sourceIp : row.domain}
-                          </button>
-                        ) : (
-                          t('域名未知', 'Unknown domain')
-                        )}
-                      </td>
-                      <td>{row.connections}</td>
-                      <td>{date(row.firstMs)}</td>
-                      <td>{date(row.lastMs)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {result.nextCursor && (
-            <button
-              disabled={busy}
-              onClick={() => run(active, result.nextCursor)}
-            >
-              {t('下一页', 'Next page')}
-            </button>
-          )}
-        </>
+        </p>
+      )}
+      {!status && !notice && (
+        <p role="status">
+          {t('正在连接历史数据源…', 'Connecting to history source…')}
+        </p>
+      )}
+      {status?.readable && status.sourceKey === sourceKey && (
+        <HistoryList
+          key={JSON.stringify([scope, node, path])}
+          url={status.queryUrl}
+          accessKey={accessKey}
+          cluster={cluster}
+          token={token}
+          initial={initial}
+          browse={!!status.browse}
+          zh={zh}
+          explain={explain}
+        />
       )}
       {!cluster && config && draft && status?.state !== 'unsupported' && (
         <details open={initial?.settings || undefined}>
