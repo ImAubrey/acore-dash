@@ -5,7 +5,7 @@ import { json, jsonParseLinter } from '@codemirror/lang-json';
 import { linter, lintGutter } from '@codemirror/lint';
 import { EditorView } from '@codemirror/view';
 import { githubLight } from '@uiw/codemirror-theme-github';
-import { EmptyState, StatusText } from '../common/panelPrimitives';
+import { EmptyState, HotReloadButton, StatusText } from '../common/panelPrimitives';
 import { ScrollArea } from '../common/ScrollArea';
 import { useSortableRuleList } from '../common/useSortableRuleList';
 import { EditIcon, TrashIcon } from '../connections/actionIcons';
@@ -14,6 +14,7 @@ import {
   dnsServerSummary,
   dnsTextToList,
   formatDnsEditorConfig,
+  getDnsFallbackServers,
   normalizeDnsHostTargets,
   normalizeDnsServer,
   parseDnsEditorText,
@@ -200,8 +201,35 @@ function QueryStrategyField({ value, onChange }) {
   );
 }
 
+function DnsServerDetails({ summary }) {
+  const details = [
+    ['Domain rules', summary.domains],
+    ['Expected IPs', summary.expectedIPs],
+    ['Unexpected IPs', summary.unexpectedIPs],
+    ['Outbound tags', summary.outboundTags],
+    [summary.inheritsEcs ? 'Global ECS' : 'ECS', summary.ecs ? [summary.ecs] : []]
+  ].filter(([, values]) => values.length > 0);
+
+  if (details.length === 0) return null;
+  return (
+    <dl className="dns-server-details">
+      {details.map(([label, values]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>
+            {values.map((value, index) => <code className="mono" key={`${index}:${value}`}>{value}</code>)}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function DnsEditorCard({
   apiBase,
+  dnsConfigReady,
+  hotReloadBusy,
+  triggerHotReloadFromDns,
   loadDnsConfig,
   resetDnsEditor,
   configDnsDirty,
@@ -216,13 +244,15 @@ export function DnsEditorCard({
   setConfigDnsStatus,
   isFailedStatusText
 }) {
-  const [section, setSection] = useState(() => getEditorModePreference('dns', 'advanced', ['servers', 'hosts', 'global', 'advanced']));
+  const [section, setSection] = useState(() => getEditorModePreference('dns', 'servers', ['servers', 'hosts', 'global', 'advanced']));
   const [modal, setModal] = useState(null);
   const [modalStatus, setModalStatus] = useState('');
   const parsed = useMemo(() => parseDnsEditorText(configDnsText), [configDnsText]);
   const config = parsed.config;
   const validationError = parsed.error || validateDnsEditorConfig(config);
   const servers = Array.isArray(config?.servers) ? config.servers : [];
+  const summaries = servers.map((server, index) => dnsServerSummary(server, index, config?.clientIp));
+  const { indexes: fallbackIndexes, usesFirstServer } = getDnsFallbackServers(config);
   const hosts = config?.hosts && typeof config.hosts === 'object' && !Array.isArray(config.hosts)
     ? config.hosts
     : {};
@@ -233,11 +263,11 @@ export function DnsEditorCard({
   };
 
   useEffect(() => {
-    if (parsed.error && section !== 'advanced') {
+    if (dnsConfigReady && parsed.error && section !== 'advanced') {
       setEditorModePreference('dns', 'advanced');
       setSection('advanced');
     }
-  }, [parsed.error, section]);
+  }, [dnsConfigReady, parsed.error, section]);
 
   const commitConfig = (nextConfig, message = '') => {
     setConfigDnsText(formatDnsEditorConfig(nextConfig));
@@ -445,8 +475,8 @@ export function DnsEditorCard({
       </div>
       <div className="dns-toggle-grid">
         <ToggleField label="Disable cache" checked={config?.disableCache} onChange={(value) => setRootField('disableCache', value)} />
-        <ToggleField label="Disable fallback" checked={config?.disableFallback} onChange={(value) => setRootField('disableFallback', value)} />
-        <ToggleField label="Disable fallback if matched" checked={config?.disableFallbackIfMatch} onChange={(value) => setRootField('disableFallbackIfMatch', value)} />
+        <ToggleField label="Disable fallback" hint="Skip the fallback list. If no server qualifies, the core uses the first eligible server." checked={config?.disableFallback} onChange={(value) => setRootField('disableFallback', value)} />
+        <ToggleField label="Disable fallback if matched" hint="Skip the fallback list when at least one domain rule matches." checked={config?.disableFallbackIfMatch} onChange={(value) => setRootField('disableFallbackIfMatch', value)} />
         <ToggleField label="Parallel query" checked={config?.enableParallelQuery} onChange={(value) => setRootField('enableParallelQuery', value)} />
         <ToggleField label="Use system hosts" checked={config?.useSystemHosts} onChange={(value) => setRootField('useSystemHosts', value)} />
       </div>
@@ -457,20 +487,50 @@ export function DnsEditorCard({
     <div className="dns-editor-section-body">
       <div className="dns-editor-section-title">
         <div>
-          <h4>DNS server rules</h4>
-          <p>Order matters. Domain and expected-IP rules decide which resolver is preferred.</p>
+          <h4>Upstream servers</h4>
+          <p>Matching domain rules take priority. A server can also be available for fallback.</p>
         </div>
         <button className="primary small" type="button" onClick={() => openServerModal()} disabled={configDnsSaving || !config}>
           Add server
         </button>
       </div>
+      {fallbackIndexes.length > 0 ? (
+        <section className="dns-fallback-preview" aria-label="Fallback with no domain match">
+          <div className="dns-fallback-heading">
+            <h5>When no domain rule matches</h5>
+            <span className="group-meta">
+              {usesFirstServer ? 'First eligible server' : config?.enableParallelQuery ? 'Parallel queries' : 'Query order'}
+            </span>
+          </div>
+          <ol className="dns-fallback-list">
+            {fallbackIndexes.map((index) => {
+              const summary = summaries[index];
+              return (
+                <li key={index}>
+                  <button className="dns-fallback-server" type="button" title={`Edit ${summary.title}`} onClick={() => openServerModal(index)} disabled={configDnsSaving}>
+                    <span className="mono">{summary.endpoint}</span>
+                    {summary.ecs ? <span className="dns-ecs">{summary.inheritsEcs ? 'Global ECS' : 'ECS'} <code className="mono">{summary.ecs}</code></span> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          {usesFirstServer ? (
+            <p className="group-meta">The core uses the first eligible server when the candidate list is empty.</p>
+          ) : null}
+        </section>
+      ) : null}
       {servers.length === 0 ? (
-        <EmptyState small message="No DNS servers configured." />
+        <EmptyState small message="The core uses the system resolver when no upstreams are configured." />
       ) : (
         <div className="dns-server-list">
           {servers.map((rawServer, index) => {
             const server = normalizeDnsServer(rawServer);
-            const summary = dnsServerSummary(rawServer, index);
+            const summary = summaries[index];
+            const canFallback = config?.disableFallback !== true && server.skipFallback !== true;
+            const selection = summary.domains.length
+              ? (canFallback ? 'Match + fallback' : 'Match only')
+              : (canFallback ? 'Fallback only' : 'No domain rule or fallback');
             const dropPosition = getServerDropPosition(index);
             const cardClassName = [
               'dns-server-card',
@@ -503,9 +563,8 @@ export function DnsEditorCard({
                     <small className="mono">{summary.endpoint}</small>
                   </span>
                   <span className="dns-server-summary-pills">
-                    {summary.domains > 0 ? <span className="meta-pill">{summary.domains} domain rules</span> : null}
-                    {server.skipFallback === true ? <span className="meta-pill">skip fallback</span> : null}
-                    {server.finalQuery === true ? <span className="meta-pill">final</span> : null}
+                    <span className={`dns-selection${canFallback ? ' dns-selection-fallback' : ''}`}>{selection}</span>
+                    {server.finalQuery === true ? <span className="dns-selection">Final query</span> : null}
                   </span>
                   <div className="dns-server-actions">
                     <button
@@ -530,6 +589,7 @@ export function DnsEditorCard({
                     </button>
                   </div>
                 </div>
+                <DnsServerDetails summary={summary} />
               </div>
             );
           })}
@@ -632,20 +692,20 @@ export function DnsEditorCard({
                 </label>
                 <label className="dns-field"><span>Port</span><input type="number" min="0" max="65535" value={draft.port ?? ''} placeholder="53" onChange={(event) => updateModalServerNumber('port', event.target.value)} /></label>
                 <label className="dns-field"><span>Rule tag</span><input value={draft.tag ?? ''} placeholder="cloudflare" onChange={(event) => updateModalServer('tag', event.target.value, { deleteEmpty: true })} /></label>
-                <label className="dns-field"><span>Client IP / ECS</span><input value={draft.clientIp ?? ''} placeholder="10.0.0.1" onChange={(event) => updateModalServer('clientIp', event.target.value, { deleteEmpty: true })} /></label>
+                <label className="dns-field"><span>Client IP / ECS</span><input value={draft.clientIp ?? ''} placeholder={config?.clientIp || '10.0.0.1'} onChange={(event) => updateModalServer('clientIp', event.target.value, { deleteEmpty: true })} /><small>Applies to ECS-capable queries whenever this server is selected.</small></label>
                 <QueryStrategyField value={draft.queryStrategy} onChange={(value) => updateModalServer('queryStrategy', value, { deleteEmpty: true })} />
                 <label className="dns-field"><span>Timeout (ms)</span><input type="number" min="0" value={draft.timeoutMs ?? ''} placeholder="2000" onChange={(event) => updateModalServerNumber('timeoutMs', event.target.value)} /></label>
                 <label className="dns-field"><span>Serve expired TTL</span><input type="number" min="0" value={draft.serveExpiredTTL ?? ''} placeholder="86400" onChange={(event) => updateModalServerNumber('serveExpiredTTL', event.target.value)} /></label>
                 <OptionalBooleanField label="Disable cache" value={draft.disableCache} onChange={(value) => updateModalServer('disableCache', value)} />
                 <OptionalBooleanField label="Serve stale" value={draft.serveStale} onChange={(value) => updateModalServer('serveStale', value)} />
                 <OptionalBooleanField label="Optimistic cache" value={draft.optimisticCache} onChange={(value) => updateModalServer('optimisticCache', value)} />
-                <label className="dns-field dns-field-list"><span>Domain rules</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(draft.domains ?? draft.domain)} placeholder={'domain:example.com\nfull:www.example.com\ngeosite:cn'} onChange={(event) => setServerList('domains', 'domain', event.target.value)} /></label>
-                <label className="dns-field dns-field-list"><span>Expected IP rules</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(draft.expectedIPs ?? draft.expectIPs)} placeholder={'geoip:cn\n10.0.0.0/8\n*'} onChange={(event) => setServerList('expectedIPs', 'expectIPs', event.target.value)} /></label>
+                <label className="dns-field dns-field-list"><span>Domain rules</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText([...dnsTextToList(draft.domains), ...dnsTextToList(draft.domain)])} placeholder={'domain:example.com\nfull:www.example.com\ngeosite:cn'} onChange={(event) => setServerList('domains', 'domain', event.target.value)} /></label>
+                <label className="dns-field dns-field-list"><span>Expected IP rules</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(dnsServerSummary(draft).expectedIPs)} placeholder={'geoip:cn\n10.0.0.0/8\n*'} onChange={(event) => setServerList('expectedIPs', 'expectIPs', event.target.value)} /></label>
                 <label className="dns-field dns-field-list"><span>Unexpected IP rules</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(draft.unexpectedIPs)} placeholder={'geoip:private\n*'} onChange={(event) => setServerList('unexpectedIPs', null, event.target.value)} /></label>
-                <label className="dns-field dns-field-list"><span>Outbound tags</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(draft.outboundTags ?? draft.outboundTag)} placeholder={'direct\nproxy'} onChange={(event) => setServerList('outboundTags', 'outboundTag', event.target.value)} /></label>
+                <label className="dns-field dns-field-list"><span>Outbound tags</span><textarea className="dns-editor-textarea" rows="4" value={dnsListToText(dnsServerSummary(draft).outboundTags)} placeholder={'direct\nproxy'} onChange={(event) => setServerList('outboundTags', 'outboundTag', event.target.value)} /></label>
                 <div className="dns-toggle-grid compact dns-modal-toggle-grid">
-                  <ToggleField label="Skip fallback" checked={draft.skipFallback} onChange={(value) => updateModalServer('skipFallback', value)} />
-                  <ToggleField label="Final query" checked={draft.finalQuery} onChange={(value) => updateModalServer('finalQuery', value)} />
+                  <ToggleField label="Skip fallback" hint="Keep this server out of the fallback list. Matching domain rules can still select it." checked={draft.skipFallback} onChange={(value) => updateModalServer('skipFallback', value)} />
+                  <ToggleField label="Final query" hint="Stop adding candidates after this server." checked={draft.finalQuery} onChange={(value) => updateModalServer('finalQuery', value)} />
                 </div>
               </div>
             ) : (
@@ -706,29 +766,34 @@ export function DnsEditorCard({
 
   return (
     <>
-    <div className="group-card inbounds-dns-editor dns-visual-editor">
+    <div className="group-card dns-visual-editor">
       <div className="group-header">
         <div>
-          <h3>DNS editor</h3>
+          <h3>DNS configuration</h3>
         </div>
         <div className="rules-editor-actions">
-          <button className="ghost small" type="button" onClick={() => loadDnsConfig(apiBase).catch(() => {})}>Reload config</button>
-          <button className="ghost small" type="button" onClick={resetDnsEditor} disabled={!configDnsDirty}>Reset</button>
-          <button className="primary small" type="button" onClick={saveDnsConfig} disabled={configDnsSaving || Boolean(validationError)}>
+          <button className="ghost small" type="button" onClick={() => loadDnsConfig(apiBase).catch(() => {})} disabled={configDnsSaving || hotReloadBusy}>Reload config</button>
+          <button className="ghost small" type="button" onClick={resetDnsEditor} disabled={!dnsConfigReady || !configDnsDirty || configDnsSaving}>Reset</button>
+          <button className="primary small" type="button" onClick={saveDnsConfig} disabled={!dnsConfigReady || !configDnsDirty || configDnsSaving || hotReloadBusy || Boolean(validationError)}>
             {configDnsSaving ? 'Saving...' : 'Save DNS'}
           </button>
+          <HotReloadButton
+            className="ghost small"
+            idleLabel="Apply saved DNS"
+            busy={hotReloadBusy}
+            disabled={!dnsConfigReady || configDnsDirty || configDnsSaving || Boolean(validationError)}
+            onClick={triggerHotReloadFromDns}
+            draftVisible={false}
+          />
         </div>
       </div>
       <div className="config-editor-meta">
         <StatusText text={configDnsStatus} danger={isFailedStatusText(configDnsStatus)} />
-        {configDnsPath ? <span className="status">Config: {configDnsPath}</span> : null}
-        {configDnsDirty ? <span className="status dns-unsaved-pill">Unsaved changes</span> : null}
+        {dnsConfigReady && configDnsPath ? <span className="status">Config: {configDnsPath}</span> : null}
+        {dnsConfigReady && configDnsDirty ? <span className="status dns-unsaved-pill">Unsaved changes</span> : null}
       </div>
-      <div className="dns-editor-overview">
-        <span><strong>{servers.length}</strong> servers</span>
-        <span><strong>{Object.keys(hosts).length}</strong> hosts</span>
-        <span><strong>{String(config?.queryStrategy || 'UseIP')}</strong> strategy</span>
-      </div>
+      {!dnsConfigReady ? <EmptyState small message="Load the DNS configuration for this core to view and edit its rules." /> : (
+      <>
       <div className="dns-editor-tabs" role="tablist" aria-label="DNS editor sections">
         {sections.map(([key, label, count]) => (
           <button
@@ -760,8 +825,10 @@ export function DnsEditorCard({
         : section === 'hosts' ? renderHosts()
           : section === 'advanced' ? renderAdvanced()
             : renderServers()}
+      </>
+      )}
     </div>
-    {renderEditorModal()}
+    {dnsConfigReady ? renderEditorModal() : null}
     </>
   );
 }

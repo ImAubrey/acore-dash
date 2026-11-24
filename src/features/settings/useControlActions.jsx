@@ -127,17 +127,17 @@ export function useControlActions({
     return null;
   };
 
-  const performHotReload = async () => {
+  const performHotReload = async (targets = FULL_HOT_RELOAD_TARGETS) => {
     if (hotReloadBusy) return;
     setHotReloadBusy(true);
     announceHotReloadStatus('Triggering hot reload...');
     try {
-      const hasDraft = !!getRoutingDraft(apiBase);
+      const hasDraft = (targets.includes('all') || targets.includes('routing')) && !!getRoutingDraft(apiBase);
       if (hasDraft) {
         announceHotReloadStatus('Uploading pending routing edits...');
         await uploadRoutingDraft(apiBase);
       }
-      const hasFirewallDraft = !!getFirewallDraft(apiBase);
+      const hasFirewallDraft = (targets.includes('all') || targets.includes('firewall')) && !!getFirewallDraft(apiBase);
       if (hasFirewallDraft) {
         announceHotReloadStatus('Uploading pending firewall edits...');
         await uploadFirewallDraft(apiBase);
@@ -145,7 +145,7 @@ export function useControlActions({
       const resp = await fetchJson(`${apiBase}/core/hotreload`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets: FULL_HOT_RELOAD_TARGETS })
+        body: JSON.stringify({ targets })
       });
       const taskId = String(resp?.id || '').trim();
       const needsRestart = Boolean(resp?.needsRestart || resp?.hotReload?.needsRestart);
@@ -184,6 +184,7 @@ export function useControlActions({
   const triggerHotReloadFromFirewall = makeHotReloadTrigger();
   const triggerHotReloadFromSubscriptions = makeHotReloadTrigger();
   const triggerHotReloadFromInbounds = makeHotReloadTrigger();
+  const triggerHotReloadFromDns = () => performHotReload(['dns']);
 
   const triggerDelayTest = () => {
     if (delayTestCooldown > 0 || delayTestBusy) return;
@@ -290,6 +291,7 @@ export function useControlActions({
     triggerHotReloadFromFirewall,
     triggerHotReloadFromSubscriptions,
     triggerHotReloadFromInbounds,
+    triggerHotReloadFromDns,
     triggerDelayTest,
     closeRestartConfirm,
     confirmRestart,

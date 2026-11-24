@@ -250,14 +250,38 @@ export const removeDnsHost = (config, name) => {
   return { ...current, hosts };
 };
 
-export const dnsServerSummary = (server, index = 0) => {
+export const dnsServerSummary = (server, index = 0, defaultClientIp = '') => {
   const current = normalizeDnsServer(server);
   const address = String(current.address ?? '').trim() || '(address required)';
   const port = Number(current.port) > 0 ? `:${current.port}` : '';
-  const domains = dnsTextToList(current.domains ?? current.domain).length;
+  const clientIp = String(current.clientIp ?? '').trim();
+  const domains = [...dnsTextToList(current.domains), ...dnsTextToList(current.domain)];
+  const expectedIPs = dnsTextToList(current.expectedIPs);
   return {
     title: String(current.tag ?? '').trim() || `DNS server ${index + 1}`,
     endpoint: `${address}${port}`,
-    domains
+    domains,
+    expectedIPs: expectedIPs.length > 0 ? expectedIPs : dnsTextToList(current.expectIPs),
+    unexpectedIPs: dnsTextToList(current.unexpectedIPs),
+    outboundTags: [...dnsTextToList(current.outboundTags), ...dnsTextToList(current.outboundTag)],
+    ecs: clientIp || String(defaultClientIp ?? '').trim(),
+    inheritsEcs: !clientIp && Boolean(String(defaultClientIp ?? '').trim())
   };
+};
+
+export const getDnsFallbackServers = (config) => {
+  const servers = Array.isArray(config?.servers) ? config.servers : [];
+  const indexes = [];
+  if (config?.disableFallback !== true) {
+    for (const [index, rawServer] of servers.entries()) {
+      const server = normalizeDnsServer(rawServer);
+      if (server.skipFallback === true) continue;
+      indexes.push(index);
+      if (server.finalQuery === true) break;
+    }
+  }
+
+  // The core still uses the first eligible server if no candidate was selected.
+  const usesFirstServer = indexes.length === 0 && servers.length > 0;
+  return { indexes: usesFirstServer ? [0] : indexes, usesFirstServer };
 };

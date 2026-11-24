@@ -3,6 +3,7 @@ import { ConnectionsPanel } from '../connections/ConnectionsPanel';
 import { NodesPanel } from '../nodes/NodesPanel';
 import { SubscriptionsPanel } from '../subscriptions/SubscriptionsPanel';
 import { InboundsPanel } from '../inbounds/InboundsPanel';
+import { DnsEditorCard } from '../inbounds/DnsEditorCard';
 import { RulesPanel } from '../rules/RulesPanel';
 import { LogsPanel } from '../logs/LogsPanel';
 import { SettingsPanel } from '../settings/SettingsPanel';
@@ -14,6 +15,7 @@ export function MainPanels({
   nodesPanelProps,
   subscriptionsPanelProps,
   inboundsPanelProps,
+  dnsPanelProps,
   rulesPanelProps,
   logsPanelProps,
   settingsPanelProps,
@@ -27,6 +29,11 @@ export function MainPanels({
         <NodesPanel {...nodesPanelProps} />
         <SubscriptionsPanel {...subscriptionsPanelProps} />
         <InboundsPanel {...inboundsPanelProps} />
+        {dnsPanelProps.page === 'dns' ? (
+          <section className="panel dns-panel" aria-label="DNS configuration">
+            <DnsEditorCard {...dnsPanelProps} />
+          </section>
+        ) : null}
         <RulesPanel {...rulesPanelProps} />
         <LogsPanel {...logsPanelProps} />
         <SettingsPanel {...settingsPanelProps} />

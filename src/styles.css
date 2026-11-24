@@ -5283,30 +5283,6 @@ select.pill {
   min-width: 0;
 }
 
-.dns-editor-overview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-
-.dns-editor-overview span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid rgba(59, 115, 212, 0.18);
-  border-radius: 999px;
-  background: rgba(232, 239, 255, 0.7);
-  color: var(--muted);
-  font-size: 9px;
-}
-
-.dns-editor-overview strong {
-  color: var(--accent-4);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
 .dns-unsaved-pill {
   color: #9a5521;
   font-weight: 700;
@@ -5708,10 +5684,6 @@ select.pill {
 
   .dns-server-card > summary {
     grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-
-  .dns-server-summary-pills {
-    display: none;
   }
 
   .dns-editor-section-title {

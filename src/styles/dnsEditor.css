@@ -48,7 +48,93 @@
   min-width: 0;
 }
 
-/* Main DNS pages intentionally remain concise: edits live in the modal. */
+.dns-fallback-preview {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid rgba(59, 115, 212, 0.22);
+  border-radius: 12px;
+  background: rgba(232, 239, 255, 0.42);
+}
+
+.dns-fallback-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.dns-fallback-heading h5,
+.dns-fallback-preview p {
+  margin: 0;
+}
+
+.dns-fallback-heading h5 {
+  font-size: 12px;
+}
+
+.dns-fallback-list {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-inline-start: 22px;
+}
+
+.dns-fallback-list li {
+  min-width: 0;
+  padding-inline-start: 2px;
+}
+
+.dns-fallback-list li::marker {
+  color: var(--accent-4);
+  font: 650 11px var(--mono);
+}
+
+.dns-fallback-server {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 7px;
+  background: var(--surface, white);
+  color: var(--ink);
+  text-align: start;
+  font-size: 11px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.dns-fallback-server:hover:not(:disabled) {
+  border-color: var(--accent-4);
+}
+
+.dns-ecs,
+.dns-selection {
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.dns-ecs {
+  color: #795016;
+}
+
+.dns-selection {
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  padding: 3px 6px;
+  color: var(--muted);
+}
+
+.dns-selection-fallback {
+  background: rgba(59, 115, 212, 0.1);
+  color: #244e98;
+}
+
 .dns-server-card {
   display: block;
   position: relative;
@@ -70,6 +156,41 @@
   align-items: center;
   gap: 10px;
   padding: 11px 12px;
+}
+
+.dns-server-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+  padding: 0 12px 10px 40px;
+  font-size: 11px;
+}
+
+.dns-server-details > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dns-server-details dt {
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.dns-server-details dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+
+.dns-server-details code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(28, 43, 42, 0.06);
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .dns-host-summary {
@@ -99,6 +220,15 @@
 }
 
 @media (max-width: 620px) {
+  .dns-visual-editor > .group-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .dns-visual-editor > .group-header .rules-editor-actions {
+    justify-content: flex-start;
+  }
+
   .dns-editor-modal {
     width: 100vw;
     height: 100dvh;
@@ -119,16 +249,29 @@
     flex: 1 1 auto;
   }
 
-  .dns-server-summary,
   .dns-host-summary {
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .dns-server-summary-pills {
-    display: none;
+  .dns-server-summary {
+    grid-template-columns: auto minmax(0, 1fr) auto;
   }
 
-  .dns-server-summary .dns-server-actions,
+  .dns-server-summary .dns-server-summary-pills {
+    grid-column: 2;
+    grid-row: 2;
+    justify-content: flex-start;
+  }
+
+  .dns-server-summary .dns-server-actions {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .dns-server-details {
+    padding-inline-start: 12px;
+  }
+
   .dns-host-summary .dns-server-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
