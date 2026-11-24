@@ -9,7 +9,8 @@ export function ConnectionSearchInput({
   setValue,
   placeholder,
   ariaLabel = 'Search all connection fields',
-  compact = false
+  compact = false,
+  submitOnEnter = false
 }) {
   const inputRef = useRef(null);
   const { tokens, draft } = splitConnectionSearchValue(value);
@@ -28,7 +29,7 @@ export function ConnectionSearchInput({
   };
 
   const handleInputKeyDown = (event) => {
-    if (event.key === 'Enter' && draft.trim()) {
+    if (!submitOnEnter && event.key === 'Enter' && draft.trim()) {
       event.preventDefault();
       updateValue([...tokens, draft], '');
       return;

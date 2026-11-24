@@ -10,6 +10,11 @@ import { ConnectionSearchInput } from '../connections/ConnectionSearchInput';
 import { HistoryPopover } from './HistoryPopover';
 import { HistoryGroupPreview } from './HistoryGroupPreview';
 import { historyRequest, queryWindow } from './historyApi';
+import {
+  hasHistoryFacet,
+  historySearchFilters,
+  toggleHistoryFacet,
+} from './historySearch';
 
 const defaults = {
   sourceIp: '',
@@ -64,6 +69,7 @@ export function HistoryList({
   initial,
   browse,
   grouping,
+  multiSelect,
   zh,
   explain,
 }) {
@@ -72,10 +78,13 @@ export function HistoryList({
   const [state, setState] = useState(() =>
     session({
       ...defaults,
-      ...(initial?.direction && {
-        [initial.direction]: initial.value,
-        search: initial.value + ' ',
-      }),
+      ...(initial?.direction &&
+        (multiSelect
+          ? { search: toggleHistoryFacet('', initial.direction, initial.value) }
+          : {
+              [initial.direction]: initial.value,
+              search: initial.value + ' ',
+            })),
     }),
   );
   const [draft, setDraft] = useState(state.options);
@@ -111,7 +120,8 @@ export function HistoryList({
     const body = { ...bounds, limit: 50 };
     if (options.domain) body.domain = options.domain;
     if (options.sourceIp) body.sourceIp = options.sourceIp;
-    if (grouping && additionalSearch) body.search = activeSearch;
+    if (multiSelect) Object.assign(body, historySearchFilters(options.search));
+    else if (grouping && additionalSearch) body.search = activeSearch;
     if (browse)
       Object.assign(body, {
         view: options.view,
@@ -153,6 +163,7 @@ export function HistoryList({
     token,
     browse,
     grouping,
+    multiSelect,
     legacyEmpty,
     additionalSearch,
     activeSearch,
@@ -172,7 +183,8 @@ export function HistoryList({
     return () => clearInterval(timer);
   }, [auto, live]);
   useEffect(() => {
-    if (!grouping || draft.search === options.search) return undefined;
+    if (!grouping || multiSelect || draft.search === options.search)
+      return undefined;
     const timer = window.setTimeout(() => {
       setData(null);
       setState((current) =>
@@ -188,13 +200,17 @@ export function HistoryList({
       );
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [draft.search, options.search, grouping]);
+  }, [draft.search, options.search, grouping, multiSelect]);
 
-  function apply(next, keepWindow = false) {
+  function apply(next, keepWindow = false, preserveDraft = false) {
     try {
       const s = session(next, keepWindow ? bounds : null);
       setError('');
-      setDraft(next);
+      setDraft((current) =>
+        preserveDraft
+          ? { ...current, view: next.view, sort: next.sort, order: next.order }
+          : next,
+      );
       setData(null);
       setState(s);
     } catch (e) {
@@ -202,6 +218,13 @@ export function HistoryList({
     }
   }
   function filter(key, value) {
+    if (multiSelect) {
+      setDraft((current) => ({
+        ...current,
+        search: toggleHistoryFacet(current.search, key, value),
+      }));
+      return;
+    }
     apply(
       {
         ...options,
@@ -223,6 +246,7 @@ export function HistoryList({
           options.sort === sort && options.order === 'desc' ? 'asc' : 'desc',
       },
       true,
+      multiSelect,
     );
   }
   function heading(label, sort) {
@@ -265,6 +289,7 @@ export function HistoryList({
         order: 'desc',
       },
       true,
+      multiSelect,
     );
   }
 
@@ -280,13 +305,17 @@ export function HistoryList({
       limit: 6,
       ...(options.sourceIp && { sourceIp: options.sourceIp }),
       ...(options.domain && { domain: options.domain }),
-      ...(additionalSearch && { search: activeSearch }),
+      ...(multiSelect
+        ? historySearchFilters(options.search)
+        : additionalSearch && { search: activeSearch }),
       [field]: label,
     };
     return (
       <HistoryPopover
         className="history-link"
         label={label}
+        onSelect={multiSelect ? () => filter(field, label) : undefined}
+        selected={multiSelect && hasHistoryFacet(draft.search, field, label)}
         title={
           byDomain
             ? t('展开来源 IP', 'Show source IPs')
@@ -299,13 +328,46 @@ export function HistoryList({
             query={query}
             byDomain={byDomain}
             t={t}
+            multiSelect={multiSelect}
+            selectPeer={(peer) =>
+              filter(byDomain ? 'sourceIp' : 'domain', peer)
+            }
+            isPeerSelected={(peer) =>
+              hasHistoryFacet(
+                draft.search,
+                byDomain ? 'sourceIp' : 'domain',
+                peer,
+              )
+            }
             onOpen={() => {
               close();
-              apply({ ...options, view: 'pairs', [field]: label }, true);
+              if (!multiSelect) {
+                apply({ ...options, view: 'pairs', [field]: label }, true);
+                return;
+              }
+              const search = hasHistoryFacet(draft.search, field, label)
+                ? draft.search
+                : toggleHistoryFacet(draft.search, field, label);
+              apply({ ...options, search, view: 'pairs' }, true);
             }}
           />
         )}
       </HistoryPopover>
+    );
+  }
+
+  function facetButton(field, value, className = 'history-link') {
+    return (
+      <button
+        type="button"
+        className={className}
+        aria-pressed={
+          multiSelect ? hasHistoryFacet(draft.search, field, value) : undefined
+        }
+        onClick={() => filter(field, value)}
+      >
+        {value}
+      </button>
     );
   }
 
@@ -388,7 +450,7 @@ export function HistoryList({
           <button
             className="ghost small"
             type="button"
-            onClick={() => apply(options)}
+            onClick={() => apply(options, false, multiSelect)}
           >
             {t('刷新列表', 'Refresh list')}
           </button>
@@ -401,6 +463,10 @@ export function HistoryList({
           const changed = grouping && draft.search !== options.search;
           apply({
             ...draft,
+            search:
+              multiSelect && draft.search.trim()
+                ? draft.search.trim() + ' '
+                : draft.search,
             sourceIp: changed ? '' : draft.sourceIp.trim(),
             domain: changed ? '' : draft.domain.trim(),
           });
@@ -410,12 +476,13 @@ export function HistoryList({
           <div className="history-keywords">
             <ConnectionSearchInput
               compact
+              submitOnEnter={multiSelect}
               value={draft.search}
               setValue={(search) => setDraft({ ...draft, search })}
               ariaLabel={t('搜索访问记录', 'Search access history')}
               placeholder={t(
-                '搜索域名、IP、出口、数据集，空格添加条件',
-                'Search domain, IP, outbound, dataset; Space adds a condition',
+                '搜索域名、IP、出口、命中规则，空格添加条件',
+                'Search domain, IP, outbound, rule; Space adds a condition',
               )}
             />
           </div>
@@ -478,10 +545,11 @@ export function HistoryList({
           ))}
         <div className="history-filter-actions">
           <button className="primary small" type="submit">
-            {t('筛选', 'Filter')}
+            {multiSelect ? t('应用筛选', 'Apply filters') : t('筛选', 'Filter')}
           </button>
           {(options.sourceIp ||
             options.domain ||
+            draft.search ||
             options.search ||
             options.range !== '24') && (
             <button
@@ -531,7 +599,7 @@ export function HistoryList({
                   <col />
                   <col className="history-col-source" />
                   <col className="history-col-outbound" />
-                  <col className="history-col-dataset" />
+                  <col className="history-col-rule" />
                   <col className="history-col-count" />
                   {grouped && <col className="history-col-time" />}
                 </colgroup>
@@ -576,8 +644,8 @@ export function HistoryList({
                       className="history-static-heading"
                     >
                       {grouped
-                        ? t('最近数据集', 'Last dataset')
-                        : t('数据集', 'Dataset')}
+                        ? t('最近命中规则', 'Last matched rules')
+                        : t('命中规则', 'Matched rules')}
                     </th>
                     {grouped ? (
                       heading(t('连接次数', 'Connections'), 'connections')
@@ -625,13 +693,7 @@ export function HistoryList({
                         ) : byDomain ? (
                           preview(row)
                         ) : row.domain ? (
-                          <button
-                            type="button"
-                            className="history-link"
-                            onClick={() => filter('domain', row.domain)}
-                          >
-                            {row.domain}
-                          </button>
+                          facetButton('domain', row.domain)
                         ) : (
                           <span className="hint">
                             {t('域名未知', 'Unknown domain')}
@@ -665,13 +727,11 @@ export function HistoryList({
                         ) : bySource ? (
                           preview(row)
                         ) : (
-                          <button
-                            type="button"
-                            className="history-link mono"
-                            onClick={() => filter('sourceIp', row.sourceIp)}
-                          >
-                            {row.sourceIp}
-                          </button>
+                          facetButton(
+                            'sourceIp',
+                            row.sourceIp,
+                            'history-link mono',
+                          )
                         )}
                       </td>
                       <td
@@ -701,52 +761,43 @@ export function HistoryList({
                       </td>
                       <td
                         className={
-                          row.geositeCategories?.length ||
-                          row.geositeVersions?.length
-                            ? 'history-dataset'
-                            : 'history-dataset history-detail-missing'
+                          row.routeRuleTags?.length ||
+                          row.firewallRuleTags?.length
+                            ? 'history-rule'
+                            : 'history-rule history-detail-missing'
                         }
                         role="cell"
-                        data-label={t('数据集', 'Dataset')}
+                        data-label={t('命中规则', 'Matched rules')}
                       >
-                        {row.geositeCategories?.length ||
-                        row.geositeVersions?.length ? (
-                          <div className="history-dataset-value">
-                            {row.geositeCategories?.length > 0 && (
-                              <span className="connection-category-cell classified">
-                                {row.geositeCategories.map((category) => (
-                                  <span
-                                    className="connection-category-item"
-                                    title={category}
-                                    key={category}
-                                  >
-                                    {category}
-                                  </span>
-                                ))}
-                              </span>
-                            )}
-                            {row.geositeVersions?.length > 0 && (
-                              <small
-                                className="hint mono"
-                                title={row.geositeVersions.join(', ')}
+                        {row.routeRuleTags?.length ||
+                        row.firewallRuleTags?.length ? (
+                          <div className="history-rule-value">
+                            {(row.routeRuleTags || []).map((tag) => (
+                              <span
+                                className="mono"
+                                key={'route:' + tag}
+                                title={t('路由规则', 'Routing rule')}
                               >
-                                {row.geositeVersions
-                                  .map((version) =>
-                                    version.length > 16
-                                      ? version.slice(0, 12) + '…'
-                                      : version,
-                                  )
-                                  .join(' · ')}
-                              </small>
-                            )}
+                                {tag}
+                              </span>
+                            ))}
+                            {(row.firewallRuleTags || []).map((tag) => (
+                              <span
+                                className="mono history-firewall-rule"
+                                key={'firewall:' + tag}
+                                title={t('防火墙规则', 'Firewall rule')}
+                              >
+                                <span className="hint">
+                                  {t('防火墙', 'Firewall')}
+                                </span>{' '}
+                                {tag}
+                              </span>
+                            ))}
                           </div>
                         ) : (
                           <span
                             className="hint"
-                            aria-label={t(
-                              '未记录数据集',
-                              'Dataset not recorded',
-                            )}
+                            aria-label={t('未记录规则', 'Rule not recorded')}
                           >
                             —
                           </span>

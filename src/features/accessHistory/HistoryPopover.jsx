@@ -1,9 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-export function HistoryPopover({ label, className, children, title = label }) {
+export function HistoryPopover({
+  label,
+  className,
+  children,
+  title = label,
+  onSelect,
+  selected,
+}) {
   const id = useId();
   const anchor = useRef(null);
+  const trigger = useRef(null);
   const popup = useRef(null);
   const delay = useRef(null);
   const [open, setOpen] = useState(false);
@@ -56,7 +64,7 @@ export function HistoryPopover({ label, className, children, title = label }) {
     const keydown = (event) => {
       if (event.key === 'Escape') {
         setOpen(false);
-        anchor.current?.focus();
+        trigger.current?.focus();
       }
     };
     position();
@@ -73,27 +81,43 @@ export function HistoryPopover({ label, className, children, title = label }) {
   }, [open]);
   return (
     <>
-      <button
+      <span
+        className="history-popover-anchor"
         ref={anchor}
-        className={className}
-        type="button"
-        title={title}
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
         onPointerEnter={enter}
         onPointerLeave={leave}
-        onClick={(event) => {
-          cancel();
-          if (event.detail === 0) {
-            setOpen(true);
-            window.requestAnimationFrame(() => popup.current?.focus());
-          } else {
-            setOpen(true);
-          }
-        }}
       >
-        {label}
-      </button>
+        {onSelect && (
+          <button
+            type="button"
+            className={className}
+            aria-pressed={selected}
+            onClick={onSelect}
+          >
+            {label}
+          </button>
+        )}
+        <button
+          ref={trigger}
+          className={onSelect ? 'history-popover-toggle' : className}
+          type="button"
+          title={title}
+          aria-label={onSelect ? title : undefined}
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={(event) => {
+            cancel();
+            if (event.detail === 0) {
+              setOpen(true);
+              window.requestAnimationFrame(() => popup.current?.focus());
+            } else {
+              setOpen(true);
+            }
+          }}
+        >
+          {onSelect ? <span aria-hidden="true">▾</span> : label}
+        </button>
+      </span>
       {open &&
         createPortal(
           <div
@@ -109,7 +133,7 @@ export function HistoryPopover({ label, className, children, title = label }) {
             onBlur={(event) => {
               if (
                 !event.currentTarget.contains(event.relatedTarget) &&
-                event.relatedTarget !== anchor.current
+                !anchor.current?.contains(event.relatedTarget)
               )
                 setOpen(false);
             }}
