@@ -278,13 +278,16 @@ const getRulesFirewallCombinedLayout = () => {
 
 export default function App() {
   const [page, setPage] = useState(getPageFromHash());
+  const [historySeed, setHistorySeed] = useState(null);
   const [rulesFirewallCombined, setRulesFirewallCombined] = useState(getRulesFirewallCombinedLayout);
   const displayPage = rulesFirewallCombined && page === 'firewall' ? 'rules' : page;
-  const visiblePages = useMemo(() => {
-    if (!rulesFirewallCombined) return PAGES;
-    return Object.fromEntries(Object.entries(PAGES).filter(([key]) => key !== 'firewall'));
-  }, [rulesFirewallCombined]);
   const [uiLanguage] = useState(getInitialUiLanguage);
+  const visiblePages = useMemo(() => {
+    const pages = { ...PAGES };
+    if (uiLanguage === 'zh') pages['access-history'] = {label:'访问历史', title:'访问历史'};
+    if (rulesFirewallCombined) delete pages.firewall;
+    return pages;
+  }, [rulesFirewallCombined, uiLanguage]);
   const [apiBase, setApiBase] = useState(getInitialApiBase());
   const [metricsHttp, setMetricsHttp] = useState(getInitialMetricsHttp());
   const [metricsAccessKey, setMetricsAccessKey] = useState(getInitialMetricsKey());
@@ -1175,11 +1178,15 @@ export default function App() {
   }, [displayPage, rulesFirewallCombined, firewallRules, normalizedFirewallSearchQuery]);
   const renderDetailCell = useMemo(
     () => createDetailCellRenderer({
+      openHistory: (direction, value) => {
+        setHistorySeed({apiBase, direction, value});
+        window.location.hash = '#/access-history';
+      },
       highlightConnCell,
       handleInfoDetail,
       handleCloseDetail
     }),
-    [highlightConnCell, handleInfoDetail, handleCloseDetail]
+    [apiBase, highlightConnCell, handleInfoDetail, handleCloseDetail]
   );
 
   const {
@@ -2330,6 +2337,11 @@ export default function App() {
   };
 
   const settingsPanelProps = {
+    onHistorySettings: () => {
+      setHistorySeed({apiBase, settings:true});
+      window.location.hash = '#/access-history';
+    },
+    uiLanguage,
     page: displayPage,
     metricsHttp,
     setMetricsHttp,
@@ -2440,6 +2452,7 @@ export default function App() {
         <LocalEditActionsProvider value={localEditActions}>
           <HeroHeader {...heroHeaderProps} />
           <MainPanels
+            historyPanelProps={displayPage === 'access-history' ? {apiBase, accessKey, uiLanguage, initial:historySeed?.apiBase === apiBase ? historySeed : null, onRestart:triggerRestart} : null}
             dashboardPanelProps={dashboardPanelProps}
             connectionsPanelProps={connectionsPanelProps}
             nodesPanelProps={nodesPanelProps}

@@ -444,6 +444,7 @@ const getI18nText = (lang, key) => {
 };
 
 const PAGES = {
+  'access-history': { label: 'History', title: 'Access history' },
   dashboard: {
     label: 'Dashboard',
     title: 'Operational heartbeat'
@@ -514,6 +515,7 @@ const getPageFromHash = () => {
   const raw = window.location.hash.replace(/^#\/?/, '');
   if (
     raw === 'dashboard'
+    || raw === 'access-history'
     || raw === 'nodes'
     || raw === 'subscriptions'
     || raw === 'inbounds'

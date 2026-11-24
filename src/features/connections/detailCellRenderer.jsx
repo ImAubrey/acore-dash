@@ -56,6 +56,7 @@ export function DetailActionButtons({
 }
 
 export function createDetailCellRenderer({
+  openHistory,
   highlightConnCell,
   handleInfoDetail,
   handleCloseDetail
@@ -71,6 +72,7 @@ export function createDetailCellRenderer({
         const detailSourceBadge = getDetailDomainSourceBadge(detail);
         return (
           <span className="destination-cell">
+            {openHistory && detail.metadata?.host && <button type="button" title="Access history" onClick={() => openHistory('domain',detail.metadata.host)}>↗</button>}
             {detailSourceBadge ? (
               <span
                 className={`domain-source-pill ${normalizeDomainSource(detail?.metadata?.domainSource)}`}
@@ -95,7 +97,8 @@ export function createDetailCellRenderer({
         const port = detail.metadata?.sourcePort;
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
-        return (
+        return (<>
+          {openHistory && detail.metadata?.sourceIP && <button type="button" title="Access history" onClick={() => openHistory('sourceIp',detail.metadata.sourceIP)}>↗</button>}
           <AutoFoldText
             fullText={full}
             foldedText={display}
@@ -103,7 +106,7 @@ export function createDetailCellRenderer({
             disableAdaptive={disableAdaptiveFold}
             forceFold={disableAdaptiveFold}
           />
-        );
+        </>);
       }
       case 'acoreSrc': {
         const host = getDetailAcoreSrcLabel(detail);

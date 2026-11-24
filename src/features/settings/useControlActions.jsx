@@ -99,7 +99,7 @@ export function useControlActions({
     return `${modeLabel} failed${idText}: ${reason}`;
   };
 
-  const pollHotReloadStatus = async (taskId) => {
+  const pollHotReloadStatus = async (taskId, announce = announceHotReloadStatus) => {
     const id = String(taskId || '').trim();
     if (!id || typeof loadRestartInfo !== 'function') return null;
     const startedAt = Date.now();
@@ -116,7 +116,7 @@ export function useControlActions({
       emptyCount = 0;
       const message = formatHotReloadTaskStatus(task);
       if (message && message !== lastMessage) {
-        announceHotReloadStatus(message, task.inProgress ? 'progress' : task.ok ? 'success' : 'error');
+        announce(message, task.inProgress ? 'progress' : task.ok ? 'success' : 'error');
         lastMessage = message;
       }
       if (!task.inProgress) {
@@ -237,7 +237,7 @@ export function useControlActions({
       setRestartConfirmBusy(false);
       return;
     }
-    startRestartCooldown(3);
+    startCooldown(3, setRestartCooldown, restartCooldownRef);
     const hasDraft = !!getRoutingDraft(apiBase);
     if (hasDraft) {
       notify?.({ channel: 'core-restart', message: 'Uploading pending routing edits...', tone: 'progress' });
@@ -262,9 +262,19 @@ export function useControlActions({
     }
     notify?.({ channel: 'core-restart', message: 'Restarting core...', tone: 'progress' });
     try {
-      await fetchJson(`${apiBase}/core/restart`, { method: 'POST' });
-      notify?.({ channel: 'core-restart', message: 'Restart scheduled.', tone: 'success' });
+      const response = await fetchJson(`${apiBase}/core/restart`, { method: 'POST' });
+      const announce = (message, tone) => notify?.({ channel: 'core-restart', message, tone });
+      announce('Restart scheduled.', 'progress');
+      if (response?.id) {
+        const task = await pollHotReloadStatus(response.id, announce);
+        if (!task) {
+          announce('Restart status unavailable. Refresh the node to check its running configuration.', 'error');
+          return;
+        }
+        if (!task.ok) return;
+      }
       schedulePostRestartRefresh(apiBase);
+      startRestartCooldown(1);
     } catch (err) {
       notify?.({ channel: 'core-restart', message: `Restart failed: ${err.message}`, tone: 'error' });
     } finally {

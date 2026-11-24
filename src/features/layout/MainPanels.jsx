@@ -1,4 +1,5 @@
 import { DashboardPanel } from '../dashboard/DashboardPanel';
+import { HistoryPanel } from '../accessHistory/HistoryPanel';
 import { ConnectionsPanel } from '../connections/ConnectionsPanel';
 import { NodesPanel } from '../nodes/NodesPanel';
 import { SubscriptionsPanel } from '../subscriptions/SubscriptionsPanel';
@@ -9,6 +10,7 @@ import { SettingsPanel } from '../settings/SettingsPanel';
 import { AppModals } from '../modals/AppModals';
 
 export function MainPanels({
+  historyPanelProps,
   dashboardPanelProps,
   connectionsPanelProps,
   nodesPanelProps,
@@ -22,6 +24,7 @@ export function MainPanels({
   return (
     <>
       <section className="content">
+        {historyPanelProps && <HistoryPanel key={historyPanelProps.apiBase} {...historyPanelProps} />}
         <DashboardPanel {...dashboardPanelProps} />
         <ConnectionsPanel {...connectionsPanelProps} />
         <NodesPanel {...nodesPanelProps} />

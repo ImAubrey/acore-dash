@@ -154,6 +154,9 @@ export function SettingsPanel(props) {
       <PanelHeader
         title="Settings"
       />
+      <button type="button" className="small" onClick={props.onHistorySettings}>
+        {props.uiLanguage === 'zh' ? '本机访问历史设置' : 'Local access history settings'}
+      </button>
       <SavedMetricsPanels
         metricsPanelHistory={metricsPanelHistory}
         currentMetricsPanelId={currentMetricsPanelId}

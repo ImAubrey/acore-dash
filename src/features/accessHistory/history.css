@@ -1,0 +1,52 @@
+.access-history {
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1rem, 3vw, 2.25rem);
+  align-content: start;
+}
+.access-history header,
+.access-history form {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.access-history header {
+  align-items: center;
+}
+.access-history h2 {
+  margin: 0 auto 0 0;
+}
+.access-history label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+}
+.access-history input,
+.access-history select,
+.access-history button {
+  font: inherit;
+}
+.access-history summary,
+.access-history button {
+  cursor: pointer;
+}
+.access-history details > form {
+  margin-top: 0.8rem;
+}
+.history-results {
+  overflow: auto;
+}
+.history-results table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.history-results td,
+.history-results th {
+  text-align: start;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid #8996a540;
+}
+.access-history [role='alert'] {
+  color: var(--danger, #bc433b);
+}
