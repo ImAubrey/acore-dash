@@ -1,4 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import {
+  ClearableTextInput,
+  EmptyState,
+  StatusText,
+} from '../common/panelPrimitives';
+import { ScrollArea } from '../common/ScrollArea';
+import { ZEBRA_ROW_BACKGROUNDS } from '../../dashboardShared';
 import { historyRequest, queryWindow } from './historyApi';
 
 const defaults = {
@@ -26,8 +33,12 @@ const dayLabel = new Intl.DateTimeFormat(undefined, {
 function Stamp({ ms }) {
   const d = new Date(ms);
   return (
-    <time dateTime={d.toISOString()} title={d.toLocaleString()}>
-      <strong>{timeLabel.format(d)}</strong>
+    <time
+      className="history-stamp mono"
+      dateTime={d.toISOString()}
+      title={d.toLocaleString()}
+    >
+      <span>{timeLabel.format(d)}</span>
       <small>{dayLabel.format(d)}</small>
     </time>
   );
@@ -51,6 +62,7 @@ export function HistoryList({
   zh,
   explain,
 }) {
+  const fieldId = useId();
   const t = (cn, en) => (zh ? cn : en);
   const [state, setState] = useState(() =>
     session({
@@ -154,6 +166,7 @@ export function HistoryList({
     const active = browse && options.sort === sort;
     return (
       <th
+        role="columnheader"
         scope="col"
         aria-sort={
           active
@@ -166,12 +179,12 @@ export function HistoryList({
         {browse ? (
           <button
             type="button"
-            className="history-sort"
+            className={`sort-header ${active ? 'active' : ''}`}
             onClick={() => orderBy(sort)}
           >
-            {label}{' '}
-            <span aria-hidden="true">
-              {active ? (options.order === 'desc' ? '↓' : '↑') : '↕'}
+            <span>{label}</span>
+            <span className="sort-indicator" aria-hidden="true">
+              {active ? (options.order === 'desc' ? '▼' : '▲') : '↕'}
             </span>
           </button>
         ) : (
@@ -193,7 +206,7 @@ export function HistoryList({
       <div className="history-list-bar">
         {browse && (
           <div
-            className="history-modes"
+            className="view-toggle history-modes"
             role="group"
             aria-label={t('视图', 'View')}
           >
@@ -204,6 +217,7 @@ export function HistoryList({
               <button
                 key={id}
                 type="button"
+                className={`view-pill ${options.view === id ? 'active' : ''}`}
                 aria-pressed={options.view === id}
                 onClick={() =>
                   apply(
@@ -219,22 +233,29 @@ export function HistoryList({
         )}
         <div className="history-live">
           {live && (
-            <label>
-              <input
-                type="checkbox"
-                checked={auto}
-                onChange={(e) => setAuto(e.target.checked)}
-              />
-              {t('每 10 秒刷新', 'Refresh every 10s')}
-            </label>
+            <button
+              type="button"
+              className={`pill ${auto ? 'live' : 'paused'}`}
+              aria-pressed={auto}
+              onClick={() => setAuto((current) => !current)}
+              title={t('每 10 秒自动刷新', 'Refresh every 10 seconds')}
+            >
+              {auto
+                ? t('自动刷新', 'Auto refresh')
+                : t('手动刷新', 'Manual refresh')}
+            </button>
           )}
-          <button type="button" onClick={() => apply(options)}>
+          <button
+            className="ghost small"
+            type="button"
+            onClick={() => apply(options)}
+          >
             {t('刷新列表', 'Refresh list')}
           </button>
         </div>
       </div>
       <form
-        className="history-filters"
+        className="history-form history-filters"
         onSubmit={(e) => {
           e.preventDefault();
           apply({
@@ -244,22 +265,30 @@ export function HistoryList({
           });
         }}
       >
-        <label>
-          {t('来源 IP', 'Source IP')}
-          <input
+        <div className="history-filter-input">
+          <label htmlFor={fieldId + '-ip'}>{t('来源 IP', 'Source IP')}</label>
+          <ClearableTextInput
+            className="connections-search"
+            id={fieldId + '-ip'}
             value={draft.sourceIp}
             placeholder="192.0.2.8"
-            onChange={(e) => setDraft({ ...draft, sourceIp: e.target.value })}
+            ariaLabel={t('来源 IP', 'Source IP')}
+            clearLabel={t('清除来源 IP', 'Clear source IP')}
+            setValue={(sourceIp) => setDraft({ ...draft, sourceIp })}
           />
-        </label>
-        <label>
-          {t('域名', 'Domain')}
-          <input
+        </div>
+        <div className="history-filter-input">
+          <label htmlFor={fieldId + '-domain'}>{t('域名', 'Domain')}</label>
+          <ClearableTextInput
+            className="connections-search"
+            id={fieldId + '-domain'}
             value={draft.domain}
             placeholder="example.com"
-            onChange={(e) => setDraft({ ...draft, domain: e.target.value })}
+            ariaLabel={t('域名', 'Domain')}
+            clearLabel={t('清除域名', 'Clear domain')}
+            setValue={(domain) => setDraft({ ...draft, domain })}
           />
-        </label>
+        </div>
         <label>
           {t('时间范围', 'Time range')}
           <select
@@ -287,15 +316,20 @@ export function HistoryList({
               />
             </label>
           ))}
-        <button type="submit">{t('筛选', 'Filter')}</button>
-        {(options.sourceIp || options.domain || options.range !== '24') && (
-          <button
-            type="button"
-            onClick={() => apply({ ...defaults, view: options.view })}
-          >
-            {t('清除筛选', 'Clear filters')}
+        <div className="history-filter-actions">
+          <button className="primary small" type="submit">
+            {t('筛选', 'Filter')}
           </button>
-        )}
+          {(options.sourceIp || options.domain || options.range !== '24') && (
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => apply({ ...defaults, view: options.view })}
+            >
+              {t('清除筛选', 'Clear filters')}
+            </button>
+          )}
+        </div>
       </form>
       {legacyEmpty && (
         <p role="status">
@@ -305,99 +339,278 @@ export function HistoryList({
           )}
         </p>
       )}
-      {error && <p role="alert">{explain(error)}</p>}
+      {error && (
+        <div role="alert">
+          <StatusText danger text={explain(error)} />
+        </div>
+      )}
       {!legacyEmpty && (
         <div className="history-results" aria-busy={busy}>
-          <table>
-            <thead>
-              <tr>
-                {heading(
-                  grouped ? t('最近访问', 'Last seen') : t('访问时间', 'Time'),
-                  'time',
-                )}
-                <th scope="col">{t('域名', 'Domain')}</th>
-                <th scope="col">{t('来源 IP', 'Source IP')}</th>
-                {grouped ? (
-                  heading(t('连接次数', 'Connections'), 'connections')
-                ) : (
-                  <th scope="col">{t('连接次数', 'Connections')}</th>
-                )}
-                {grouped && heading(t('首次访问', 'First seen'), 'first')}
-              </tr>
-            </thead>
-            <tbody>
-              {data?.rows.map((row) => (
-                <tr
-                  key={JSON.stringify([
-                    row.sourceIp,
-                    row.domain,
-                    grouped ? '' : row.lastMs,
-                  ])}
-                >
-                  <td>
-                    <Stamp ms={row.lastMs} />
-                  </td>
-                  <td>
-                    {row.domain ? (
-                      <button
-                        className="history-peer"
-                        onClick={() => filter('domain', row.domain)}
-                      >
-                        {row.domain}
-                      </button>
-                    ) : (
-                      <span className="history-muted">
-                        {t('域名未知', 'Unknown domain')}
-                      </span>
+          {data?.rows.length ? (
+            <ScrollArea
+              className="history-table-scroll"
+              axis="both"
+              ariaLabel={t('访问记录列表', 'Access history rows')}
+            >
+              <table
+                className={`table history-table ${grouped ? 'is-grouped' : ''}`}
+                role="table"
+              >
+                <colgroup>
+                  <col className="history-col-time" />
+                  <col />
+                  <col className="history-col-source" />
+                  <col className="history-col-outbound" />
+                  <col className="history-col-dataset" />
+                  <col className="history-col-count" />
+                  {grouped && <col className="history-col-time" />}
+                </colgroup>
+                <thead role="rowgroup">
+                  <tr className="row header" role="row">
+                    {heading(
+                      grouped
+                        ? t('最近访问', 'Last seen')
+                        : t('访问时间', 'Time'),
+                      'time',
                     )}
-                  </td>
-                  <td>
-                    <button
-                      className="history-peer"
-                      onClick={() => filter('sourceIp', row.sourceIp)}
+                    <th
+                      scope="col"
+                      role="columnheader"
+                      className="history-static-heading"
                     >
-                      {row.sourceIp}
-                    </button>
-                  </td>
-                  <td>{row.connections}</td>
-                  {grouped && (
-                    <td>
-                      <Stamp ms={row.firstMs} />
-                    </td>
-                  )}
-                </tr>
-              ))}
-              {!data && !error && (
-                <tr>
-                  <td colSpan={grouped ? 5 : 4} role="status">
-                    {t('正在读取访问记录…', 'Loading access history…')}
-                  </td>
-                </tr>
-              )}
-              {data && !data.rows.length && (
-                <tr>
-                  <td colSpan={grouped ? 5 : 4}>
-                    {t(
-                      '这个时间段和筛选条件下没有已结束的连接。',
-                      'No completed connections match this time range and filters.',
+                      {t('域名', 'Domain')}
+                    </th>
+                    <th
+                      scope="col"
+                      role="columnheader"
+                      className="history-static-heading"
+                    >
+                      {t('来源 IP', 'Source IP')}
+                    </th>
+                    <th
+                      scope="col"
+                      role="columnheader"
+                      className="history-static-heading"
+                    >
+                      {grouped
+                        ? t('最近出口', 'Last outbound')
+                        : t('出口', 'Outbound')}
+                    </th>
+                    <th
+                      scope="col"
+                      role="columnheader"
+                      className="history-static-heading"
+                    >
+                      {grouped
+                        ? t('最近数据集', 'Last dataset')
+                        : t('数据集', 'Dataset')}
+                    </th>
+                    {grouped ? (
+                      heading(t('连接次数', 'Connections'), 'connections')
+                    ) : (
+                      <th
+                        scope="col"
+                        role="columnheader"
+                        className="history-static-heading"
+                      >
+                        {t('连接次数', 'Connections')}
+                      </th>
                     )}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                    {grouped && heading(t('首次访问', 'First seen'), 'first')}
+                  </tr>
+                </thead>
+                <tbody role="rowgroup">
+                  {data.rows.map((row, index) => (
+                    <tr
+                      className="row"
+                      role="row"
+                      style={{
+                        '--row-bg':
+                          ZEBRA_ROW_BACKGROUNDS[
+                            index % ZEBRA_ROW_BACKGROUNDS.length
+                          ],
+                      }}
+                      key={JSON.stringify([
+                        row.sourceIp,
+                        row.domain,
+                        grouped ? '' : row.lastMs,
+                      ])}
+                    >
+                      <td
+                        className="history-time"
+                        role="cell"
+                        data-label={
+                          grouped ? t('最近访问', 'Last seen') : undefined
+                        }
+                      >
+                        <Stamp ms={row.lastMs} />
+                      </td>
+                      <td className="history-domain" role="cell">
+                        {row.domain ? (
+                          <button
+                            type="button"
+                            className="history-link"
+                            onClick={() => filter('domain', row.domain)}
+                          >
+                            {row.domain}
+                          </button>
+                        ) : (
+                          <span className="hint">
+                            {t('域名未知', 'Unknown domain')}
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="history-ip"
+                        role="cell"
+                        data-label={t('来源 IP', 'Source IP')}
+                      >
+                        <button
+                          type="button"
+                          className="history-link mono"
+                          onClick={() => filter('sourceIp', row.sourceIp)}
+                        >
+                          {row.sourceIp}
+                        </button>
+                      </td>
+                      <td
+                        className={
+                          row.outboundTags?.length
+                            ? 'history-outbound'
+                            : 'history-outbound history-detail-missing'
+                        }
+                        role="cell"
+                        data-label={t('出口', 'Outbound')}
+                      >
+                        {row.outboundTags?.length ? (
+                          <span className="mono">
+                            {row.outboundTags.join(' · ')}
+                          </span>
+                        ) : (
+                          <span
+                            className="hint"
+                            aria-label={t(
+                              '未记录出口',
+                              'Outbound not recorded',
+                            )}
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className={
+                          row.geositeCategories?.length ||
+                          row.geositeVersions?.length
+                            ? 'history-dataset'
+                            : 'history-dataset history-detail-missing'
+                        }
+                        role="cell"
+                        data-label={t('数据集', 'Dataset')}
+                      >
+                        {row.geositeCategories?.length ||
+                        row.geositeVersions?.length ? (
+                          <div className="history-dataset-value">
+                            {row.geositeCategories?.length > 0 && (
+                              <span className="connection-category-cell classified">
+                                {row.geositeCategories.map((category) => (
+                                  <span
+                                    className="connection-category-item"
+                                    title={category}
+                                    key={category}
+                                  >
+                                    {category}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                            {row.geositeVersions?.length > 0 && (
+                              <small
+                                className="hint mono"
+                                title={row.geositeVersions.join(', ')}
+                              >
+                                {row.geositeVersions
+                                  .map((version) =>
+                                    version.length > 16
+                                      ? version.slice(0, 12) + '…'
+                                      : version,
+                                  )
+                                  .join(' · ')}
+                              </small>
+                            )}
+                          </div>
+                        ) : (
+                          <span
+                            className="hint"
+                            aria-label={t(
+                              '未记录数据集',
+                              'Dataset not recorded',
+                            )}
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className="history-count mono"
+                        role="cell"
+                        data-label={t('连接次数', 'Connections')}
+                      >
+                        {row.connections}
+                      </td>
+                      {grouped && (
+                        <td
+                          className="history-first"
+                          role="cell"
+                          data-label={t('首次访问', 'First seen')}
+                        >
+                          <Stamp ms={row.firstMs} />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollArea>
+          ) : (
+            !error && (
+              <div role="status">
+                <EmptyState
+                  small
+                  message={
+                    busy
+                      ? t('正在读取访问记录…', 'Loading access history…')
+                      : t(
+                          '这个时间段和筛选条件下没有已结束的连接。',
+                          'No completed connections match this time range and filters.',
+                        )
+                  }
+                />
+              </div>
+            )
+          )}
         </div>
       )}
       {data && (
         <footer className="history-pagination">
-          <span>
-            {t('第', 'Page')} {page + 1}
-            {zh ? ' 页' : ''} · {data.rows.length} {t('条', 'rows')}
-          </span>
-          <button disabled={!page || busy} onClick={() => turn(page - 1)}>
+          <StatusText
+            text={
+              zh
+                ? `第 ${page + 1} 页 · ${data.rows.length} 条`
+                : `Page ${page + 1} · ${data.rows.length} rows`
+            }
+          />
+          <button
+            type="button"
+            className="ghost small"
+            disabled={!page || busy}
+            onClick={() => turn(page - 1)}
+          >
             {t('上一页', 'Previous')}
           </button>
           <button
+            type="button"
+            className="ghost small"
             disabled={!data.nextCursor || busy}
             onClick={() => turn(page + 1, data.nextCursor)}
           >
@@ -406,10 +619,10 @@ export function HistoryList({
         </footer>
       )}
       {data?.partialRange && (
-        <small className="history-muted">
+        <span className="hint">
           {t('可查询记录始于', 'Available history starts at')}{' '}
           {new Date(data.coverageFromMs).toLocaleString()}
-        </small>
+        </span>
       )}
     </>
   );

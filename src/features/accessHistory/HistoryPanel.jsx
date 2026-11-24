@@ -1,5 +1,6 @@
-import { HistoryList } from './HistoryList';
 import React, { useEffect, useRef, useState } from 'react';
+import { EmptyState, PanelHeader, StatusText } from '../common/panelPrimitives';
+import { HistoryList } from './HistoryList';
 import { collectorBase, historyRequest } from './historyApi';
 import './history.css';
 
@@ -99,7 +100,11 @@ export function HistoryPanel({
           setScope('cluster');
           return;
         }
-        setStatus({ ...res, sourceKey, queryUrl: base() + '/access-history/query' });
+        setStatus({
+          ...res,
+          sourceKey,
+          queryUrl: base() + '/access-history/query',
+        });
       } catch (e) {
         if (!ctrl.signal.aborted) setNotice(explain(e.message));
       }
@@ -148,32 +153,45 @@ export function HistoryPanel({
   }
   return (
     <section className="panel access-history">
-      <header>
-        <h2>{t('访问历史', 'Access history')}</h2>
-        <select
-          aria-label={t('数据来源', 'Data source')}
-          value={scope}
-          onChange={(e) => {
-            chosenScope.current = true;
-            setNotice('');
-            setScope(e.target.value);
-          }}
-        >
-          <option value="node">{t('本机历史', 'This node')}</option>
-          <option value="cluster">
-            {t('集群采集器', 'Cluster collector')}
-          </option>
-        </select>
-        {!status?.readable && (
-          <button type="button" onClick={() => refresh((n) => n + 1)}>
-            {t('刷新', 'Refresh')}
-          </button>
-        )}
-      </header>
+      <PanelHeader
+        title={t('访问历史', 'Access history')}
+        actions={
+          <>
+            <select
+              className="ghost small history-source"
+              aria-label={t('数据来源', 'Data source')}
+              value={scope}
+              onChange={(e) => {
+                chosenScope.current = true;
+                setNotice('');
+                setScope(e.target.value);
+              }}
+            >
+              <option value="node">{t('本机历史', 'This node')}</option>
+              <option value="cluster">
+                {t('集群采集器', 'Cluster collector')}
+              </option>
+            </select>
+            {!status?.readable && (
+              <button
+                className="ghost small"
+                type="button"
+                onClick={() => refresh((n) => n + 1)}
+              >
+                {t('刷新', 'Refresh')}
+              </button>
+            )}
+          </>
+        }
+      />
       {(cluster || status?.flowExportEnabled) && (
-        <details open={(cluster && !path) || undefined}>
+        <details
+          className="history-settings"
+          open={(cluster && !path) || undefined}
+        >
           <summary>{t('采集器连接', 'Collector connection')}</summary>
           <form
+            className="history-form history-settings-form"
             onSubmit={(e) => {
               e.preventDefault();
               try {
@@ -206,12 +224,14 @@ export function HistoryPanel({
                 autoComplete="off"
               />
             </label>
-            <button>{t('连接', 'Connect')}</button>
+            <button className="primary small" type="submit">
+              {t('连接', 'Connect')}
+            </button>
           </form>
         </details>
       )}
       {status && !status.readable && (
-        <p role="status">
+        <p className="connections-header-note history-notice" role="status">
           {status.state === 'disabled' && status.flowExportEnabled
             ? t(
                 '该节点仅导出 Flow，可选择集群采集器。',
@@ -226,7 +246,7 @@ export function HistoryPanel({
         </p>
       )}
       {status?.state === 'degraded' && status.readable && (
-        <p>
+        <p className="connections-header-note history-notice">
           {t(
             '历史写入异常，已提交数据仍可查询。',
             'Recording degraded. Committed history is available.',
@@ -234,27 +254,36 @@ export function HistoryPanel({
         </p>
       )}
       {status?.queueDropped > 0 && (
-        <p>
+        <p className="connections-header-note history-notice">
           {t('队列丢弃的连接', 'Connections dropped by the queue')} ·{' '}
           {status.queueDropped}
         </p>
       )}
       {notice && (
-        <p role="alert">
+        <div
+          className="connections-header-note history-notice status-danger"
+          role="alert"
+        >
           {!cluster && !node && !status
-              ? t('当前面板网址没有可用的节点接口。请在设置的 Metrics HTTP 中选择节点，填写访问密钥后再查看记录。', 'No node API is available at this dashboard address. In Settings, select the node’s Metrics HTTP endpoint and enter its access key.')
-              : notice}{' '}
+            ? t(
+                '当前面板网址没有可用的节点接口。请在设置的 Metrics HTTP 中选择节点，填写访问密钥后再查看记录。',
+                'No node API is available at this dashboard address. In Settings, select the node’s Metrics HTTP endpoint and enter its access key.',
+              )
+            : notice}{' '}
           {!cluster && (
-            <a href="#/settings">
+            <a className="history-link" href="#/settings">
               {t('检查节点连接设置', 'Check node connection settings')}
             </a>
           )}
-        </p>
+        </div>
       )}
       {!status && !notice && (
-        <p role="status">
-          {t('正在连接历史数据源…', 'Connecting to history source…')}
-        </p>
+        <div role="status">
+          <EmptyState
+            small
+            message={t('正在连接历史数据源…', 'Connecting to history source…')}
+          />
+        </div>
       )}
       {status?.readable && status.sourceKey === sourceKey && (
         <HistoryList
@@ -270,15 +299,19 @@ export function HistoryPanel({
         />
       )}
       {!cluster && config && draft && status?.state !== 'unsupported' && (
-        <details open={initial?.settings || undefined}>
+        <details
+          className="history-settings"
+          open={initial?.settings || undefined}
+        >
           <summary>{t('本机记录设置', 'Local recording settings')}</summary>
           <form
+            className="history-form history-settings-form"
             onSubmit={(e) => {
               e.preventDefault();
               save();
             }}
           >
-            <label>
+            <label className="history-check">
               <input
                 type="checkbox"
                 checked={!!draft.enabled}
@@ -308,11 +341,20 @@ export function HistoryPanel({
                 }
               />
             </label>
-            <button disabled={!config.editable || saving}>
+            <button
+              className="primary small"
+              type="submit"
+              disabled={!config.editable || saving}
+            >
               {t('保存', 'Save')}
             </button>
           </form>
-          {config.path && <p>{config.path}</p>}
+          {config.path && (
+            <StatusText
+              className="mono history-config-path"
+              text={config.path}
+            />
+          )}
           {!config.inStartupConfig && config.exists && (
             <p>
               {t(
@@ -323,7 +365,7 @@ export function HistoryPanel({
             </p>
           )}
           {config.inStartupConfig && config.restartRequired && (
-            <button onClick={onRestart}>
+            <button className="ghost small" type="button" onClick={onRestart}>
               {t(
                 '配置已保存，重启以应用',
                 'Restart to apply saved configuration',
