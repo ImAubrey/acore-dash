@@ -11,6 +11,15 @@ export function InfoIcon() {
   );
 }
 
+export function HistoryIcon() {
+  return (
+    <svg className="conn-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M3 4v5h5" />
+      <path d="M3.8 8.5a8.5 8.5 0 1 1-.2 6.5M12 7.5V12l3 2" />
+    </svg>
+  );
+}
+
 export function CloseIcon() {
   return (
     <svg className="conn-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

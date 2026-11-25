@@ -2543,6 +2543,26 @@ button.pill.conn-close-all:disabled {
   outline-offset: 2px;
 }
 
+.connection-history-button {
+  width: 24px;
+  height: 24px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.connection-history-button:hover,
+.connection-history-button:focus-visible {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--accent-2) 14%, transparent);
+  transform: none;
+}
+
+.connection-history-button:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: -2px;
+}
+
 .action-icon-info {
   border-color: rgba(28, 43, 42, 0.18);
   background: rgba(28, 43, 42, 0.06);
@@ -2694,6 +2714,7 @@ button.pill.conn-close-all:disabled {
   display: flex;
 }
 
+.connection-source-cell,
 .destination-cell {
   display: flex;
   align-items: center;

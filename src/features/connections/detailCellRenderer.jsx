@@ -1,5 +1,5 @@
 import React from 'react';
-import { CloseIcon, InfoIcon } from './actionIcons';
+import { CloseIcon, HistoryIcon, InfoIcon } from './actionIcons';
 import { getConnectionCategory } from './connectionCategory';
 import { ECH_HINT, getConnectionECH, getConnectionProtocolView } from './connectionProtocol';
 import {
@@ -55,7 +55,29 @@ export function DetailActionButtons({
   );
 }
 
+function HistoryButton({ direction, value, uiLanguage, openHistory }) {
+  if (!openHistory || !value) return null;
+  const label = uiLanguage === 'zh'
+    ? `查看 ${value} 的访问历史`
+    : `View access history for ${value}`;
+  return (
+    <button
+      type="button"
+      className="action-icon-button connection-history-button"
+      title={label}
+      aria-label={label}
+      onClick={(event) => {
+        event.stopPropagation();
+        openHistory(direction, value);
+      }}
+    >
+      <HistoryIcon />
+    </button>
+  );
+}
+
 export function createDetailCellRenderer({
+  uiLanguage,
   openHistory,
   highlightConnCell,
   handleInfoDetail,
@@ -72,7 +94,7 @@ export function createDetailCellRenderer({
         const detailSourceBadge = getDetailDomainSourceBadge(detail);
         return (
           <span className="destination-cell">
-            {openHistory && detail.metadata?.host && <button type="button" title="Access history" onClick={() => openHistory('domain',detail.metadata.host)}>↗</button>}
+            <HistoryButton direction="domain" value={detail.metadata?.host} uiLanguage={uiLanguage} openHistory={openHistory} />
             {detailSourceBadge ? (
               <span
                 className={`domain-source-pill ${normalizeDomainSource(detail?.metadata?.domainSource)}`}
@@ -97,16 +119,18 @@ export function createDetailCellRenderer({
         const port = detail.metadata?.sourcePort;
         const full = formatHostPort(host, port);
         const display = formatHostPortDisplay(host, port);
-        return (<>
-          {openHistory && detail.metadata?.sourceIP && <button type="button" title="Access history" onClick={() => openHistory('sourceIp',detail.metadata.sourceIP)}>↗</button>}
-          <AutoFoldText
-            fullText={full}
-            foldedText={display}
-            renderText={highlightConnCell}
-            disableAdaptive={disableAdaptiveFold}
-            forceFold={disableAdaptiveFold}
-          />
-        </>);
+        return (
+          <span className="connection-source-cell">
+            <HistoryButton direction="sourceIp" value={detail.metadata?.sourceIP} uiLanguage={uiLanguage} openHistory={openHistory} />
+            <AutoFoldText
+              fullText={full}
+              foldedText={display}
+              renderText={highlightConnCell}
+              disableAdaptive={disableAdaptiveFold}
+              forceFold={disableAdaptiveFold}
+            />
+          </span>
+        );
       }
       case 'acoreSrc': {
         const host = getDetailAcoreSrcLabel(detail);

@@ -1178,6 +1178,7 @@ export default function App() {
   }, [displayPage, rulesFirewallCombined, firewallRules, normalizedFirewallSearchQuery]);
   const renderDetailCell = useMemo(
     () => createDetailCellRenderer({
+      uiLanguage,
       openHistory: (direction, value) => {
         setHistorySeed({apiBase, direction, value});
         window.location.hash = '#/access-history';
@@ -1186,7 +1187,7 @@ export default function App() {
       handleInfoDetail,
       handleCloseDetail
     }),
-    [apiBase, highlightConnCell, handleInfoDetail, handleCloseDetail]
+    [apiBase, uiLanguage, highlightConnCell, handleInfoDetail, handleCloseDetail]
   );
 
   const {
