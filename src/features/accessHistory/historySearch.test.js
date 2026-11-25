@@ -24,3 +24,13 @@ test('extracts same-field selections separately from free text', () => {
   });
   assert.deepEqual(historySearchFilters('  '), {});
 });
+
+test('includes and excludes exact tags separately, preserving case and spaces', () => {
+  const search = toggleHistoryFacet('!src:192.0.2.1 !domain:a.test !media ', 'routeRule', 'Allow % Video');
+  const excluded = toggleHistoryFacet(search, 'routeRule', 'Allow % Video', true);
+  assert.deepEqual(historySearchFilters(excluded + 'fw:Allow out:JP !out:US'), {
+    filters: {notSourceIps:['192.0.2.1'], notDomains:['a.test'], notWords:['media'],
+      notRouteRules:['Allow % Video'], firewallRules:['Allow'], outbounds:['JP'], notOutbounds:['US']},
+  });
+  assert.equal(toggleHistoryFacet(excluded, 'routeRule', 'Allow % Video', true), search);
+});

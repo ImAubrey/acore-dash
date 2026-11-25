@@ -10,6 +10,7 @@ export function ConnectionSearchInput({
   placeholder,
   ariaLabel = 'Search all connection fields',
   compact = false,
+  renderToken,
   commitValue = setValue
 }) {
   const inputRef = useRef(null);
@@ -34,7 +35,7 @@ export function ConnectionSearchInput({
       updateValue([...tokens, draft], '');
       return;
     }
-    if (event.key === 'Backspace' && !draft && tokens.length > 0) {
+    if (!renderToken && event.key === 'Backspace' && !draft && tokens.length > 0) {
       event.preventDefault();
       updateValue(tokens.slice(0, -1), '');
     }
@@ -52,7 +53,10 @@ export function ConnectionSearchInput({
 
   const fields = (
     <>
-      {tokens.map((token, index) => (
+      {tokens.map((token, index) => renderToken ? renderToken({
+        token, index, remove: () => removeToken(index),
+        replace: next => updateValue(tokens.map((v, i) => i === index ? next : v), draft),
+      }) : (
       <button
         type="button"
         className="connection-search-token"

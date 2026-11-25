@@ -296,6 +296,7 @@ export function HistoryPanel({
           browse={!!status.browse}
           grouping={!!status.grouping}
           multiSelect={!!status.multiSelect}
+          detailedFilters={!!status.detailedFilters}
           zh={zh}
           explain={explain}
         />

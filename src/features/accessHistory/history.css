@@ -506,3 +506,41 @@
   border-radius: 4px;
   text-decoration: underline;
 }
+
+.history-search-chip {
+  display: inline-flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  max-width: 230px;
+  height: 25px;
+  overflow: hidden;
+  border: 1px solid #83b7b9;
+  border-radius: 999px;
+  background: #e0f1f0;
+  color: #205e62;
+  font: 700 11px/1 var(--mono);
+}
+.history-search-chip.is-excluded {
+  background: #ffe6a3;
+  border-color: #c9a142;
+  color: #664600;
+}
+.history-search-chip button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.history-chip-toggle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 5px 0 8px;
+}
+.history-search-chip .history-chip-remove { padding: 0 7px; font-size: 15px; }
+.history-search-chip button:hover { background: rgb(0 0 0 / 7%); }
+.history-search-chip button:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
+.history-tag-picker { display: grid; gap: 6px; }
+.history-tag-picker > div { display: flex; gap: 6px; }

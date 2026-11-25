@@ -6,6 +6,7 @@ import {
 } from '../common/panelPrimitives';
 import { ScrollArea } from '../common/ScrollArea';
 import { ZEBRA_ROW_BACKGROUNDS } from '../../dashboardShared';
+import { HistorySearchChip } from './HistorySearchChip';
 import { ConnectionSearchInput } from '../connections/ConnectionSearchInput';
 import { HistoryPopover } from './HistoryPopover';
 import { HistoryGroupPreview } from './HistoryGroupPreview';
@@ -71,6 +72,7 @@ export function HistoryList({
   browse,
   grouping,
   multiSelect,
+  detailedFilters,
   zh,
   explain,
 }) {
@@ -121,7 +123,7 @@ export function HistoryList({
     const body = { ...bounds, limit: 50 };
     if (options.domain) body.domain = options.domain;
     if (options.sourceIp) body.sourceIp = options.sourceIp;
-    if (multiSelect) Object.assign(body, historySearchFilters(options.search));
+    if (multiSelect) Object.assign(body, historySearchFilters(options.search, detailedFilters));
     else if (grouping && additionalSearch) body.search = activeSearch;
     if (browse)
       Object.assign(body, {
@@ -165,6 +167,7 @@ export function HistoryList({
     browse,
     grouping,
     multiSelect,
+    detailedFilters,
     legacyEmpty,
     additionalSearch,
     activeSearch,
@@ -247,7 +250,7 @@ export function HistoryList({
 
   function filter(key, value) {
     if (multiSelect) {
-      commitSearch(toggleHistoryFacet(draft.search, key, value));
+      commitSearch(toggleHistoryFacet(draft.search, key, value, detailedFilters));
       return;
     }
     apply(
@@ -345,7 +348,7 @@ export function HistoryList({
       ...(options.sourceIp && { sourceIp: options.sourceIp }),
       ...(options.domain && { domain: options.domain }),
       ...(multiSelect
-        ? historySearchFilters(options.search)
+        ? historySearchFilters(options.search, detailedFilters)
         : additionalSearch && { search: activeSearch }),
       [field]: label,
     };
@@ -401,16 +404,20 @@ export function HistoryList({
     );
   }
 
-  function facetButton(field, value, className = 'history-link') {
+  function facetButton(field, value, className = 'history-link', title) {
     return (
       <button
         type="button"
+        key={field + value}
         className={className}
+        title={title}
+        aria-label={title ? title + ' · ' + value : undefined}
         aria-pressed={
           multiSelect ? hasHistoryFacet(draft.search, field, value) : undefined
         }
         onClick={() => filter(field, value)}
       >
+        {field === 'firewallRule' && <span className="hint">{t('防火墙', 'Firewall')} </span>}
         {value}
       </button>
     );
@@ -519,6 +526,7 @@ export function HistoryList({
           <div className="history-keywords">
             <ConnectionSearchInput
               compact
+              renderToken={detailedFilters ? ({ index, ...props }) => <HistorySearchChip key={index} {...props} t={t} /> : undefined}
               commitValue={commitSearch}
               value={draft.search}
               setValue={(search) => setDraft({ ...draft, search })}
@@ -608,6 +616,8 @@ export function HistoryList({
                   request={{ url, key: accessKey, cluster, token }}
                   bounds={bounds}
                   search={draft.search}
+                  detailedFilters={detailedFilters}
+                  rows={data?.rows || []}
                   onSelect={filter}
                   t={t}
                 />
@@ -817,8 +827,8 @@ export function HistoryList({
                         data-label={t('出口', 'Outbound')}
                       >
                         {row.outboundTags?.length ? (
-                          <span className="mono">
-                            {row.outboundTags.join(' · ')}
+                          <span className="mono history-rule-value">
+                            {detailedFilters ? row.outboundTags.map(tag => facetButton('outbound', tag, 'history-link mono', t('出口', 'Outbound'))) : row.outboundTags.join(' · ')}
                           </span>
                         ) : (
                           <span
@@ -845,7 +855,7 @@ export function HistoryList({
                         {row.routeRuleTags?.length ||
                         row.firewallRuleTags?.length ? (
                           <div className="history-rule-value">
-                            {(row.routeRuleTags || []).map((tag) => (
+                            {(row.routeRuleTags || []).map((tag) => detailedFilters ? facetButton('routeRule', tag, 'history-link mono', t('路由规则', 'Routing rule')) : (
                               <span
                                 className="mono"
                                 key={'route:' + tag}
@@ -854,7 +864,7 @@ export function HistoryList({
                                 {tag}
                               </span>
                             ))}
-                            {(row.firewallRuleTags || []).map((tag) => (
+                            {(row.firewallRuleTags || []).map((tag) => detailedFilters ? facetButton('firewallRule', tag, 'history-link mono history-firewall-rule', t('防火墙规则', 'Firewall rule')) : (
                               <span
                                 className="mono history-firewall-rule"
                                 key={'firewall:' + tag}
